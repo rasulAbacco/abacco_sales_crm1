@@ -1,0 +1,515 @@
+import React, { useState, useEffect } from "react";
+import { api } from "../../api";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+export default function AddAccountManager({ onClose, onAccountAdded }) {
+  const [accounts, setAccounts] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState(null);
+  const [form, setForm] = useState({
+    userId: 1,
+    email: "",
+    provider: "gmail",
+    imapHost: "imap.gmail.com",
+    imapPort: 993,
+    imapUser: "",
+    smtpHost: "smtp.gmail.com",
+    smtpPort: 587,
+    smtpUser: "",
+    encryptedPass: "",
+    authType: "password",
+  });
+
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [accountToLogout, setAccountToLogout] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState("");
+  const [error, setError] = useState(null);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [suggestion, setSuggestion] = useState(null);
+  const [help, setHelp] = useState(null);
+
+  useEffect(() => {
+    fetchAccounts();
+  }, []);
+
+  const fetchAccounts = async () => {
+    setLoadingAccounts(true);
+    try {
+      const res = await api.get(`/api/accounts`);
+      setAccounts(res.data || []);
+    } catch (err) {
+      console.error("Failed to load accounts:", err);
+      setAccounts([]);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+
+  const addAccount = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const formData = { ...form };
+      if (!formData.smtpUser) formData.smtpUser = formData.email;
+
+      const res = await api.post(`${API_BASE_URL}/api/accounts`, formData);
+      const newAcc = res.data;
+
+      // Reset form
+      setForm({
+        userId: 1,
+        email: "",
+        provider: "gmail",
+        imapHost: "imap.gmail.com",
+        imapPort: 993,
+        imapUser: "",
+        smtpHost: "smtp.gmail.com",
+        smtpPort: 587,
+        smtpUser: "",
+        encryptedPass: "",
+        authType: "password",
+      });
+
+      if (onAccountAdded) onAccountAdded(newAcc);
+      onClose();
+    } catch (err) {
+      console.error("❌ Account creation error:", err);
+      const data = err.response?.data;
+      setError(data?.error || "Failed to add account");
+      setSuggestion(data?.suggestion || null);
+      setHelp(data?.help || null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmLogout = (id) => {
+    setAccountToLogout(id);
+    setShowLogoutConfirm(true);
+  };
+
+  const logoutAccount = async () => {
+    if (!accountToLogout) return;
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem("token");
+
+      // 🗑️ 1️⃣ Cleanup EVERYTHING (DB + R2)
+      await api.post(
+        `${API_BASE_URL}/api/cleanup-account/clear`,
+        {
+          emailAccountId: accountToLogout,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      // 🗑️ 2️⃣ Delete account
+      await api.delete(`${API_BASE_URL}/api/accounts/${accountToLogout}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      // 🧹 3️⃣ Update UI instantly
+      const updatedAccounts = accounts.filter((a) => a.id !== accountToLogout);
+      setAccounts(updatedAccounts);
+
+      if (selectedAccountId === accountToLogout) {
+        if (updatedAccounts.length > 0) {
+          const next = updatedAccounts[0];
+          setSelectedAccountId(next.id);
+        } else {
+          setSelectedAccountId(null);
+        }
+      }
+
+      setShowLogoutConfirm(false);
+      setAccountToLogout(null);
+
+      // 🎉 Success UI message
+      setShowSuccessMessage("✅ Account deleted successfully!");
+
+      // 🔄 Refresh accounts
+      setTimeout(async () => {
+        await fetchAccounts();
+        setShowSuccessMessage("");
+      }, 2500);
+    } catch (err) {
+      console.error("Logout cleanup error:", err);
+      setError("❌ Failed to delete account");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAccountSelect = (acc) => {
+    setSelectedAccountId(acc.id);
+  };
+
+  const handleEmailChange = (e) => {
+    const email = e.target.value;
+    setForm({ ...form, email, imapUser: email, smtpUser: email });
+  };
+
+  const handleProviderChange = (e) => {
+    const provider = e.target.value;
+    let newForm = { ...form, provider };
+
+    switch (provider) {
+      case "gmail":
+      case "gsuite":
+        newForm.imapHost = "imap.gmail.com";
+        newForm.imapPort = 993;
+        newForm.smtpHost = "smtp.gmail.com";
+        newForm.smtpPort = 587;
+        break;
+
+      case "zoho":
+        newForm.imapHost = "imappro.zoho.in";
+        newForm.imapPort = 993;
+        newForm.smtpHost = "smtppro.zoho.in";
+        newForm.smtpPort = 587;
+        break;
+
+      case "bluehost":
+        newForm.imapHost = "imap.titan.email";
+        newForm.imapPort = 993;
+        newForm.smtpHost = "smtp.titan.email";
+        newForm.smtpPort = 465;
+        break;
+
+      default:
+        newForm.imapHost = "";
+        newForm.imapPort = 993;
+        newForm.smtpHost = "";
+        newForm.smtpPort = 587;
+    }
+
+    setForm(newForm);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-gray-800">
+              Add Email Account
+            </h2>
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+              {error}
+
+              {suggestion && (
+                <div className="mt-3 p-2 bg-yellow-100 rounded text-black">
+                  <div className="font-bold mb-1">Suggested Settings:</div>
+                  <div>IMAP Host: {suggestion.imapHost}</div>
+                  <div>IMAP Port: {suggestion.imapPort}</div>
+                  <div>SMTP Host: {suggestion.smtpHost}</div>
+                  <div>SMTP Port: {suggestion.smtpPort}</div>
+
+                  <button
+                    className="mt-2 px-3 py-1 bg-blue-600 text-white rounded text-sm"
+                    onClick={() => {
+                      setForm({
+                        ...form,
+                        imapHost: suggestion.imapHost,
+                        imapPort: suggestion.imapPort,
+                        smtpHost: suggestion.smtpHost,
+                        smtpPort: suggestion.smtpPort,
+                      });
+                    }}
+                  >
+                    Use These Settings
+                  </button>
+                </div>
+              )}
+
+              {help && (
+                <div
+                  className="mt-3 p-3 bg-yellow-100 rounded text-black text-sm"
+                  dangerouslySetInnerHTML={{ __html: help }}
+                />
+              )}
+            </div>
+          )}
+
+          {showSuccessMessage && (
+            <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
+              {showSuccessMessage}
+            </div>
+          )}
+
+          {/* List accounts */}
+          <div className="mb-6">
+            <h3 className="text-lg font-bold mb-2">Your Accounts</h3>
+            {accounts.length === 0 ? (
+              <div className="text-gray-400">No accounts configured.</div>
+            ) : (
+              accounts.map((acc) => (
+                <div
+                  key={acc.id}
+                  onClick={() => handleAccountSelect(acc)}
+                  className={`border p-3 rounded mb-2 cursor-pointer ${
+                    selectedAccountId === acc.id
+                      ? "bg-blue-100 border-blue-500"
+                      : "bg-gray-50 hover:bg-gray-100"
+                  }`}
+                >
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div>{acc.email}</div>
+                      <div className="text-sm text-gray-500">
+                        {acc.provider} · {acc.imapHost}:{acc.imapPort}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        confirmLogout(acc.id);
+                      }}
+                      className="px-3 py-1 bg-red-600 text-white rounded text-sm"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <form onSubmit={addAccount} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Provider
+              </label>
+              <select
+                value={form.provider}
+                onChange={handleProviderChange}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="gmail">Gmail</option>
+                <option value="gsuite">G Suite</option>
+                <option value="zoho">Zoho</option>
+                <option value="bluehost">Bluehost</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Authentication
+              </label>
+              <select
+                value={form.authType}
+                onChange={(e) => setForm({ ...form, authType: e.target.value })}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="password">App Password</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={handleEmailChange}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  IMAP Host
+                </label>
+                <input
+                  type="text"
+                  value={form.imapHost}
+                  onChange={(e) =>
+                    setForm({ ...form, imapHost: e.target.value })
+                  }
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  IMAP Port
+                </label>
+                <input
+                  type="number"
+                  value={form.imapPort}
+                  onChange={(e) =>
+                    setForm({ ...form, imapPort: parseInt(e.target.value) })
+                  }
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                IMAP Username
+              </label>
+              <input
+                type="text"
+                value={form.imapUser}
+                onChange={(e) => setForm({ ...form, imapUser: e.target.value })}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  SMTP Host
+                </label>
+                <input
+                  type="text"
+                  value={form.smtpHost}
+                  onChange={(e) =>
+                    setForm({ ...form, smtpHost: e.target.value })
+                  }
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  SMTP Port
+                </label>
+                <input
+                  type="number"
+                  value={form.smtpPort}
+                  onChange={(e) =>
+                    setForm({ ...form, smtpPort: parseInt(e.target.value) })
+                  }
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                SMTP Username
+              </label>
+              <input
+                type="text"
+                value={form.smtpUser}
+                onChange={(e) => setForm({ ...form, smtpUser: e.target.value })}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                App Password
+              </label>
+              <input
+                type="password"
+                value={form.encryptedPass}
+                onChange={(e) =>
+                  setForm({ ...form, encryptedPass: e.target.value })
+                }
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                {form.provider === "zoho" && (
+                  <>
+                    Zoho requires an <b>App Password</b>, not your normal
+                    mailbox password.
+                  </>
+                )}
+                {form.provider === "bluehost" && (
+                  <>
+                    Bluehost (Titan Mail) may require an App Password from your
+                    hosting panel.
+                  </>
+                )}
+                {(form.provider === "gmail" || form.provider === "gsuite") && (
+                  <>Gmail requires an App Password if 2FA is enabled.</>
+                )}
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                disabled={loading}
+              >
+                {loading ? "Adding..." : "Add Account"}
+              </button>
+            </div>
+          </form>
+
+          {/* Logout confirmation modal */}
+          {showLogoutConfirm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-gray-700 p-6 rounded-lg">
+                <h3 className="text-lg font-bold mb-4">Confirm Logout</h3>
+                <p className="mb-6">
+                  Are you sure you want to logout this email account?
+                </p>
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setShowLogoutConfirm(false)}
+                    className="px-4 py-2 bg-gray-600 rounded hover:bg-gray-500"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={logoutAccount}
+                    className="px-4 py-2 bg-red-600 rounded hover:bg-red-500"
+                    disabled={loading}
+                  >
+                    {loading ? "Logging out..." : "Logout"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
