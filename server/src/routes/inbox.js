@@ -201,28 +201,39 @@ router.get("/messages/sent", async (req, res) => {
 //       return res.status(400).json({ success: false, message: "Missing IDs" });
 //     }
 
-//     // 🔥 FIX: Define the whereClause inside this route to avoid the ReferenceError
+//     // ------------------------------------------------------------
+//     // 1️⃣ BUILD DETAIL QUERY
+//     // ------------------------------------------------------------
 //     let detailWhere = {
 //       conversationId: conversationId,
 //       emailAccountId: Number(accountId),
 //     };
 
-//     // Apply strict folder separation for the timeline view
-//     if (folder === "sent") {
+//     // 🔥 FIX: Strict folder-based logic that allows all directions for Spam/Trash
+//     const lowerFolder = (folder || "inbox").toLowerCase();
+
+//     if (lowerFolder === "sent") {
 //       detailWhere.direction = "sent";
-//     } else if (folder === "inbox") {
+//       detailWhere.folder = "sent"; // Match IMAP sync placement
+//     } else if (lowerFolder === "spam") {
+//       detailWhere.folder = "spam"; // Match IMAP sync placement
+//       // ❌ Removed direction: "received" to ensure bounces show
+//     } else if (lowerFolder === "trash") {
+//       detailWhere.folder = "trash";
+//     } else {
+//       // Default: Inbox (ONLY Received)
 //       detailWhere.direction = "received";
+//       detailWhere.folder = "inbox";
 //       detailWhere.isTrash = false;
 //       detailWhere.isSpam = false;
-//     } else if (folder === "trash") {
-//       detailWhere.isTrash = true;
-//     } else if (folder === "spam") {
-//       detailWhere.isSpam = true;
 //     }
 
+//     // ------------------------------------------------------------
+//     // 2️⃣ FETCH MESSAGES
+//     // ------------------------------------------------------------
 //     const messages = await prisma.emailMessage.findMany({
 //       where: detailWhere,
-//       orderBy: { sentAt: "asc" },
+//       orderBy: { sentAt: "asc" }, // Oldest at top, newest at bottom (timeline style)
 //       include: {
 //         attachments: true,
 //         tags: { include: { Tag: true } },
@@ -235,8 +246,6 @@ router.get("/messages/sent", async (req, res) => {
 //     res.status(500).json({ success: false, error: err.message });
 //   }
 // });
-/* server/src/routes/inbox.js */
-
 /* server/routes/inbox.js */
 
 router.get("/conversation-detail", async (req, res) => {
@@ -247,39 +256,30 @@ router.get("/conversation-detail", async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing IDs" });
     }
 
-    // ------------------------------------------------------------
-    // 1️⃣ BUILD DETAIL QUERY
-    // ------------------------------------------------------------
     let detailWhere = {
       conversationId: conversationId,
       emailAccountId: Number(accountId),
     };
 
-    // 🔥 FIX: Strict folder-based logic that allows all directions for Spam/Trash
-    const lowerFolder = (folder || "inbox").toLowerCase();
-
-    if (lowerFolder === "sent") {
+    // 🔥 FIX: Logic for the Trash folder view
+    if (folder === "trash") {
+      detailWhere.isTrash = true;
+      detailWhere.hideTrash = false; // Ensure it's not permanently deleted
+    } else if (folder === "sent") {
       detailWhere.direction = "sent";
-      detailWhere.folder = "sent"; // Match IMAP sync placement
-    } else if (lowerFolder === "spam") {
-      detailWhere.folder = "spam"; // Match IMAP sync placement
-      // ❌ Removed direction: "received" to ensure bounces show
-    } else if (lowerFolder === "trash") {
-      detailWhere.folder = "trash";
+    } else if (folder === "spam") {
+      detailWhere.folder = "spam";
     } else {
-      // Default: Inbox (ONLY Received)
+      // Default: Inbox
       detailWhere.direction = "received";
-      detailWhere.folder = "inbox";
       detailWhere.isTrash = false;
       detailWhere.isSpam = false;
+      detailWhere.hideInbox = false;
     }
 
-    // ------------------------------------------------------------
-    // 2️⃣ FETCH MESSAGES
-    // ------------------------------------------------------------
     const messages = await prisma.emailMessage.findMany({
       where: detailWhere,
-      orderBy: { sentAt: "asc" }, // Oldest at top, newest at bottom (timeline style)
+      orderBy: { sentAt: "asc" },
       include: {
         attachments: true,
         tags: { include: { Tag: true } },
@@ -292,6 +292,8 @@ router.get("/conversation-detail", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+
 /* ============================================================
    🔥 FIX: GET CONVERSATIONS - Outlook-style (conversationId only)
    ⚠️ CRITICAL: This replaces the old complex participant-based logic
@@ -499,23 +501,26 @@ router.get("/conversations/:accountId", async (req, res) => {
       conversationId: { not: null },
     };
 
-    // 🔥 FIX: Apply filtering based on the 'folder' column directly
+    // 🔥 1. APPLY STRICT FOLDER & TRASH SEPARATION LOGIC
     if (folder === "inbox") {
-      whereClause.folder = "inbox"; // 👈 Check folder name from IMAP sync
+      whereClause.folder = "inbox"; // Check folder name from IMAP sync
       whereClause.direction = "received"; // Inbox = ONLY received
-      whereClause.hideInbox = false;
+      whereClause.hideInbox = false; // 🔥 CRITICAL: Only show non-trashed messages
       whereClause.isTrash = false;
       whereClause.isSpam = false;
     } else if (folder === "sent") {
-      whereClause.folder = "sent"; // 👈 Check folder name from IMAP sync
-      whereClause.direction = "sent"; // Sent = ONLY sent
+      whereClause.folder = "sent";
+      whereClause.direction = "sent";
+      whereClause.hideInbox = false; // Don't show sent items that were "deleted"
       whereClause.isTrash = false;
       whereClause.isSpam = false;
     } else if (folder === "spam") {
-      whereClause.folder = "spam"; // 👈 Filter by folder name directly
-      // ❌ Do not force direction check for spam to ensure bounce notifications show
+      whereClause.folder = "spam"; // Show messages from Spam folder
+      whereClause.hideInbox = false; // Usually spam isn't "trashed" yet
     } else if (folder === "trash") {
-      whereClause.folder = "trash"; // 👈 Filter by folder name directly
+      // 🔥 Trash folder logic:
+      whereClause.isTrash = true; // Must be marked as trash
+      whereClause.hideTrash = false; // 🔥 CRITICAL: Filter out permanently deleted items
     }
 
     // Include UI filters
@@ -1815,29 +1820,29 @@ router.patch("/hide-trash/:id", async (req, res) => {
 //   }
 // });
 /* 🔒 PATCH: Hide Conversation from Inbox */
+/* server/routes/inbox.js - Line 840 */
+
 router.patch("/hide-inbox-conversation", async (req, res) => {
   try {
     const { conversationId, accountId } = req.body;
 
     if (!conversationId || !accountId) {
-      return res.status(400).json({
-        success: false,
-        message: "conversationId and accountId required",
-      });
+      return res.status(400).json({ success: false, message: "Missing data" });
     }
 
+    // 🔥 Update ALL messages in this thread to be hidden from Inbox
     const updated = await prisma.emailMessage.updateMany({
       where: {
         conversationId,
         emailAccountId: Number(accountId),
       },
-      data: { hideInbox: true },
+      data: {
+        hideInbox: true, // Hide from main view
+        isTrash: true, // Mark as trash so it appears in the Trash folder
+      },
     });
 
-    res.json({
-      success: true,
-      updatedCount: updated.count,
-    });
+    res.json({ success: true, updatedCount: updated.count });
   } catch (err) {
     console.error("❌ HIDE INBOX ERROR:", err);
     res.status(500).json({ success: false });
@@ -1877,39 +1882,40 @@ router.patch("/hide-trash-conversation", async (req, res) => {
   }
 });
 
-/* 🔄 PATCH: Restore Conversation */
+/* server/routes/inbox.js */
+
+// RESTORE: Move from Trash back to Inbox
 router.patch("/restore-conversation", async (req, res) => {
   try {
-    const { emailAccountId, peer } = req.body;
-
-    if (!emailAccountId || !peer) {
-      return res.status(400).json({
-        success: false,
-        message: "emailAccountId and peer are required",
-      });
-    }
-
-    const normalizedPeer = peer.toLowerCase().trim();
-
+    const { conversationId, accountId } = req.body;
     const updated = await prisma.emailMessage.updateMany({
-      where: {
-        emailAccountId: Number(emailAccountId),
-        OR: [{ fromEmail: normalizedPeer }, { toEmail: normalizedPeer }],
-      },
+      where: { conversationId, emailAccountId: Number(accountId) },
       data: {
-        hideInbox: false,
-        hideTrash: false,
+        hideInbox: false, // 🔥 Make visible in Inbox again
+        isTrash: false, // 🔥 Remove from Trash view
+        hideTrash: false, // Reset safety flag
       },
     });
-
-    return res.json({
-      success: true,
-      message: "Conversation restored to Inbox",
-      updatedCount: updated.count,
-    });
+    res.json({ success: true, updatedCount: updated.count });
   } catch (err) {
-    console.error("❌ restore-conversation failed:", err);
-    return res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false });
+  }
+});
+
+// PERMANENT HIDE: Remove from Trash folder
+router.patch("/permanent-delete-conversation", async (req, res) => {
+  try {
+    const { conversationId, accountId } = req.body;
+    const updated = await prisma.emailMessage.updateMany({
+      where: { conversationId, emailAccountId: Number(accountId) },
+      data: {
+        hideTrash: true, // 🔥 Mark as permanently hidden
+        hideInbox: true, // Ensure it stays hidden from primary view
+      },
+    });
+    res.json({ success: true, updatedCount: updated.count });
+  } catch (err) {
+    res.status(500).json({ success: false });
   }
 });
 

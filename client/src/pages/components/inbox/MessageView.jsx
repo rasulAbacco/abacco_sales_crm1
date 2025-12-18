@@ -85,7 +85,7 @@ export default function MessageView({
       fetchCountry();
       fetchAccountUserName();
     }
-  }, [selectedConversation, selectedAccount]);
+  }, [selectedConversation, selectedAccount, selectedFolder]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -93,52 +93,6 @@ export default function MessageView({
       setExpandedMessages({ [latestId]: true });
     }
   }, [messages]);
-
-  // const fetchMessages = async () => {
-  //   if (!selectedConversation || !selectedAccount) return;
-
-  //   setLoading(true);
-  //   try {
-  //     // Use conversationId if available (new Outlook-style), fallback to email (old style)
-  //     const conversationId =
-  //       selectedConversation.conversationId ||
-  //       selectedConversation.threadKey ||
-  //       selectedConversation.email;
-
-  //     // Try new endpoint first
-  //     let response;
-  //     if (selectedConversation.conversationId) {
-  //       response = await api.get(
-  //         // `${API_BASE_URL}/api/inbox/conversations/${conversationId}/messages`
-  //         `${API_BASE_URL}/api/inbox/conversation/${conversationId}`
-  //       );
-  //     } else {
-  //       // Fallback to old endpoint
-  //       response = await api.get(
-  //         `${API_BASE_URL}/api/inbox/conversation/${selectedConversation.email}`,
-  //         {
-  //           params: {
-  //             emailAccountId: selectedAccount.id,
-  //           },
-  //         }
-  //       );
-  //     }
-
-  //     if (response.data.success) {
-  //       const msgs = response.data.data || [];
-  //       setMessages(msgs.reverse());
-  //     }
-  //   } catch (error) {
-  //     console.error("Error fetching messages:", error);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-  // client/src/components/MessageView.jsx
-
-  // client/src/components/MessageView.jsx
-
-  // client/src/components/MessageView.jsx
 
   const fetchMessages = async () => {
     if (!selectedConversation || !selectedAccount) return;
@@ -209,6 +163,63 @@ export default function MessageView({
     }
   };
 
+  const handleTrashClick = async () => {
+    // 1️⃣ Confirmation dialog
+    const confirmed = window.confirm(
+      "Are you sure you want to move this conversation to Trash?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      // 2️⃣ Call the backend PATCH route to hide the thread
+      const response = await api.patch(
+        `${API_BASE_URL}/api/inbox/hide-inbox-conversation`,
+        {
+          conversationId: selectedConversation.conversationId,
+          accountId: selectedAccount.id,
+        }
+      );
+
+      if (response.data.success) {
+        // 3️⃣ Notify user and go back to list
+        alert("Conversation moved to Trash.");
+        onBack();
+      }
+    } catch (error) {
+      console.error("❌ Error moving to trash:", error);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!window.confirm("Restore this conversation to your Inbox?")) return;
+    const res = await api.patch(
+      `${API_BASE_URL}/api/inbox/restore-conversation`,
+      {
+        conversationId: selectedConversation.conversationId,
+        accountId: selectedAccount.id,
+      }
+    );
+    if (res.data.success) onBack();
+  };
+
+  const handlePermanentDelete = async () => {
+    // 🔥 FINAL CONFIRMATION
+    if (
+      !window.confirm(
+        "WARNING: Once deleted, this message cannot be restored. Proceed?"
+      )
+    )
+      return;
+    const res = await api.patch(
+      `${API_BASE_URL}/api/inbox/permanent-delete-conversation`,
+      {
+        conversationId: selectedConversation.conversationId,
+        accountId: selectedAccount.id,
+      }
+    );
+    if (res.data.success) onBack();
+  };
   const toggleMessageExpand = (messageId) => {
     setExpandedMessages((prev) => ({
       ...prev,
@@ -519,15 +530,46 @@ export default function MessageView({
 
           {/* Right Section (Actions) */}
           <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <Archive className="w-4 h-4 text-gray-600" />
-            </button>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <Trash2 className="w-4 h-4 text-gray-600" />
-            </button>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <MoreVertical className="w-4 h-4 text-gray-600" />
-            </button>
+            {/* Actions Container */}
+            <div className="flex items-center gap-2">
+              {selectedFolder === "trash" ? (
+                <>
+                  {/* RESTORE BUTTON - Only in Trash */}
+                  <button
+                    onClick={handleRestore}
+                    className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
+                    title="Restore to Inbox"
+                  >
+                    <Reply className="w-4 h-4 text-blue-600 rotate-180" />
+                  </button>
+
+                  {/* PERMANENT DELETE BUTTON - In Trash */}
+                  <button
+                    onClick={handlePermanentDelete}
+                    className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
+                    title="Delete Permanently"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-600" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* TRASH BUTTON - For Inbox, Sent, and Spam */}
+                  <button
+                    onClick={handleTrashClick}
+                    className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
+                    title="Move to Trash"
+                  >
+                    <Trash2 className="w-4 h-4 text-gray-600 group-hover:text-red-600" />
+                  </button>
+                </>
+              )}
+
+              {/* Options Menu - Stays consistent across all folders */}
+              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <MoreVertical className="w-4 h-4 text-gray-600" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
