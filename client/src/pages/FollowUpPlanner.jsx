@@ -258,23 +258,22 @@ export default function FollowUpPlanner() {
     document.body.removeChild(link);
   };
 
- const handleEmailClick = async (lead) => {
-   const res = await fetch(
-     `${API_BASE_URL}/api/leads/saleslead-by-email/${lead.email}`
-   );
-   const json = await res.json();
+  const handleEmailClick = async (lead) => {
+    const res = await fetch(
+      `${API_BASE_URL}/api/leads/saleslead-by-email/${lead.email}`
+    );
+    const json = await res.json();
 
-   const sales = json.data;
+    const sales = json.data;
 
-   setSelectedLead({
-     ...lead,
-     subject: sales?.subject || "No subject",
-     body: sales?.body || "No body",
-   });
+    setSelectedLead({
+      ...lead,
+      subject: sales?.subject || "No subject",
+      body: sales?.body || "No body",
+    });
 
-   setShowDetailModal(true);
- };
-
+    setShowDetailModal(true);
+  };
 
   const handleMessageClick = async (lead) => {
     setSelectedLead(lead);
@@ -327,12 +326,17 @@ export default function FollowUpPlanner() {
       .filter((c) => c.trim() !== "")
       .join(", ");
 
+    // ✅ Convert line breaks to HTML format
+    const formattedBody = messageForm.body
+      .replace(/\n/g, "<br>") // Convert all line breaks to <br>
+      .replace(/\s\s+/g, " "); // Optional: clean up extra spaces
+
     formData.append("from", messageForm.from);
     formData.append("emailAccountId", messageForm.emailAccountId);
     formData.append("to", messageForm.to);
     formData.append("cc", ccString);
     formData.append("subject", messageForm.subject);
-    formData.append("body", messageForm.body);
+    formData.append("body", formattedBody); // ✅ Use formatted body
 
     // Attach files
     if (messageForm.attachments) {
@@ -352,6 +356,7 @@ export default function FollowUpPlanner() {
       if (data.success) {
         alert("Mail sent successfully!");
         setShowMessageModal(false);
+        setMessageForm({ to: "", subject: "", body: "", ccList: [] }); // ✅ Reset form
       } else {
         alert("Failed: " + data.message);
       }
@@ -360,6 +365,50 @@ export default function FollowUpPlanner() {
       alert("Server error");
     }
   };
+
+  // const handleSendMessage = async (e) => {
+  //   e.preventDefault();
+
+  //   const formData = new FormData();
+
+  //   // Convert CC array to string
+  //   const ccString = (messageForm.ccList || [])
+  //     .filter((c) => c.trim() !== "")
+  //     .join(", ");
+
+  //   formData.append("from", messageForm.from);
+  //   formData.append("emailAccountId", messageForm.emailAccountId);
+  //   formData.append("to", messageForm.to);
+  //   formData.append("cc", ccString);
+  //   formData.append("subject", messageForm.subject);
+  //   formData.append("body", messageForm.body);
+
+  //   // Attach files
+  //   if (messageForm.attachments) {
+  //     messageForm.attachments.forEach((file) => {
+  //       formData.append("attachments", file);
+  //     });
+  //   }
+
+  //   try {
+  //     const res = await fetch(`${API_BASE_URL}/api/smtp/send`, {
+  //       method: "POST",
+  //       body: formData,
+  //     });
+
+  //     const data = await res.json();
+
+  //     if (data.success) {
+  //       alert("Mail sent successfully!");
+  //       setShowMessageModal(false);
+  //     } else {
+  //       alert("Failed: " + data.message);
+  //     }
+  //   } catch (err) {
+  //     console.error(err);
+  //     alert("Server error");
+  //   }
+  // };
 
   const filteredFollowups = followups
     .filter((lead) => {
@@ -699,40 +748,28 @@ export default function FollowUpPlanner() {
                     className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider cursor-pointer"
                     onClick={() => handleSort("email")}
                   >
-                    <div className="flex items-center gap-1">
-                      Client Email
-                      
-                    </div>
+                    <div className="flex items-center gap-1">Client Email</div>
                   </th>
                   <th
                     scope="col"
                     className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider cursor-pointer"
                     onClick={() => handleSort("phone")}
                   >
-                    <div className="flex items-center gap-1">
-                      Contact
-                     
-                    </div>
+                    <div className="flex items-center gap-1">Contact</div>
                   </th>
                   <th
                     scope="col"
                     className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider cursor-pointer"
                     onClick={() => handleSort("subject")}
                   >
-                    <div className="flex items-center gap-1">
-                      Subject
-                     
-                    </div>
+                    <div className="flex items-center gap-1">Subject</div>
                   </th>
                   <th
                     scope="col"
                     className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider cursor-pointer"
                     onClick={() => handleSort("followUpDate")}
                   >
-                    <div className="flex items-center gap-1">
-                      Follow-up
-                     
-                    </div>
+                    <div className="flex items-center gap-1">Follow-up</div>
                   </th>
                   <th
                     scope="col"

@@ -769,6 +769,7 @@ export default function MessageView({
                 if (["spam", "trash"].includes(selectedFolder)) return true;
                 return msg.direction === "received";
               })
+              .reverse()
               .map((message) => {
                 const isExpanded = expandedMessages[message.id];
                 const accountDomain = selectedAccount.email.split("@")[1];
