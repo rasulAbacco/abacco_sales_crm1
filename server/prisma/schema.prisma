@@ -195,17 +195,21 @@ model EmailMessage {
   references String? // Space-separated Message-IDs
 
   // Email content
-  subject   String?
+  subject String?
+
+  // 🔥 UPDATED: Captured from IMAP Envelope/Headers
   fromEmail String
-  fromName  String?
+  fromName  String? // e.g., 'Robert Downey Jr.' or 'Pramod Abacco'
   toEmail   String
-  ccEmail   String?
-  bccEmail  String?
-  replyTo   String?
-  body      String?
-  bodyHtml  String?
-  bodyText  String?
-  snippet   String?
+  toName    String? // e.g., 'Robert Downey Jr.' or 'Pramod Abacco'
+
+  ccEmail  String?
+  bccEmail String?
+  replyTo  String?
+  body     String?
+  bodyHtml String?
+  bodyText String?
+  snippet  String?
 
   // Direction & Status
   direction  String // sent, received

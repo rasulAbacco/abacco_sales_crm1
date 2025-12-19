@@ -148,7 +148,33 @@ export default function ConversationList({
       ? cleanText.substring(0, maxLength) + "..."
       : cleanText;
   };
+  // Inside ConversationList.jsx
+  const handleConversationSelect = async (conversation) => {
+    // 1. Immediately show the MessageView
+    onConversationSelect(conversation);
 
+    try {
+      // 2. Tell the Backend to update DB
+      await api.post(`${API_BASE_URL}/api/inbox/mark-read-conversation`, {
+        conversationId: conversation.conversationId,
+        accountId: selectedAccount.id,
+      });
+
+      // 3. 🔥 FIX: Update the LOCAL LIST so the badge disappears NOW
+      setConversations((prevConversations) =>
+        prevConversations.map((conv) =>
+          conv.conversationId === conversation.conversationId
+            ? { ...conv, unreadCount: 0 } // Force count to 0 locally
+            : conv
+        )
+      );
+
+      // 4. Update the Sidebar Count (see Step 2)
+      if (onRefreshStats) onRefreshStats();
+    } catch (error) {
+      console.error("Failed to mark as read:", error);
+    }
+  };
   if (!selectedAccount || !selectedFolder) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">

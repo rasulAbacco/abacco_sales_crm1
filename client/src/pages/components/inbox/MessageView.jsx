@@ -5,22 +5,24 @@ import {
   ReplyAll,
   Forward,
   MoreVertical,
-  Archive,
   Trash2,
   Paperclip,
   Download,
   Send,
   X,
   Loader2,
-  ChevronDown,
-  ChevronUp,
   Mail,
   File,
   Globe,
+  Bold,
+  Italic,
+  Underline,
+  List,
+  Link as LinkIcon,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import DOMPurify from "dompurify";
-import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
 import { api } from "../../../pages/api.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
@@ -28,7 +30,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 export default function MessageView({
   selectedAccount,
   selectedConversation,
-  selectedFolder, // 🔥 RECEIVE THE PROP
+  selectedFolder,
   onBack,
 }) {
   const [messages, setMessages] = useState([]);
@@ -49,41 +51,16 @@ export default function MessageView({
   const [accountUserName, setAccountUserName] = useState("");
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
-  const quillRef = useRef(null);
-
-  // Quill editor configuration
-  const modules = {
-    toolbar: [
-      [{ header: [1, 2, false] }],
-      ["bold", "italic", "underline", "strike"],
-      [{ list: "ordered" }, { list: "bullet" }],
-      [{ indent: "-1" }, { indent: "+1" }],
-      ["link"],
-      [{ color: [] }, { background: [] }],
-      ["clean"],
-    ],
-  };
-
-  const formats = [
-    "header",
-    "bold",
-    "italic",
-    "underline",
-    "strike",
-    "list",
-    "bullet",
-    "indent",
-    "link",
-    "color",
-    "background",
-  ];
+  const editorRef = useRef(null);
+  const [showQuotedText, setShowQuotedText] = useState(false);
 
   useEffect(() => {
     if (selectedConversation && selectedAccount) {
-      setCountry(null); // <-- RESET old country here
+      setCountry(null);
       fetchMessages();
       fetchCountry();
       fetchAccountUserName();
+      markConversationAsRead();
     }
   }, [selectedConversation, selectedAccount, selectedFolder]);
 
@@ -94,26 +71,39 @@ export default function MessageView({
     }
   }, [messages]);
 
+  const markConversationAsRead = async () => {
+    try {
+      await api.post(`${API_BASE_URL}/api/inbox/mark-read-conversation`, {
+        conversationId: selectedConversation.conversationId,
+        accountId: selectedAccount.id,
+      });
+    } catch (error) {
+      console.error("❌ Failed to mark conversation as read:", error);
+    }
+  };
+
   const fetchMessages = async () => {
     if (!selectedConversation || !selectedAccount) return;
 
     setLoading(true);
     try {
-      // 🔥 POINT TO: /conversation-detail
-      // 🔥 PASS AS: params (Query String)
       const response = await api.get(
         `${API_BASE_URL}/api/inbox/conversation-detail`,
         {
           params: {
             conversationId: selectedConversation.conversationId,
             accountId: selectedAccount.id,
-            folder: selectedFolder, // 🔥 CRITICAL: Must pass the current folder (sent/inbox)
+            folder: selectedFolder,
           },
         }
       );
 
       if (response.data.success) {
-        setMessages(response.data.data || []);
+        const updatedMessages = (response.data.data || []).map((msg) => ({
+          ...msg,
+          isRead: true,
+        }));
+        setMessages(updatedMessages);
       }
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -121,10 +111,10 @@ export default function MessageView({
       setLoading(false);
     }
   };
+
   const fetchCountry = async () => {
     if (!selectedConversation) return;
 
-    // Get email from conversation (primaryRecipient or email)
     const email =
       selectedConversation.primaryRecipient || selectedConversation.email;
     if (!email) return;
@@ -164,7 +154,6 @@ export default function MessageView({
   };
 
   const handleTrashClick = async () => {
-    // 1️⃣ Confirmation dialog
     const confirmed = window.confirm(
       "Are you sure you want to move this conversation to Trash?"
     );
@@ -172,7 +161,6 @@ export default function MessageView({
     if (!confirmed) return;
 
     try {
-      // 2️⃣ Call the backend PATCH route to hide the thread
       const response = await api.patch(
         `${API_BASE_URL}/api/inbox/hide-inbox-conversation`,
         {
@@ -182,7 +170,6 @@ export default function MessageView({
       );
 
       if (response.data.success) {
-        // 3️⃣ Notify user and go back to list
         alert("Conversation moved to Trash.");
         onBack();
       }
@@ -204,7 +191,6 @@ export default function MessageView({
   };
 
   const handlePermanentDelete = async () => {
-    // 🔥 FINAL CONFIRMATION
     if (
       !window.confirm(
         "WARNING: Once deleted, this message cannot be restored. Proceed?"
@@ -220,6 +206,7 @@ export default function MessageView({
     );
     if (res.data.success) onBack();
   };
+
   const toggleMessageExpand = (messageId) => {
     setExpandedMessages((prev) => ({
       ...prev,
@@ -233,134 +220,190 @@ export default function MessageView({
     return tmp.textContent || tmp.innerText || "";
   };
 
-  // Using the rich text approach from code 2
-  const buildReplyBodyHTML = (message) => {
-    const formattedDate = new Date(message.sentAt).toLocaleString("en-US", {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    return `
-      <br><br>
-      <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
-      <div style="color: #666; font-size: 13px;">
-        <p><strong>On ${formattedDate}, ${message.fromEmail} wrote:</strong></p>
-      </div>
-      <blockquote style="border-left: 3px solid #ccc; margin: 10px 0; padding-left: 15px; color: #666;">
-        ${message.body || ""}
-      </blockquote>
-    `;
+  // Helper to format "Name <email>"
+  const formatSender = (name, email) => {
+    if (name && name.trim() !== "" && name !== email) {
+      return `${name} &lt;${email}&gt;`;
+    }
+    return email;
   };
 
-  const buildForwardBodyHTML = (message) => {
-    const formattedDate = new Date(message.sentAt).toLocaleString("en-US", {
-      weekday: "short",
+  // Outlook-style display: Name <email> OR email only
+  const formatHeaderAddress = (name, email) => {
+    const cleanEmail = email?.trim() || "";
+    const cleanName = name?.trim();
+    return cleanName ? `${cleanName} &lt;${cleanEmail}&gt;` : cleanEmail;
+  };
+
+  // Helper: Outlook style long date format
+  const formatLongDate = (dateStr) => {
+    return new Date(dateStr).toLocaleString("en-US", {
+      weekday: "long",
       year: "numeric",
-      month: "short",
+      month: "long",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
 
-    return `
-      <br><br>
-      <hr style="border: none; border-top: 2px solid #000; margin: 20px 0;">
-      <div style="font-family: Arial, sans-serif; font-size: 13px; color: #000;">
-        <p style="margin: 5px 0;"><strong>From:</strong> ${
-          message.fromEmail
-        }</p>
-        <p style="margin: 5px 0;"><strong>Date:</strong> ${formattedDate}</p>
-        <p style="margin: 5px 0;"><strong>Subject:</strong> ${
-          message.subject || "(No subject)"
-        }</p>
-        <p style="margin: 5px 0;"><strong>To:</strong> ${message.toEmail}</p>
-        ${
-          message.ccEmail
-            ? `<p style="margin: 5px 0;"><strong>Cc:</strong> ${message.ccEmail}</p>`
-            : ""
-        }
+  const handleReply = (type, message) => {
+    if (!message) return;
+
+    // 1. Prepare Data for the "Outlook Style" Header
+    const originalSender = formatSender(message.fromName, message.fromEmail);
+    const sentDate = formatLongDate(message.sentAt);
+    const originalTo = message.toEmail;
+    const originalCc = message.ccEmail
+      ? message.ccEmail.split(",").join("; ")
+      : "";
+    const originalSubject = message.subject || "(No Subject)";
+
+    // 2. Build the Outlook Header Block
+    const outlookHeader = `
+      <br>
+      <hr style="border:none; border-top:1px solid #E1E1E1">
+      <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+        <b>From:</b> ${originalSender}<br>
+        <b>Sent:</b> ${sentDate}<br>
+        <b>To:</b> ${originalTo}<br>
+        ${originalCc ? `<b>Cc:</b> ${originalCc}<br>` : ""}
+        <b>Subject:</b> ${originalSubject}
       </div>
       <br>
-      <div style="margin-top: 15px;">
-        ${message.body || ""}
+    `;
+
+    // 3. Combine Header + Original Body
+    const quotedBody = `
+      ${outlookHeader}
+      <div>
+        ${message.bodyHtml || message.body}
       </div>
     `;
+
+    // 4. Set Reply Mode & ID
+    setReplyingToMessageId(message.id);
+    setReplyMode(type);
+
+    // 5. Determine New Subject
+    const prefix = message.subject?.startsWith("Re:") ? "" : "Re: ";
+    const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
+
+    // 6. Determine Recipients
+    let to = message.fromEmail;
+    let cc = "";
+
+    if (type === "replyAll") {
+      const allRecipients = [
+        message.fromEmail,
+        ...(message.toEmail ? message.toEmail.split(",") : []),
+        ...(message.ccEmail ? message.ccEmail.split(",") : []),
+      ]
+        .map((e) => e.trim())
+        .filter((e) => e !== selectedAccount.email);
+
+      to = [...new Set(allRecipients)].join(", ");
+    }
+
+    // 7. Set Editor State
+    setReplyData({
+      from: selectedAccount.email,
+      to: to,
+      cc: cc,
+      subject: newSubject,
+      body: "",
+    });
+
+    // 8. Put the Quoted Text in the "Show quoted text" section
+    setReplyData((prev) => ({ ...prev, body: quotedBody }));
+    setShowQuotedText(true);
+
+    // Clear the main typing area
+    setTimeout(() => {
+      if (editorRef.current) editorRef.current.innerHTML = "";
+    }, 0);
   };
 
-  // Using the handleReply function from code 2
-  const handleReply = (mode, message) => {
-    let toEmail = "";
-    let ccEmail = "";
-    let subject = message.subject || "";
-    let body = "";
+  const handleForward = (type, message) => {
+    if (!message) return;
 
-    if (mode === "reply") {
-      toEmail =
-        message.fromEmail === selectedAccount.email
-          ? message.toEmail
-          : message.fromEmail;
-      ccEmail = "";
-      body = buildReplyBodyHTML(message);
-    } else if (mode === "replyAll") {
-      toEmail =
-        message.fromEmail === selectedAccount.email
-          ? message.toEmail
-          : message.fromEmail;
+    // 1. Prepare Header Data
+    const fromHeader = formatHeaderAddress(message.fromName, message.fromEmail);
+    const toHeader = message.toEmail;
 
-      const allRecipients = [
-        ...(message.toEmail || "").split(","),
-        ...(message.ccEmail || "").split(","),
-      ]
-        .map((email) => email.trim())
-        .filter(
-          (email) =>
-            email && email !== selectedAccount.email && email !== toEmail
-        );
+    const ccHeader = message.ccEmail
+      ? message.ccEmail
+          .split(",")
+          .map((e) => e.trim())
+          .join("; ")
+      : "";
 
-      ccEmail = [...new Set(allRecipients)].join(", ");
-      body = buildReplyBodyHTML(message);
-    } else if (mode === "forward") {
-      toEmail = "";
-      ccEmail = "";
-      body = buildForwardBodyHTML(message);
-    }
+    const sentDate = formatLongDate(message.sentAt);
+    const subjectHeader = message.subject || "(No Subject)";
 
-    if (mode !== "forward" && !subject.toLowerCase().startsWith("re:")) {
-      subject = `Re: ${subject}`;
-    } else if (
-      mode === "forward" &&
-      !subject.toLowerCase().startsWith("fwd:")
-    ) {
-      subject = `Fwd: ${subject}`;
-    }
+    // 2. Build the Outlook Forward Header HTML
+    const forwardHeader = `
+      <br>
+      <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+        <hr style="border:none; border-top:1px solid #E1E1E1">
+        <b>From:</b> ${fromHeader}<br>
+        <b>Sent:</b> ${sentDate}<br>
+        <b>To:</b> ${toHeader}<br>
+        ${ccHeader ? `<b>Cc:</b> ${ccHeader}<br>` : ""}
+        <b>Subject:</b> ${subjectHeader}
+      </div>
+      <br>
+    `;
+
+    // 3. Combine with original body
+    const forwardedBody = `
+      ${forwardHeader}
+      <div>
+        ${message.bodyHtml || message.body}
+      </div>
+    `;
+
+    // 4. Set State
+    setReplyingToMessageId(message.id);
+    setReplyMode("forward");
+
+    // 🔥 FIX: Ensure we use "Fwd:" not "Re:"
+    const prefix = message.subject?.startsWith("Fwd:") ? "" : "Fwd: ";
 
     setReplyData({
       from: selectedAccount.email,
-      to: toEmail,
-      cc: ccEmail,
-      subject: subject,
-      body: body,
+      to: "", // Forward starts with empty To
+      cc: "",
+      subject: `${prefix}${message.subject || "(No Subject)"}`,
+      body: forwardedBody,
     });
 
-    setReplyMode(mode);
-    setReplyingToMessageId(message.id);
-    setAttachments([]);
-
+    // 5. Update Editor DOM immediately
     setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      if (quillRef.current) {
-        const editor = quillRef.current.getEditor();
-        editor.setSelection(0, 0);
+      if (editorRef.current) {
+        editorRef.current.innerHTML = forwardedBody;
+        editorRef.current.focus();
+
+        // Place cursor at start
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.setStart(editorRef.current, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
       }
-    }, 100);
+    }, 0);
   };
 
   const handleSendReply = async () => {
-    if (!replyData.body.trim() || !selectedAccount) return;
+    const bodyContent = editorRef.current?.innerHTML || "";
+
+    let finalBody = bodyContent;
+    if (showQuotedText && replyData.body) {
+      finalBody = bodyContent + replyData.body;
+    }
+
+    if (!finalBody.trim() || !selectedAccount) return;
 
     if (!replyData.to.trim()) {
       alert("Please enter a recipient email address");
@@ -369,18 +412,22 @@ export default function MessageView({
 
     setIsSending(true);
     try {
-      const endpoint =
-        replyMode === "replyAll"
-          ? `${API_BASE_URL}/api/inbox/reply-all`
-          : `${API_BASE_URL}/api/inbox/reply`;
+      // Choose endpoint based on mode
+      let endpoint;
+      if (replyMode === "replyAll")
+        endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
+      else if (replyMode === "forward")
+        endpoint = `${API_BASE_URL}/api/inbox/forward`;
+      else endpoint = `${API_BASE_URL}/api/inbox/reply`;
 
       const payload = {
         emailAccountId: selectedAccount.id,
-        from: replyData.from,
+        fromEmail: replyData.from, // Ensure backend expects 'fromEmail' or 'from'
+        from: replyData.from, // Sending both for compatibility
         to: replyData.to,
         cc: replyData.cc || null,
         subject: replyData.subject,
-        body: replyData.body,
+        body: finalBody,
         attachments: attachments.map((att) => ({
           filename: att.name,
           url: att.url,
@@ -389,14 +436,11 @@ export default function MessageView({
         })),
       };
 
-      // Add replyToMessageId for proper conversation threading
       if (replyingToMessageId) {
-        payload.replyToMessageId = replyingToMessageId;
-      }
-
-      // Legacy support for replyAll
-      if (replyMode === "replyAll" && replyingToMessageId) {
-        payload.replyToId = replyingToMessageId;
+        // Different endpoints might expect different ID keys
+        payload.replyToMessageId = replyingToMessageId; // For reply
+        payload.replyToId = replyingToMessageId; // For reply-all
+        payload.forwardMessageId = replyingToMessageId; // For forward
       }
 
       const response = await api.post(endpoint, payload);
@@ -413,10 +457,14 @@ export default function MessageView({
           body: "",
         });
         setAttachments([]);
+        setShowQuotedText(false);
+        if (editorRef.current) {
+          editorRef.current.innerHTML = "";
+        }
         alert("Message sent successfully!");
       }
     } catch (error) {
-      console.error("Error sending reply:", error);
+      console.error("Error sending message:", error);
       alert("Failed to send message. Please try again.");
     } finally {
       setIsSending(false);
@@ -425,7 +473,6 @@ export default function MessageView({
 
   const handleAttachmentUpload = (e) => {
     const files = Array.from(e.target.files || []);
-
     const newAttachments = files.map((file) => ({
       name: file.name,
       size: file.size,
@@ -433,7 +480,6 @@ export default function MessageView({
       file: file,
       url: URL.createObjectURL(file),
     }));
-
     setAttachments([...attachments, ...newAttachments]);
   };
 
@@ -471,6 +517,19 @@ export default function MessageView({
     }
   };
 
+  const formatText = (command) => {
+    document.execCommand(command, false, null);
+    editorRef.current?.focus();
+  };
+
+  const insertLink = () => {
+    const url = prompt("Enter URL:");
+    if (url) {
+      document.execCommand("createLink", false, url);
+    }
+    editorRef.current?.focus();
+  };
+
   if (!selectedConversation) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
@@ -489,7 +548,6 @@ export default function MessageView({
       {/* Header */}
       <div className="border-b border-gray-200 px-6 py-4 bg-gray-50">
         <div className="flex items-center justify-between">
-          {/* Left Section */}
           <div className="flex items-center gap-4">
             <button
               onClick={onBack}
@@ -499,13 +557,11 @@ export default function MessageView({
             </button>
 
             <div>
-              {/* Subject + Country Tag */}
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg font-semibold text-gray-900">
                   {latestMessage?.subject || "(No subject)"}
                 </h2>
 
-                {/* 🌍 Country tag */}
                 {country && (
                   <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
                     <Globe className="w-3 h-3" />
@@ -514,7 +570,6 @@ export default function MessageView({
                 )}
               </div>
 
-              {/* Conversation Info */}
               <p className="text-sm text-gray-500 mt-1">
                 {messages.length} message{messages.length !== 1 ? "s" : ""} with{" "}
                 {selectedConversation.primaryRecipient ||
@@ -528,13 +583,10 @@ export default function MessageView({
             </div>
           </div>
 
-          {/* Right Section (Actions) */}
           <div className="flex items-center gap-2">
-            {/* Actions Container */}
             <div className="flex items-center gap-2">
               {selectedFolder === "trash" ? (
                 <>
-                  {/* RESTORE BUTTON - Only in Trash */}
                   <button
                     onClick={handleRestore}
                     className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
@@ -542,8 +594,6 @@ export default function MessageView({
                   >
                     <Reply className="w-4 h-4 text-blue-600 rotate-180" />
                   </button>
-
-                  {/* PERMANENT DELETE BUTTON - In Trash */}
                   <button
                     onClick={handlePermanentDelete}
                     className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
@@ -554,7 +604,6 @@ export default function MessageView({
                 </>
               ) : (
                 <>
-                  {/* TRASH BUTTON - For Inbox, Sent, and Spam */}
                   <button
                     onClick={handleTrashClick}
                     className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
@@ -564,8 +613,6 @@ export default function MessageView({
                   </button>
                 </>
               )}
-
-              {/* Options Menu - Stays consistent across all folders */}
               <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <MoreVertical className="w-4 h-4 text-gray-600" />
               </button>
@@ -582,31 +629,14 @@ export default function MessageView({
           </div>
         ) : (
           <div className="max-w-4xl mx-auto py-6 px-6 space-y-4">
-            {/* Updated Message Timeline logic */}
-            {/* Section 3: Message Timeline Stac {messages.map((message) => {
-             */}
             {messages
               .filter((msg) => {
-                // 1️⃣ SENT FOLDER: Show ONLY outbound messages
-                if (selectedFolder === "sent") {
-                  return msg.direction === "sent";
-                }
-
-                // 2️⃣ SPAM & TRASH FOLDERS: Show everything returned by the backend
-                // These folders often contain bounce-backs (received) and original sends
-                if (["spam", "trash"].includes(selectedFolder)) {
-                  return true; // 🔥 FIX: Allow both sent/received to show in Spam view
-                }
-
-                // 3️⃣ INBOX (DEFAULT): Show ONLY received messages
+                if (selectedFolder === "sent") return msg.direction === "sent";
+                if (["spam", "trash"].includes(selectedFolder)) return true;
                 return msg.direction === "received";
               })
               .map((message) => {
                 const isExpanded = expandedMessages[message.id];
-                const isReplying =
-                  replyingToMessageId === message.id && replyMode;
-
-                // 🔥 Sales CRM Logic: Distinguish Internal (Employee) vs External (Client)
                 const accountDomain = selectedAccount.email.split("@")[1];
                 const senderDomain = message.fromEmail.split("@")[1];
                 const isInternal = accountDomain === senderDomain;
@@ -616,11 +646,10 @@ export default function MessageView({
                     <div
                       className={`border border-gray-200 rounded-lg overflow-hidden transition-all shadow-sm ${
                         isInternal
-                          ? "bg-white border-blue-100" // 🟦 Internal (Team) Style
-                          : "bg-orange-50/20 border-orange-100" // 🟧 External (Client) Style
+                          ? "bg-white border-blue-100"
+                          : "bg-orange-50/20 border-orange-100"
                       } ${!message.isRead ? "ring-1 ring-blue-400" : ""}`}
                     >
-                      {/* COLLAPSED HEADER: Click to expand/collapse */}
                       <div
                         className="px-6 py-4 cursor-pointer hover:bg-black/5"
                         onClick={() => toggleMessageExpand(message.id)}
@@ -630,7 +659,6 @@ export default function MessageView({
                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0 shadow-sm">
                               {message.fromEmail.charAt(0).toUpperCase()}
                             </div>
-
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
                                 <span
@@ -651,8 +679,6 @@ export default function MessageView({
                                   <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
                                 )}
                               </div>
-
-                              {/* 📝 Recipient Metadata */}
                               <div className="text-xs text-gray-500 space-y-0.5">
                                 <div className="flex items-center gap-2">
                                   <span className="font-semibold uppercase text-[9px] text-gray-400">
@@ -678,7 +704,6 @@ export default function MessageView({
                               </div>
                             </div>
                           </div>
-
                           <div className="flex items-center gap-2">
                             {message.attachments?.length > 0 && (
                               <Paperclip className="w-4 h-4 text-gray-400" />
@@ -692,8 +717,6 @@ export default function MessageView({
                             </button>
                           </div>
                         </div>
-
-                        {/* Snippet preview when the message card is collapsed */}
                         {!isExpanded && (
                           <div className="mt-3 ml-13 p-2 border-l-2 border-gray-200 bg-gray-50/50 rounded-r">
                             <p className="text-xs text-gray-600 line-clamp-1 italic">
@@ -707,11 +730,9 @@ export default function MessageView({
                         )}
                       </div>
 
-                      {/* EXPANDED CONTENT: Shows full email and action bar */}
                       {isExpanded && (
-                        <div className="px-6 pb-6 animate-in fade-in slide-in-from-top-1">
+                        <div className="px-6 pb-6">
                           <div className="border-t border-gray-100 pt-4">
-                            {/* Action buttons bar */}
                             <div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-50">
                               <button
                                 onClick={(e) => {
@@ -731,11 +752,12 @@ export default function MessageView({
                               >
                                 <ReplyAll className="w-3.5 h-3.5" /> Reply All
                               </button>
-                              {/* 🔄 FORWARD BUTTON RESTORED */}
+
+                              {/* 🔥 FORWARD BUTTON: Calls handleForward */}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleReply("forward", message);
+                                  handleForward("forward", message);
                                 }}
                                 className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 shadow-sm"
                               >
@@ -743,22 +765,25 @@ export default function MessageView({
                               </button>
                             </div>
 
-                            {/* Subject display for context */}
                             {message.subject && (
                               <h3 className="text-sm font-bold text-gray-900 mb-4 bg-gray-50 p-2 rounded">
                                 Subject: {message.subject}
                               </h3>
                             )}
 
-                            {/* Full Email Body (Sanitized) */}
                             <div
                               className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
+                              style={{
+                                fontFamily: "Calibri, sans-serif",
+                                fontSize: "11pt",
+                                lineHeight: "1.35",
+                                color: "#000000",
+                              }}
                               dangerouslySetInnerHTML={{
                                 __html: DOMPurify.sanitize(message.body || ""),
                               }}
                             />
 
-                            {/* Attachments Section with Download from R2 */}
                             {message.attachments?.length > 0 && (
                               <div className="mt-6 pt-4 border-t border-gray-100">
                                 <h4 className="text-[10px] font-bold text-gray-400 uppercase mb-3 flex items-center gap-2 tracking-widest">
@@ -807,151 +832,240 @@ export default function MessageView({
         )}
       </div>
 
-      {/* Reply Box with Rich Text Editor */}
+      {/* Reply Popup */}
       {replyMode && (
-        <div className="border-t-2 border-gray-300 bg-white shadow-lg">
-          <div className="max-w-4xl mx-auto px-6 py-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-900">
-                {replyMode === "reply" && "Reply"}
-                {replyMode === "replyAll" && "Reply All"}
-                {replyMode === "forward" && "Forward Message"}
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+            <div className="border-b border-gray-200 px-6 py-4 bg-gray-50 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => {
+                    setReplyMode(null);
+                    setReplyingToMessageId(null);
+                    setShowQuotedText(false);
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5 text-gray-600" />
+                </button>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {replyMode === "reply" && "Reply"}
+                  {replyMode === "replyAll" && "Reply All"}
+                  {replyMode === "forward" && "Forward Message"}
+                </h3>
+              </div>
               <button
                 onClick={() => {
                   setReplyMode(null);
                   setReplyingToMessageId(null);
+                  setShowQuotedText(false);
                 }}
-                className="p-1 hover:bg-gray-100 rounded"
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                <X className="w-4 h-4 text-gray-500" />
+                <X className="w-5 h-5 text-gray-600" />
               </button>
             </div>
 
-            <div className="space-y-3 mb-3">
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700 w-16">
-                  From:
-                </label>
-                <input
-                  type="email"
-                  value={replyData.from}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50"
-                  disabled
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700 w-16">
-                  To:
-                </label>
-                <input
-                  type="email"
-                  value={replyData.to}
-                  onChange={(e) =>
-                    setReplyData({ ...replyData, to: e.target.value })
-                  }
-                  placeholder="Enter recipient email"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700 w-16">
-                  Cc:
-                </label>
-                <input
-                  type="email"
-                  value={replyData.cc}
-                  onChange={(e) =>
-                    setReplyData({ ...replyData, cc: e.target.value })
-                  }
-                  placeholder="Enter CC recipients"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700 w-16">
-                  Subject:
-                </label>
-                <input
-                  type="text"
-                  value={replyData.subject}
-                  onChange={(e) =>
-                    setReplyData({ ...replyData, subject: e.target.value })
-                  }
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            <div className="border border-gray-300 rounded-lg overflow-hidden">
-              <ReactQuill
-                ref={quillRef}
-                theme="snow"
-                value={replyData.body}
-                onChange={(content) =>
-                  setReplyData({ ...replyData, body: content })
-                }
-                modules={modules}
-                formats={formats}
-                placeholder="Type your message here..."
-                style={{ height: "300px", marginBottom: "42px" }}
-              />
-
-              {attachments.length > 0 && (
-                <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
-                  <div className="flex flex-wrap gap-2">
-                    {attachments.map((att, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-gray-300"
-                      >
-                        <File className="w-3 h-3 text-gray-500" />
-                        <span className="text-xs text-gray-700">
-                          {att.name}
-                        </span>
-                        <button
-                          onClick={() => removeAttachment(index)}
-                          className="p-0.5 hover:bg-gray-200 rounded-full"
-                        >
-                          <X className="w-3 h-3 text-gray-500" />
-                        </button>
-                      </div>
-                    ))}
+            <div className="overflow-y-auto max-h-[calc(90vh-120px)]">
+              <div className="p-6">
+                <div className="space-y-4 mb-4">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-700 w-16">
+                      From:
+                    </label>
+                    <input
+                      type="email"
+                      value={replyData.from}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50"
+                      disabled
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-700 w-16">
+                      To:
+                    </label>
+                    <input
+                      type="email"
+                      value={replyData.to}
+                      onChange={(e) =>
+                        setReplyData({ ...replyData, to: e.target.value })
+                      }
+                      placeholder="Enter recipient email"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-700 w-16">
+                      Cc:
+                    </label>
+                    <input
+                      type="email"
+                      value={replyData.cc}
+                      onChange={(e) =>
+                        setReplyData({ ...replyData, cc: e.target.value })
+                      }
+                      placeholder="Enter CC recipients"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-700 w-16">
+                      Subject:
+                    </label>
+                    <input
+                      type="text"
+                      value={replyData.subject}
+                      onChange={(e) =>
+                        setReplyData({ ...replyData, subject: e.target.value })
+                      }
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
                 </div>
-              )}
 
-              <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
-                <div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    onChange={handleAttachmentUpload}
-                    className="hidden"
+                <div className="border border-gray-300 rounded-lg overflow-hidden">
+                  <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-300">
+                    <button
+                      onClick={() => formatText("bold")}
+                      className="p-2 hover:bg-gray-200 rounded"
+                    >
+                      <Bold className="w-4 h-4 text-gray-600" />
+                    </button>
+                    <button
+                      onClick={() => formatText("italic")}
+                      className="p-2 hover:bg-gray-200 rounded"
+                    >
+                      <Italic className="w-4 h-4 text-gray-600" />
+                    </button>
+                    <button
+                      onClick={() => formatText("underline")}
+                      className="p-2 hover:bg-gray-200 rounded"
+                    >
+                      <Underline className="w-4 h-4 text-gray-600" />
+                    </button>
+                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
+                    <button
+                      onClick={() => formatText("insertUnorderedList")}
+                      className="p-2 hover:bg-gray-200 rounded"
+                    >
+                      <List className="w-4 h-4 text-gray-600" />
+                    </button>
+                    <button
+                      onClick={insertLink}
+                      className="p-2 hover:bg-gray-200 rounded"
+                    >
+                      <LinkIcon className="w-4 h-4 text-gray-600" />
+                    </button>
+                  </div>
+
+                  <div
+                    ref={editorRef}
+                    contentEditable
+                    className="min-h-[200px] max-h-[300px] overflow-y-auto p-4 focus:outline-none"
+                    style={{
+                      fontFamily: "Calibri, sans-serif",
+                      fontSize: "11pt",
+                      lineHeight: "1.35",
+                    }}
+                    placeholder="Type your message here..."
                   />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="p-2 hover:bg-gray-200 rounded transition-colors"
-                  >
-                    <Paperclip className="w-4 h-4 text-gray-600" />
-                  </button>
-                </div>
-                <button
-                  onClick={handleSendReply}
-                  disabled={!replyData.body.trim() || isSending}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-colors text-sm font-medium"
-                >
-                  {isSending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
+
+                  {(replyMode === "reply" || replyMode === "replyAll") && (
+                    <div className="border-t border-gray-200">
+                      <button
+                        onClick={() => setShowQuotedText(!showQuotedText)}
+                        className="w-full px-4 py-2 flex items-center justify-center gap-2 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+                      >
+                        <span className="text-lg leading-none">•••</span>
+                        <span>
+                          {showQuotedText ? "Hide" : "Show"} quoted text
+                        </span>
+                      </button>
+
+                      {showQuotedText && (
+                        <div
+                          className="p-4 bg-gray-50 border-t border-gray-200 max-h-[400px] overflow-y-auto"
+                          contentEditable
+                          suppressContentEditableWarning
+                          dangerouslySetInnerHTML={{
+                            __html: DOMPurify.sanitize(replyData.body || ""),
+                          }}
+                          onBlur={(e) => {
+                            setReplyData({
+                              ...replyData,
+                              body: e.currentTarget.innerHTML,
+                            });
+                          }}
+                          style={{
+                            fontFamily: "Calibri, sans-serif",
+                            fontSize: "11pt",
+                            lineHeight: "1.35",
+                          }}
+                        />
+                      )}
+                    </div>
                   )}
-                  Send
-                </button>
+
+                  {replyMode === "forward" && (
+                    <div className="hidden">
+                      {/* For forwards, body is pre-filled in editorRef, no separate view needed */}
+                    </div>
+                  )}
+
+                  {attachments.length > 0 && (
+                    <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
+                      <div className="flex flex-wrap gap-2">
+                        {attachments.map((att, index) => (
+                          <div
+                            key={index}
+                            className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-gray-300"
+                          >
+                            <File className="w-3 h-3 text-gray-500" />
+                            <span className="text-xs text-gray-700">
+                              {att.name}
+                            </span>
+                            <button
+                              onClick={() => removeAttachment(index)}
+                              className="p-0.5 hover:bg-gray-200 rounded-full"
+                            >
+                              <X className="w-3 h-3 text-gray-500" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                    <div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        onChange={handleAttachmentUpload}
+                        className="hidden"
+                      />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-2 hover:bg-gray-200 rounded transition-colors"
+                      >
+                        <Paperclip className="w-4 h-4 text-gray-600" />
+                      </button>
+                    </div>
+                    <button
+                      onClick={handleSendReply}
+                      disabled={isSending}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-colors text-sm font-medium"
+                    >
+                      {isSending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                      Send
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -32,6 +32,21 @@ export default function InboxMain() {
   // Mobile state
   const [showMobileConversations, setShowMobileConversations] = useState(false);
 
+  const formats = [
+    "header",
+    "bold",
+    "italic",
+    "underline",
+    "strike",
+    "list",
+    "bullet",
+    "indent",
+    "link",
+    "color",
+    "background",
+    "style", // 🔥 ADD 'style' HERE
+  ];
+
   // Fetch accounts on mount
   useEffect(() => {
     fetchAccounts();
