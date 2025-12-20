@@ -361,21 +361,50 @@ export default function MessageView({
     const prefix = message.subject?.startsWith("Re:") ? "" : "Re: ";
     const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
 
-    let to = message.fromEmail;
+    // let to = message.fromEmail;
+    // let cc = "";
+
+    // if (type === "replyAll") {
+    //   const allRecipients = [
+    //     message.fromEmail,
+    //     ...(message.toEmail ? message.toEmail.split(",") : []),
+    //     ...(message.ccEmail ? message.ccEmail.split(",") : []),
+    //   ]
+    //     .map((e) => e.trim())
+    //     .filter((e) => e !== selectedAccount.email);
+
+    //   to = [...new Set(allRecipients)].join(", ");
+    // }
+    // Inside handleReply function in MessageView.jsx
+
+    let to = message.fromEmail; // Default 'to' is the original sender
     let cc = "";
 
     if (type === "replyAll") {
-      const allRecipients = [
-        message.fromEmail,
+      // 1. The original sender stays in the "To" field
+      to = message.fromEmail;
+
+      // 2. Combine original 'To' and 'Cc' recipients for the new 'Cc' field
+      const otherRecipients = [
         ...(message.toEmail ? message.toEmail.split(",") : []),
         ...(message.ccEmail ? message.ccEmail.split(",") : []),
       ]
         .map((e) => e.trim())
-        .filter((e) => e !== selectedAccount.email);
+        // 3. Filter out yourself AND the original sender (since they are in 'To')
+        .filter((e) => e !== selectedAccount.email && e !== message.fromEmail);
 
-      to = [...new Set(allRecipients)].join(", ");
+      // 4. Set unique recipients into the CC string
+      cc = [...new Set(otherRecipients)].join(", ");
     }
 
+    // Update the state with separated recipients
+    setReplyData({
+      from: selectedAccount.email,
+      to: to,
+      cc: cc, // CC is now correctly populated separately
+      subject: newSubject,
+      body: "",
+    });
     setReplyData({
       from: selectedAccount.email,
       to: to,
