@@ -23,6 +23,9 @@ export default function ConversationList({
   selectedConversation,
   filters = {},
   searchEmail = "",
+  isScheduleMode = false,
+  selectedConversations = [],
+  setSelectedConversations,
 }) {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -125,6 +128,17 @@ export default function ConversationList({
     });
 
     setConversations(sorted);
+  };
+  const toggleSelectConversation = (conversation) => {
+    setSelectedConversations((prev) => {
+      const exists = prev.some(
+        (c) => c.conversationId === conversation.conversationId
+      );
+
+      return exists
+        ? prev.filter((c) => c.conversationId !== conversation.conversationId)
+        : [...prev, conversation];
+    });
   };
 
   const formatDate = (date) => {
@@ -269,16 +283,42 @@ export default function ConversationList({
 
             return (
               <div
-                key={conversationId} // ðŸ”¥ Use conversationId as key
-                onClick={() => onConversationSelect(conversation)}
-                className={`px-4 py-3 cursor-pointer border-b border-gray-100 transition-colors ${
-                  isSelected
-                    ? "bg-blue-50 border-l-4 border-l-blue-600"
-                    : "hover:bg-gray-50"
-                } ${conversation.unreadCount > 0 ? "bg-blue-50/30" : ""}`}
+                key={conversationId} // 🔥 Use conversationId as key
+                onClick={() => {
+                  if (!isScheduleMode) {
+                    onConversationSelect(conversation);
+                  }
+                }}
+                className={`px-4 py-3 border-b border-gray-100 transition-colors
+    ${
+      isSelected && !isScheduleMode
+        ? "bg-blue-50 border-l-4 border-l-blue-600"
+        : ""
+    }
+    ${
+      !isScheduleMode
+        ? "cursor-pointer hover:bg-gray-50"
+        : "cursor-default bg-blue-50/20"
+    }
+    ${conversation.unreadCount > 0 ? "bg-blue-50/30" : ""}
+  `}
               >
                 <div className="flex items-start gap-3">
                   {/* ðŸ‘¤ Avatar: Displays the Client's Initial */}
+                  {isScheduleMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedConversations.some(
+                        (c) => c.conversationId === conversation.conversationId
+                      )}
+                      onChange={(e) => {
+                        e.stopPropagation(); // 🔥 prevent row click
+                        toggleSelectConversation(conversation);
+                      }}
+                      className="mt-2"
+                    />
+                  )}
+
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0 shadow-sm">
                     {hasMultipleParticipants ? (
                       <Users className="w-5 h-5" />

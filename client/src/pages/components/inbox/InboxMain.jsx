@@ -43,6 +43,8 @@ export default function InboxMain() {
 
   // Mobile state
   const [showMobileConversations, setShowMobileConversations] = useState(false);
+  const [isScheduleMode, setIsScheduleMode] = useState(false);
+  const [selectedConversations, setSelectedConversations] = useState([]);
 
   const formats = [
     "header",
@@ -133,10 +135,9 @@ export default function InboxMain() {
     // Implement today's follow-up logic
     console.log("Show today's follow-ups");
   };
-
   const handleSchedule = () => {
-    // Implement schedule logic
-    console.log("Show scheduled emails");
+    setIsScheduleMode(true);
+    setSelectedConversations([]); // fresh selection
   };
 
   return (
@@ -180,6 +181,9 @@ export default function InboxMain() {
               selectedConversation={selectedConversation}
               filters={filters}
               searchEmail={searchEmail}
+              isScheduleMode={isScheduleMode}
+              selectedConversations={selectedConversations}
+              setSelectedConversations={setSelectedConversations}
             />
           </div>
 
