@@ -26,8 +26,10 @@ export default function InboxHeader({
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [searchEmail, setSearchEmail] = useState("");
   const [countries, setCountries] = useState([]);
+
+  // 🔥 FIX: Use leadStatus instead of status
   const [filters, setFilters] = useState({
-    status: "all",
+    leadStatus: "", // 🔥 CHANGED from 'status'
     sender: "",
     recipient: "",
     subject: "",
@@ -39,25 +41,26 @@ export default function InboxHeader({
     isStarred: false,
     country: "",
   });
+
   const dropdownRef = useRef(null);
   const searchTimeoutRef = useRef(null);
 
-  // Status options matching the uploaded image
+  // 🔥 FIX: Proper status options (no transformation needed)
   const statusOptions = [
-    "All Statuses",
-    "Invoice Pending",
-    "Invoice Cancel",
-    "Deal",
-    "Active Client",
-    "No Response",
-    "1 Reply",
-    "2 Reply",
-    "3 Reply",
-    "1 Follow Up",
-    "2 Follow Up",
-    "3 Follow Up",
-    "Call",
-    "Sample Pending",
+    { label: "All Statuses", value: "" },
+    { label: "Invoice Pending", value: "Invoice Pending" },
+    { label: "Invoice Cancel", value: "Invoice Cancel" },
+    { label: "Deal", value: "Deal" },
+    { label: "Active Client", value: "Active Client" },
+    { label: "No Response", value: "No Response" },
+    { label: "1 Reply", value: "1 Reply" },
+    { label: "2 Reply", value: "2 Reply" },
+    { label: "3 Reply", value: "3 Reply" },
+    { label: "1 Follow Up", value: "1 Follow Up" },
+    { label: "2 Follow Up", value: "2 Follow Up" },
+    { label: "3 Follow Up", value: "3 Follow Up" },
+    { label: "Call", value: "Call" },
+    { label: "Sample Pending", value: "Sample Pending" },
   ];
 
   // Fetch countries on mount
@@ -109,6 +112,7 @@ export default function InboxHeader({
   };
 
   const handleApplyFilter = () => {
+    console.log("🔍 Filters being applied:", filters);
     if (onFilterApply) {
       onFilterApply(filters);
     }
@@ -117,7 +121,7 @@ export default function InboxHeader({
 
   const handleResetFilter = () => {
     const resetFilters = {
-      status: "all",
+      leadStatus: "", // 🔥 CHANGED
       sender: "",
       recipient: "",
       subject: "",
@@ -138,7 +142,7 @@ export default function InboxHeader({
   const activeFilterCount = Object.values(filters).filter((val) => {
     if (typeof val === "boolean") return val;
     if (Array.isArray(val)) return val.length > 0;
-    return val && val !== "all" && val !== "";
+    return val && val !== "";
   }).length;
 
   return (
@@ -219,24 +223,21 @@ export default function InboxHeader({
                 </div>
 
                 <div className="p-4 space-y-4">
-                  {/* Status Filter */}
+                  {/* 🔥 FIX: Lead Status Filter */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Status
+                      Lead Status
                     </label>
                     <select
-                      value={filters.status}
+                      value={filters.leadStatus}
                       onChange={(e) =>
-                        setFilters({ ...filters, status: e.target.value })
+                        setFilters({ ...filters, leadStatus: e.target.value })
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     >
                       {statusOptions.map((status) => (
-                        <option
-                          key={status}
-                          value={status.toLowerCase().replace(/ /g, "_")}
-                        >
-                          {status}
+                        <option key={status.value} value={status.value}>
+                          {status.label}
                         </option>
                       ))}
                     </select>

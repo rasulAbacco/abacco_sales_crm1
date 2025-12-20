@@ -83,6 +83,117 @@ router.post("/", protect, async (req, res) => {
 });
 
 /* ============================================================
+   📦 POST /scheduled-messages/bulk
+   ============================================================ */
+router.post("/bulk", protect, async (req, res) => {
+  try {
+    const { accountId, sendAt, messages } = req.body;
+
+    // 1️⃣ Basic validation
+    if (!accountId || !sendAt || !Array.isArray(messages)) {
+      return res.status(400).json({
+        success: false,
+        message: "accountId, sendAt, and messages[] are required",
+      });
+    }
+
+    if (messages.length < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one message is required",
+      });
+    }
+
+    // 2️⃣ Verify account ownership
+    const account = await prisma.emailAccount.findFirst({
+      where: {
+        id: Number(accountId),
+        userId: req.user.id,
+      },
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: "Email account not found",
+      });
+    }
+
+    const scheduledResults = [];
+
+    // 3️⃣ Loop through messages (works for 1 or many)
+    for (const msg of messages) {
+      const { conversationId, toEmail, subject, bodyHtml, attachments } = msg;
+
+      if (!toEmail || !subject) continue;
+
+      // 🔁 Check existing schedule
+      const existing = await prisma.scheduledMessage.findFirst({
+        where: {
+          userId: req.user.id,
+          accountId: account.id,
+          conversationId: conversationId ? Number(conversationId) : null,
+          toEmail,
+        },
+      });
+
+      let row;
+
+      if (existing) {
+        // ✅ Update existing
+        row = await prisma.scheduledMessage.update({
+          where: { id: existing.id },
+          data: {
+            subject,
+            bodyHtml,
+            sendAt: new Date(sendAt),
+            attachments: attachments || null,
+            status: "pending",
+            isFollowedUp: false, // 🔥 reset follow-up
+          },
+        });
+      } else {
+        // ✅ Create new
+        row = await prisma.scheduledMessage.create({
+          data: {
+            userId: req.user.id,
+            accountId: account.id,
+            conversationId: conversationId ? Number(conversationId) : null,
+            toEmail,
+            subject,
+            bodyHtml,
+            sendAt: new Date(sendAt),
+            attachments: attachments || null,
+            status: "pending",
+            isFollowedUp: false,
+          },
+        });
+      }
+
+      scheduledResults.push(row);
+    }
+
+    // 4️⃣ Response
+    return res.json({
+      success: true,
+      message:
+        scheduledResults.length === 1
+          ? "Email scheduled successfully"
+          : `${scheduledResults.length} emails scheduled successfully`,
+      count: scheduledResults.length,
+      data: scheduledResults,
+    });
+  } catch (error) {
+    console.error("❌ Bulk scheduling error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to schedule bulk messages",
+      error: error.message,
+    });
+  }
+});
+
+/* ============================================================
    📅 GET /scheduled-messages → All Pending
    ============================================================ */
 router.get("/", protect, async (req, res) => {
