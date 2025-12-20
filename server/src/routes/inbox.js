@@ -118,6 +118,37 @@ function normalizeAttachment(att) {
     uploadedAt: att.uploadedAt || null,
   };
 }
+async function getEmailsByLeadStatus(leadStatus) {
+  if (!leadStatus) return [];
+
+  const leads = await prisma.leadDetails.findMany({
+    where: {
+      leadStatus: {
+        equals: leadStatus,
+        mode: "insensitive",
+      },
+    },
+    select: {
+      email: true,
+      cc: true,
+    },
+  });
+
+  const emails = new Set();
+
+  leads.forEach((l) => {
+    if (l.email) emails.add(l.email.toLowerCase().trim());
+
+    if (l.cc) {
+      l.cc
+        .split(/[;,]/)
+        .map((e) => e.toLowerCase().trim())
+        .forEach((e) => e && emails.add(e));
+    }
+  });
+
+  return [...emails];
+}
 
 /* ============================================================
    📥 GET Routes
@@ -293,154 +324,459 @@ router.get("/conversation-detail", async (req, res) => {
   }
 });
 
+// router.get("/conversations/:accountId", async (req, res) => {
+//   try {
+//     const accountId = Number(req.params.accountId);
+//     if (!accountId) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "Invalid accountId" });
+//     }
+
+//     const {
+//       folder = "inbox",
+//       sender,
+//       recipient,
+//       subject,
+//       isUnread,
+//       isStarred,
+//       dateFrom,
+//       dateTo,
+//       hasAttachment,
+//       country,
+//       leadStatus, // ✅ ADD THIS
+//       searchEmail,
+//     } = req.query;
+
+//     /* --------------------------------------------------
+//        1️⃣ BUILD RAW SQL CONDITIONS (DYNAMIC)
+//     -------------------------------------------------- */
+//     const conditions = [];
+//     const params = [];
+
+//     // Account (always)
+//     conditions.push(`em."emailAccountId" = $${params.length + 1}`);
+//     params.push(accountId);
+
+//     // Folder
+//     if (folder === "inbox") {
+//       conditions.push(`em.folder = 'inbox'`);
+//       conditions.push(`em.direction = 'received'`);
+//       conditions.push(`em."isTrash" = false`);
+//       conditions.push(`em."isSpam" = false`);
+//       conditions.push(`em."hideInbox" = false`);
+//     } else if (folder === "sent") {
+//       conditions.push(`em.folder = 'sent'`);
+//       conditions.push(`em.direction = 'sent'`);
+//       conditions.push(`em."isTrash" = false`);
+//     }
+
+//     // Sender / Recipient / Search
+//     if (sender || recipient || searchEmail) {
+//       const val = `%${(sender || recipient || searchEmail).toLowerCase()}%`;
+//       conditions.push(`
+//         (
+//           lower(em."fromEmail") LIKE $${params.length + 1}
+//           OR lower(em."toEmail") LIKE $${params.length + 1}
+//           OR lower(em."ccEmail") LIKE $${params.length + 1}
+//         )
+//       `);
+//       params.push(val);
+//     }
+
+//     // Subject
+//     if (subject) {
+//       conditions.push(`lower(em.subject) LIKE $${params.length + 1}`);
+//       params.push(`%${subject.toLowerCase()}%`);
+//     }
+
+//     // Unread
+//     if (isUnread === "true") {
+//       conditions.push(`em."isRead" = false`);
+//     }
+
+//     // Starred
+//     if (isStarred === "true") {
+//       conditions.push(`em."isStarred" = true`);
+//     }
+
+//     // Date range
+//     if (dateFrom) {
+//       conditions.push(`em."sentAt" >= $${params.length + 1}`);
+//       params.push(new Date(dateFrom));
+//     }
+//     if (dateTo) {
+//       conditions.push(`em."sentAt" <= $${params.length + 1}`);
+//       params.push(new Date(dateTo));
+//     }
+
+//     // Attachment
+//     if (hasAttachment === "true") {
+//       conditions.push(`EXISTS (
+//         SELECT 1 FROM "Attachment" a WHERE a."emailMessageId" = em.id
+//       )`);
+//     }
+
+//     // 🌍 COUNTRY (HYBRID – THIS FIXES EVERYTHING)
+//     if (country) {
+//       conditions.push(`
+//         (
+//           lem.country = $${params.length + 1}
+//           OR lem_fallback.country = $${params.length + 1}
+//         )
+//       `);
+//       params.push(country);
+//     }
+//     // 🏷️ LEAD STATUS (case-insensitive)
+//     if (leadStatus) {
+//       conditions.push(`
+//     (
+//       lower(ld."leadStatus") = $${params.length + 1}
+//       OR lower(ld_fallback."leadStatus") = $${params.length + 1}
+//     )
+//   `);
+//       params.push(leadStatus.toLowerCase());
+//     }
+
+//     /* --------------------------------------------------
+//        2️⃣ RAW SQL → MESSAGE IDS
+//     -------------------------------------------------- */
+//     const sql = `
+//   SELECT DISTINCT em.id
+//   FROM "EmailMessage" em
+
+//   -- direct lead (new CRM emails)
+//   LEFT JOIN "LeadDetails" ld
+//     ON ld.id = em."leadDetailId"
+
+//   LEFT JOIN "LeadEmailMeta" lem
+//     ON lem."leadDetailId" = ld.id
+
+//   -- fallback lead (old IMAP emails)
+//   LEFT JOIN "LeadEmailMeta" lem_fallback
+//     ON (
+//       lower(em."fromEmail") = lower(lem_fallback.email)
+//       OR lower(em."toEmail") LIKE '%' || lower(lem_fallback.email) || '%'
+//       OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.email) || '%'
+//       OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.cc) || '%'
+//     )
+
+//   LEFT JOIN "LeadDetails" ld_fallback
+//     ON ld_fallback.id = lem_fallback."leadDetailId"
+
+//   WHERE ${conditions.join(" AND ")}
+
+//   ORDER BY em.id DESC
+// `;
+
+//     const rows = await prisma.$queryRawUnsafe(sql, ...params);
+//     const messageIds = rows.map((r) => r.id);
+
+//     if (messageIds.length === 0) {
+//       return res.json({ success: true, total: 0, data: [] });
+//     }
+
+//     /* --------------------------------------------------
+//        3️⃣ FETCH CONVERSATIONS (CLEAN PRISMA)
+//     -------------------------------------------------- */
+//     const conversations = await prisma.conversation.findMany({
+//       where: {
+//         emailAccountId: accountId,
+//         id: { in: conversationIds }, // 🔥 THIS LINE FIXES EVERYTHING
+//       },
+//       include: {
+//         messages: {
+//           orderBy: { sentAt: "desc" },
+//           take: 1,
+//           include: {
+//             leadDetail: { include: { leadEmailMeta: true } },
+//           },
+//         },
+//       },
+//       orderBy: { lastMessageAt: "desc" },
+//     });
+
+//     /* --------------------------------------------------
+//        4️⃣ FORMAT RESPONSE
+//     -------------------------------------------------- */
+//     const result = conversations.map((conv) => {
+//       const m = conv.messages[0];
+//       return {
+//         conversationId: conv.id,
+//         subject: conv.subject || "(No Subject)",
+//         displayEmail:
+//           m.direction === "received"
+//             ? m.fromEmail
+//             : m.toEmail?.split(",")[0] || "Unknown",
+//         initiatorEmail: conv.initiatorEmail,
+//         lastSenderEmail: m.fromEmail,
+//         lastDate: conv.lastMessageAt,
+//         lastBody: m.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+//         unreadCount: conv.unreadCount,
+//         messageCount: conv.messageCount,
+//         isStarred: conv.isStarred,
+//         country:
+//           m.leadDetail?.leadEmailMeta?.country || m.leadDetail?.country || null,
+//       };
+//     });
+
+//     return res.json({ success: true, total: result.length, data: result });
+//   } catch (err) {
+//     console.error("🔥 Inbox filter error:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to load conversations",
+//       error: err.message,
+//     });
+//   }
+// });
+// ============================================================
+// 📥 GET: Inbox Conversations (FINAL – LeadStatus Fixed)
+// ============================================================
 router.get("/conversations/:accountId", async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
-    const folder = (req.query.folder || "inbox").toLowerCase();
-    const searchEmail = req.query.searchEmail || "";
-
     if (!accountId) {
       return res
         .status(400)
-        .json({ success: false, message: "Missing accountId" });
+        .json({ success: false, message: "Invalid accountId" });
     }
 
-    // ------------------------------------------------------------
-    // 1️⃣ BUILD STRICT WHERE CLAUSE
-    // ------------------------------------------------------------
-    let whereClause = {
-      emailAccountId: accountId,
-      conversationId: { not: null },
-    };
+    const {
+      folder = "inbox",
+      sender,
+      recipient,
+      subject,
+      isUnread,
+      isStarred,
+      dateFrom,
+      dateTo,
+      hasAttachment,
+      country,
+      leadStatus, // ✅ handled OUTSIDE SQL
+      searchEmail,
+    } = req.query;
 
-    // 🔥 1. APPLY STRICT FOLDER & TRASH SEPARATION LOGIC
+    /* ==================================================
+       1️⃣ BUILD SQL CONDITIONS (NO leadStatus here)
+    ================================================== */
+    const conditions = [];
+    const params = [];
+
+    // account
+    conditions.push(`em."emailAccountId" = $${params.length + 1}`);
+    params.push(accountId);
+
+    // folder
     if (folder === "inbox") {
-      whereClause.folder = "inbox"; // Check folder name from IMAP sync
-      whereClause.direction = "received"; // Inbox = ONLY received
-      whereClause.hideInbox = false; // 🔥 CRITICAL: Only show non-trashed messages
-      whereClause.isTrash = false;
-      whereClause.isSpam = false;
+      conditions.push(`
+        em.folder = 'inbox'
+        AND em.direction = 'received'
+        AND em."isTrash" = false
+        AND em."isSpam" = false
+        AND em."hideInbox" = false
+      `);
     } else if (folder === "sent") {
-      whereClause.folder = "sent";
-      whereClause.direction = "sent";
-      whereClause.hideInbox = false; // Don't show sent items that were "deleted"
-      whereClause.isTrash = false;
-      whereClause.isSpam = false;
+      conditions.push(`
+        em.folder = 'sent'
+        AND em.direction = 'sent'
+        AND em."isTrash" = false
+      `);
     } else if (folder === "spam") {
-      whereClause.folder = "spam"; // Show messages from Spam folder
-      whereClause.hideInbox = false; // Usually spam isn't "trashed" yet
+      conditions.push(`em.folder = 'spam'`);
     } else if (folder === "trash") {
-      // 🔥 Trash folder logic:
-      whereClause.isTrash = true; // Must be marked as trash
-      whereClause.hideTrash = false; // 🔥 CRITICAL: Filter out permanently deleted items
+      conditions.push(`em."isTrash" = true`);
     }
 
-    // Include UI filters
-    if (req.query.sender)
-      whereClause.fromEmail = {
-        contains: req.query.sender,
-        mode: "insensitive",
-      };
-    if (req.query.subject)
-      whereClause.subject = {
-        contains: req.query.subject,
-        mode: "insensitive",
-      };
-    if (req.query.isUnread === "true") whereClause.isRead = false;
+    // sender / recipient / search
+    if (sender || recipient || searchEmail) {
+      const val = `%${(sender || recipient || searchEmail)
+        .toLowerCase()
+        .trim()}%`;
+      conditions.push(`
+        (
+          lower(em."fromEmail") LIKE $${params.length + 1}
+          OR lower(em."toEmail") LIKE $${params.length + 1}
+          OR lower(em."ccEmail") LIKE $${params.length + 1}
+        )
+      `);
+      params.push(val);
+    }
 
-    // ------------------------------------------------------------
-    // 2️⃣ FETCH CONVERSATIONS FROM DATABASE
-    // ------------------------------------------------------------
+    // subject
+    if (subject) {
+      conditions.push(`lower(em.subject) LIKE $${params.length + 1}`);
+      params.push(`%${subject.toLowerCase()}%`);
+    }
+
+    // unread
+    if (isUnread === "true") {
+      conditions.push(`em."isRead" = false`);
+    }
+
+    // starred
+    if (isStarred === "true") {
+      conditions.push(`em."isStarred" = true`);
+    }
+
+    // date range
+    if (dateFrom) {
+      conditions.push(`em."sentAt" >= $${params.length + 1}`);
+      params.push(new Date(dateFrom));
+    }
+    if (dateTo) {
+      conditions.push(`em."sentAt" <= $${params.length + 1}`);
+      params.push(new Date(dateTo));
+    }
+
+    // attachment
+    if (hasAttachment === "true") {
+      conditions.push(`
+        EXISTS (
+          SELECT 1 FROM "Attachment" a
+          WHERE a."emailMessageId" = em.id
+        )
+      `);
+    }
+
+    // 🌍 country (KEEP AS-IS)
+    if (country) {
+      conditions.push(`
+        (
+          lem.country = $${params.length + 1}
+          OR lem_fallback.country = $${params.length + 1}
+        )
+      `);
+      params.push(country);
+    }
+
+    /* ==================================================
+       2️⃣ FETCH MESSAGE IDS (RAW SQL)
+    ================================================== */
+    const sql = `
+      SELECT DISTINCT em.id
+      FROM "EmailMessage" em
+
+      LEFT JOIN "LeadDetails" ld
+        ON ld.id = em."leadDetailId"
+
+      LEFT JOIN "LeadEmailMeta" lem
+        ON lem."leadDetailId" = ld.id
+
+      LEFT JOIN "LeadEmailMeta" lem_fallback
+        ON (
+          lower(em."fromEmail") = lower(lem_fallback.email)
+          OR lower(em."toEmail") LIKE '%' || lower(lem_fallback.email) || '%'
+          OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.email) || '%'
+          OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.cc) || '%'
+        )
+
+      WHERE ${conditions.join(" AND ")}
+
+      ORDER BY em.id DESC
+    `;
+
+    const rows = await prisma.$queryRawUnsafe(sql, ...params);
+    const messageIds = rows.map((r) => r.id);
+
+    if (messageIds.length === 0) {
+      return res.json({ success: true, total: 0, data: [] });
+    }
+
+    /* ==================================================
+       3️⃣ FETCH CONVERSATIONS (PRISMA)
+    ================================================== */
     const conversations = await prisma.conversation.findMany({
       where: {
         emailAccountId: accountId,
         messages: {
-          some: whereClause, // Sidebar only shows threads with folder-matched messages
+          some: { id: { in: messageIds } },
         },
       },
       include: {
         messages: {
-          where: whereClause, // Snippets only pull from messages in this folder
           orderBy: { sentAt: "desc" },
           take: 1,
-          include: {
-            leadDetail: { include: { leadEmailMeta: true } },
-          },
         },
       },
       orderBy: { lastMessageAt: "desc" },
     });
 
-    // ------------------------------------------------------------
-    // 3️⃣ FORMAT RESPONSE
-    // ------------------------------------------------------------
-    const result = conversations
-      .filter((conv) => conv.messages.length > 0)
-      .map((conv) => {
-        const latestMsg = conv.messages[0];
+    /* ==================================================
+       4️⃣ FORMAT RESPONSE
+    ================================================== */
+    let result = conversations.map((conv) => {
+      const m = conv.messages[0];
 
-        // Format unread count for received messages in this specific folder
-        const unreadCount = conv.messages.filter(
-          (m) => m.direction === "received" && !m.isRead
-        ).length;
+      return {
+        conversationId: conv.id,
+        subject: conv.subject || "(No Subject)",
+        initiatorEmail: conv.initiatorEmail,
+        lastSenderEmail: m?.fromEmail || null,
+        displayEmail:
+          m?.direction === "received"
+            ? m?.fromEmail
+            : m?.toEmail?.split(",")[0] || "Unknown",
+        lastDate: conv.lastMessageAt,
+        lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+        unreadCount: conv.unreadCount,
+        messageCount: conv.messageCount,
+        isStarred: conv.isStarred,
+      };
+    });
 
-        const country =
-          latestMsg.leadDetail?.leadEmailMeta?.country ||
-          latestMsg.leadDetail?.country ||
-          null;
-        const participants = (conv.participants || "")
-          .split(",")
-          .map((p) => p.trim())
-          .filter(Boolean);
+    /* ==================================================
+       5️⃣ 🔥 LEAD STATUS FILTER (ChatSidebar STYLE)
+    ================================================== */
+    if (leadStatus) {
+      const leads = await prisma.leadDetails.findMany({
+        where: {
+          leadStatus: { equals: leadStatus, mode: "insensitive" },
+        },
+        select: { email: true, cc: true },
+      });
 
-        if (req.query.country && country !== req.query.country) return null;
-        if (searchEmail) {
-          const s = searchEmail.toLowerCase();
-          if (
-            !conv.participants?.toLowerCase().includes(s) &&
-            !conv.initiatorEmail?.toLowerCase().includes(s)
-          )
-            return null;
+      const leadEmails = new Set();
+
+      leads.forEach((l) => {
+        if (l.email) leadEmails.add(l.email.toLowerCase().trim());
+        if (l.cc) {
+          l.cc
+            .split(/[;,]/)
+            .map((e) => e.toLowerCase().trim())
+            .forEach((e) => e && leadEmails.add(e));
         }
+      });
 
-        return {
-          conversationId: conv.id,
-          subject: conv.subject || "(No Subject)",
-          participants,
-          toRecipients: (conv.toRecipients || "")
-            .split(",")
-            .map((p) => p.trim()),
-          primaryRecipient: (conv.toRecipients || "").split(",")[0]?.trim(),
-          initiatorEmail: conv.initiatorEmail,
-          lastDate: conv.lastMessageAt,
-          lastBody: latestMsg.body
-            ? String(latestMsg.body)
-                .replace(/<[^>]+>/g, " ")
-                .replace(/\s+/g, " ")
-                .substring(0, 120)
-            : "",
-          lastSenderEmail: latestMsg.fromEmail,
-          lastDirection: latestMsg.direction,
-          unreadCount,
-          messageCount: conv.messageCount,
-          isStarred: conv.isStarred,
-          country,
-        };
-      })
-      .filter(Boolean);
+      const normalize = (s) =>
+        (s || "").toLowerCase().replace(/<|>|"/g, "").trim();
 
-    return res.json({ success: true, total: result.length, data: result });
+      result = result.filter((conv) => {
+        return (
+          leadEmails.has(normalize(conv.displayEmail)) ||
+          leadEmails.has(normalize(conv.lastSenderEmail)) ||
+          leadEmails.has(normalize(conv.initiatorEmail))
+        );
+      });
+    }
+
+    /* ==================================================
+       6️⃣ RETURN
+    ================================================== */
+    return res.json({
+      success: true,
+      total: result.length,
+      data: result,
+    });
   } catch (err) {
-    console.error("🔥 ERROR /conversations:", err);
+    console.error("🔥 Inbox conversations error:", err);
     return res.status(500).json({
       success: false,
       message: "Failed to load conversations",
-      details: err.message,
+      error: err.message,
     });
   }
 });
-
-/* server/src/routes/inbox.js */
 
 router.get("/conversations/:accountId/stats", async (req, res) => {
   try {
