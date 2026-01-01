@@ -799,7 +799,7 @@ export default function FollowUpPlanner() {
                         onClick={() => handleEmailClick(lead)}
                         className="text-indigo-600 hover:text-indigo-900 font-medium text-sm"
                       >
-                        {lead.email || "Unknown Email"}
+                        {lead.client || "Unknown Email"}
                       </button>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
@@ -889,7 +889,7 @@ export default function FollowUpPlanner() {
                     Lead Details
                   </h2>
                   <p className="text-xs text-white/80 mt-0.5">
-                    {selectedLead.email || "No email provided"}
+                    {selectedLead.client || "No client provided"}
                   </p>
                 </div>
               </div>
@@ -919,7 +919,7 @@ export default function FollowUpPlanner() {
                       Client Email
                     </p>
                     <p className="text-sm font-medium text-gray-900 break-all">
-                      {selectedLead.email || "Not provided"}
+                      {selectedLead.client || "Not provided"}
                     </p>
                   </div>
 
@@ -1439,8 +1439,8 @@ export default function FollowUpPlanner() {
                   </label>
                   <input
                     type="email"
-                    value={editForm.email || ""}
-                    onChange={(e) => handleChange("email", e.target.value)}
+                    value={editForm.client || ""}
+                    onChange={(e) => handleChange("client", e.target.value)}
                     className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
