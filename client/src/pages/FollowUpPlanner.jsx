@@ -22,6 +22,9 @@ import {
   CheckCircle,
   Send,
   Tag,
+  Globe,
+  ExternalLink,
+  Link as LinkIcon,
 } from "lucide-react";
 import FloatingEditWindow from "./components/FloatingEditWindow";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
@@ -48,6 +51,7 @@ export default function FollowUpPlanner() {
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
   const [accounts, setAccounts] = useState([]);
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
 
   const leadStatusOptions = [
     "Invoice Pending",
@@ -120,6 +124,10 @@ export default function FollowUpPlanner() {
       followUpDate: lead.followUpDate
         ? new Date(lead.followUpDate).toISOString().split("T")[0]
         : "",
+      website: lead.website || "",
+      link: lead.link || "",
+      agentName: lead.agentName || "",
+      country: lead.country || "",
     });
     localStorage.setItem("editingLead", JSON.stringify(lead.id));
     localStorage.setItem("editForm", JSON.stringify(lead));
@@ -160,6 +168,10 @@ export default function FollowUpPlanner() {
           result: editForm.result,
           day: editForm.day,
           followUpDate: editForm.followUpDate,
+          website: editForm.website,
+          link: editForm.link,
+          agentName: editForm.agentName,
+          country: editForm.country,
         }),
       });
 
@@ -219,6 +231,8 @@ export default function FollowUpPlanner() {
       "Company",
       "Brand",
       "Deal Value",
+      "Website",
+      "Link",
     ];
     const csvData = filteredFollowups.map((lead) => [
       lead.email || "",
@@ -235,6 +249,8 @@ export default function FollowUpPlanner() {
       lead.company || "",
       lead.brand || "",
       lead.dealValue || "",
+      lead.website || "",
+      lead.link || "",
     ]);
 
     const csvContent = [
@@ -268,11 +284,78 @@ export default function FollowUpPlanner() {
 
     setSelectedLead({
       ...lead,
-      subject: sales?.subject || "No subject",
-      body: sales?.body || "No body",
+      subject: sales?.subject || lead.subject || "No subject",
+      body: sales?.body || lead.body || "No body",
     });
 
+    setIsEditingDetails(false); // ✅ Reset edit state when opening
     setShowDetailModal(true);
+  };
+
+  // ✅ New: Handle opening detail modal from Label Link click
+  const handleLabelLinkClick = async (lead) => {
+    const res = await fetch(
+      `${API_BASE_URL}/api/leads/saleslead-by-email/${lead.email}`
+    );
+    const json = await res.json();
+
+    const sales = json.data;
+
+    setSelectedLead({
+      ...lead,
+      subject: sales?.subject || lead.subject || "No subject",
+      body: sales?.body || lead.body || "No body",
+    });
+
+    setIsEditingDetails(false); // ✅ Reset edit state when opening
+    setShowDetailModal(true);
+  };
+
+  // ✅ Save details from modal
+  const handleSaveLeadDetails = async () => {
+    if (!selectedLead) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/leads/${selectedLead.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client: selectedLead.client,
+          email: selectedLead.email,
+          cc: selectedLead.cc,
+          phone: selectedLead.phone,
+          subject: selectedLead.subject,
+          body: selectedLead.body,
+          response: selectedLead.response,
+          leadStatus: selectedLead.leadStatus,
+          salesperson: selectedLead.salesperson,
+          brand: selectedLead.brand,
+          companyName: selectedLead.companyName,
+          dealValue: selectedLead.dealValue,
+          result: selectedLead.result,
+          website: selectedLead.website,
+          link: selectedLead.link,
+          agentName: selectedLead.agentName,
+          country: selectedLead.country,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        // Update local state
+        setFollowups((prev) =>
+          prev.map((f) => (f.id === selectedLead.id ? { ...selectedLead } : f))
+        );
+
+        alert("✅ Lead details updated successfully!");
+        setIsEditingDetails(false); // ✅ Hide edit button after save
+      } else {
+        alert("❌ Update failed: " + data.message);
+      }
+    } catch (error) {
+      console.error("Error updating lead details:", error);
+      alert("❌ Server error");
+    }
   };
 
   const handleMessageClick = async (lead) => {
@@ -307,8 +390,8 @@ export default function FollowUpPlanner() {
       from: defaultAcc.email || "",
       emailAccountId: defaultAcc.id || "",
       to: lead.email || "",
-      ccList: ccList, // <-- important
-      cc: "", // keep empty (backward compatibility)
+      ccList: ccList,
+      cc: "",
       subject: lead.subject || "",
       body: "",
     });
@@ -328,15 +411,15 @@ export default function FollowUpPlanner() {
 
     // ✅ Convert line breaks to HTML format
     const formattedBody = messageForm.body
-      .replace(/\n/g, "<br>") // Convert all line breaks to <br>
-      .replace(/\s\s+/g, " "); // Optional: clean up extra spaces
+      .replace(/\n/g, "<br>")
+      .replace(/\s\s+/g, " ");
 
     formData.append("from", messageForm.from);
     formData.append("emailAccountId", messageForm.emailAccountId);
     formData.append("to", messageForm.to);
     formData.append("cc", ccString);
     formData.append("subject", messageForm.subject);
-    formData.append("body", formattedBody); // ✅ Use formatted body
+    formData.append("body", formattedBody);
 
     // Attach files
     if (messageForm.attachments) {
@@ -356,7 +439,7 @@ export default function FollowUpPlanner() {
       if (data.success) {
         alert("Mail sent successfully!");
         setShowMessageModal(false);
-        setMessageForm({ to: "", subject: "", body: "", ccList: [] }); // ✅ Reset form
+        setMessageForm({ to: "", subject: "", body: "", ccList: [] });
       } else {
         alert("Failed: " + data.message);
       }
@@ -365,50 +448,6 @@ export default function FollowUpPlanner() {
       alert("Server error");
     }
   };
-
-  // const handleSendMessage = async (e) => {
-  //   e.preventDefault();
-
-  //   const formData = new FormData();
-
-  //   // Convert CC array to string
-  //   const ccString = (messageForm.ccList || [])
-  //     .filter((c) => c.trim() !== "")
-  //     .join(", ");
-
-  //   formData.append("from", messageForm.from);
-  //   formData.append("emailAccountId", messageForm.emailAccountId);
-  //   formData.append("to", messageForm.to);
-  //   formData.append("cc", ccString);
-  //   formData.append("subject", messageForm.subject);
-  //   formData.append("body", messageForm.body);
-
-  //   // Attach files
-  //   if (messageForm.attachments) {
-  //     messageForm.attachments.forEach((file) => {
-  //       formData.append("attachments", file);
-  //     });
-  //   }
-
-  //   try {
-  //     const res = await fetch(`${API_BASE_URL}/api/smtp/send`, {
-  //       method: "POST",
-  //       body: formData,
-  //     });
-
-  //     const data = await res.json();
-
-  //     if (data.success) {
-  //       alert("Mail sent successfully!");
-  //       setShowMessageModal(false);
-  //     } else {
-  //       alert("Failed: " + data.message);
-  //     }
-  //   } catch (err) {
-  //     console.error(err);
-  //     alert("Server error");
-  //   }
-  // };
 
   const filteredFollowups = followups
     .filter((lead) => {
@@ -757,12 +796,12 @@ export default function FollowUpPlanner() {
                   >
                     <div className="flex items-center gap-1">Contact</div>
                   </th>
+                  {/* ✅ NEW: Label Link Column */}
                   <th
                     scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("subject")}
+                    className="px-6 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider"
                   >
-                    <div className="flex items-center gap-1">Subject</div>
+                    <div className="flex items-center gap-1">Label Link</div>
                   </th>
                   <th
                     scope="col"
@@ -808,10 +847,38 @@ export default function FollowUpPlanner() {
                         {lead.phone || "Not provided"}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-700">
-                      <div className="truncate max-w-xs" title={lead.subject}>
-                        {lead.subject || "No subject"}
-                      </div>
+                    {/* ✅ NEW: Label Link Cell */}
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => handleLabelLinkClick(lead)}
+                        className="flex flex-col items-start gap-1 text-sm hover:opacity-80 transition-opacity"
+                      >
+                        {lead.website || lead.link ? (
+                          <>
+                            {lead.website && (
+                              <div className="flex items-center gap-1.5 text-blue-600">
+                                <Globe className="w-3 h-3 flex-shrink-0" />
+                                <span className="text-xs font-medium truncate max-w-[200px]">
+                                  {lead.website}
+                                </span>
+                              </div>
+                            )}
+                            {lead.link && (
+                              <div className="flex items-center gap-1.5 text-purple-600">
+                                <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                                <span className="text-xs font-medium truncate max-w-[200px]">
+                                  {lead.link}
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-xs text-gray-500 italic flex items-center gap-1.5">
+                            <LinkIcon className="w-3 h-3" />
+                            No links available
+                          </span>
+                        )}
+                      </button>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
                       <div className="flex items-center gap-1">
@@ -874,10 +941,10 @@ export default function FollowUpPlanner() {
         )}
       </div>
 
-      {/* Lead Detail Modal - View Only */}
+      {/* ✅ Enhanced Lead Detail Modal with Edit Functionality */}
       {showDetailModal && selectedLead && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl">
+          <div className="bg-white w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-2xl shadow-2xl flex flex-col">
             {/* Header */}
             <div className="sticky top-0 bg-gradient-to-r from-purple-600 to-pink-600 px-4 sm:px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
               <div className="flex items-center gap-3">
@@ -886,22 +953,37 @@ export default function FollowUpPlanner() {
                 </div>
                 <div>
                   <h2 className="text-lg sm:text-xl font-semibold text-white">
-                    Lead Details
+                    Complete Lead Details
                   </h2>
                   <p className="text-xs text-white/80 mt-0.5">
                     {selectedLead.client || "No client provided"}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="text-white/80 hover:text-white transition-colors p-1"
-              >
-                <X size={22} />
-              </button>
+              <div className="flex items-center gap-2">
+                {!isEditingDetails && (
+                  <button
+                    onClick={() => setIsEditingDetails(true)}
+                    className="bg-white/20 hover:bg-white/30 rounded-lg px-4 py-2 flex items-center gap-2 transition-colors text-white"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                    <span>Edit</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setShowDetailModal(false);
+                    setIsEditingDetails(false);
+                  }}
+                  className="text-white/80 hover:text-white transition-colors p-1"
+                >
+                  <X size={22} />
+                </button>
+              </div>
             </div>
 
-            <div className="px-4 sm:px-6 py-5 space-y-6">
+            {/* Body - Scrollable */}
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-6">
               {/* Contact Information Section */}
               <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-4 sm:p-5 border border-indigo-100">
                 <div className="flex items-center gap-2 mb-4">
@@ -918,18 +1000,46 @@ export default function FollowUpPlanner() {
                     <p className="text-xs font-medium text-indigo-600 mb-1">
                       Client Email
                     </p>
-                    <p className="text-sm font-medium text-gray-900 break-all">
-                      {selectedLead.client || "Not provided"}
-                    </p>
+                    {isEditingDetails ? (
+                      <input
+                        type="email"
+                        value={selectedLead.client || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            client: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900 break-all">
+                        {selectedLead.client || "Not provided"}
+                      </p>
+                    )}
                   </div>
 
                   <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-indigo-100/50">
                     <p className="text-xs font-medium text-indigo-600 mb-1">
                       CC Email
                     </p>
-                    <p className="text-sm font-medium text-gray-900 break-all">
-                      {selectedLead.cc || "Not provided"}
-                    </p>
+                    {isEditingDetails ? (
+                      <input
+                        type="text"
+                        value={selectedLead.cc || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            cc: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900 break-all">
+                        {selectedLead.cc || "Not provided"}
+                      </p>
+                    )}
                   </div>
 
                   <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-indigo-100/50">
@@ -939,9 +1049,23 @@ export default function FollowUpPlanner() {
                         Phone
                       </p>
                     </div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedLead.phone || "Not provided"}
-                    </p>
+                    {isEditingDetails ? (
+                      <input
+                        type="tel"
+                        value={selectedLead.phone || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            phone: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedLead.phone || "Not provided"}
+                      </p>
+                    )}
                   </div>
 
                   <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-indigo-100/50">
@@ -951,52 +1075,240 @@ export default function FollowUpPlanner() {
                         Company Name
                       </p>
                     </div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedLead.companyName || "Not provided"}
+                    {isEditingDetails ? (
+                      <input
+                        type="text"
+                        value={selectedLead.companyName || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            companyName: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedLead.companyName || "Not provided"}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-indigo-100/50">
+                    <p className="text-xs font-medium text-indigo-600 mb-1">
+                      Country
                     </p>
+                    {isEditingDetails ? (
+                      <input
+                        type="text"
+                        value={selectedLead.country || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            country: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedLead.country || "Not specified"}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-indigo-100/50">
+                    <p className="text-xs font-medium text-indigo-600 mb-1">
+                      Agent Name
+                    </p>
+                    {isEditingDetails ? (
+                      <input
+                        type="text"
+                        value={selectedLead.agentName || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            agentName: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedLead.agentName || "Not provided"}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Links Section */}
+              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 sm:p-5 border border-purple-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
+                    <LinkIcon className="text-white" size={16} />
+                  </div>
+                  <h3 className="text-base font-semibold text-purple-900">
+                    Website & Links
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-purple-100/50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Globe className="w-3.5 h-3.5 text-purple-600" />
+                      <p className="text-xs font-medium text-purple-600">
+                        Website
+                      </p>
+                    </div>
+                    {isEditingDetails ? (
+                      <input
+                        type="url"
+                        placeholder="https://example.com"
+                        value={selectedLead.website || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            website: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : selectedLead.website ? (
+                      <a
+                        href={selectedLead.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                      >
+                        {selectedLead.website}
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    ) : (
+                      <p className="text-sm text-gray-500 italic">
+                        Not provided
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-purple-100/50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <ExternalLink className="w-3.5 h-3.5 text-purple-600" />
+                      <p className="text-xs font-medium text-purple-600">
+                        Additional Link
+                      </p>
+                    </div>
+                    {isEditingDetails ? (
+                      <input
+                        type="url"
+                        placeholder="https://example.com/resource"
+                        value={selectedLead.link || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            link: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : selectedLead.link ? (
+                      <a
+                        href={selectedLead.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-purple-600 hover:text-purple-700 flex items-center gap-1"
+                      >
+                        {selectedLead.link}
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    ) : (
+                      <p className="text-sm text-gray-500 italic">
+                        Not provided
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Communication Section */}
-              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 sm:p-5 border border-purple-100">
+              <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-4 sm:p-5 border border-blue-100">
                 <div className="flex items-center gap-2 mb-4">
-                  <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                     <MessageSquare className="text-white" size={16} />
                   </div>
-                  <h3 className="text-base font-semibold text-purple-900">
+                  <h3 className="text-base font-semibold text-blue-900">
                     Communication
                   </h3>
                 </div>
 
                 <div className="space-y-4">
-                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-purple-100/50">
-                    <p className="text-xs font-medium text-purple-600 mb-1">
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-blue-100/50">
+                    <p className="text-xs font-medium text-blue-600 mb-1">
                       Subject
                     </p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedLead.subject || "No subject"}
-                    </p>
+                    {isEditingDetails ? (
+                      <input
+                        type="text"
+                        value={selectedLead.subject || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            subject: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedLead.subject || "No subject"}
+                      </p>
+                    )}
                   </div>
-                  
-                  
 
-                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-purple-100/50">
-                    <p className="text-xs font-medium text-purple-600 mb-1">
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-blue-100/50">
+                    <p className="text-xs font-medium text-blue-600 mb-1">
                       Body / Pitch
                     </p>
-                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                      {selectedLead.body || "No body"}
-                    </p>
+                    {isEditingDetails ? (
+                      <textarea
+                        value={selectedLead.body || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            body: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        rows={6}
+                      />
+                    ) : (
+                      <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                        {selectedLead.body || "No body"}
+                      </p>
+                    )}
                   </div>
 
-                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-purple-100/50">
-                    <p className="text-xs font-medium text-purple-600 mb-1">
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-blue-100/50">
+                    <p className="text-xs font-medium text-blue-600 mb-1">
                       Response
                     </p>
-                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                      {selectedLead.response || "No response yet"}
-                    </p>
+                    {isEditingDetails ? (
+                      <textarea
+                        value={selectedLead.response || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            response: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        rows={4}
+                      />
+                    ) : (
+                      <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                        {selectedLead.response || "No response yet"}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1017,50 +1329,65 @@ export default function FollowUpPlanner() {
                     <p className="text-xs font-medium text-pink-600 mb-2">
                       Lead Status
                     </p>
-                    <span
-                      className={`inline-block px-3 py-1.5 rounded-full text-xs font-medium border whitespace-nowrap ${
-                        selectedLead.leadStatus === "Invoice Pending"
-                          ? "bg-amber-100 text-amber-800 border-amber-200"
-                          : selectedLead.leadStatus === "Invoice Cancel"
-                          ? "bg-red-100 text-red-800 border-red-200"
-                          : selectedLead.leadStatus === "Deal"
-                          ? "bg-green-100 text-green-800 border-green-200"
-                          : selectedLead.leadStatus === "Active Client"
-                          ? "bg-blue-100 text-blue-800 border-blue-200"
-                          : selectedLead.leadStatus === "No Response"
-                          ? "bg-gray-100 text-gray-800 border-gray-200"
-                          : selectedLead.leadStatus === "Call"
-                          ? "bg-purple-100 text-purple-800 border-purple-200"
-                          : selectedLead.leadStatus === "1 Reply"
-                          ? "bg-cyan-100 text-cyan-800 border-cyan-200"
-                          : selectedLead.leadStatus === "1 Follow Up"
-                          ? "bg-indigo-100 text-indigo-800 border-indigo-200"
-                          : selectedLead.leadStatus === "2 Follow Up"
-                          ? "bg-pink-100 text-pink-800 border-pink-200"
-                          : selectedLead.leadStatus === "3 Follow Up"
-                          ? "bg-orange-100 text-orange-800 border-orange-200"
-                          : selectedLead.leadStatus === "Sample Pending"
-                          ? "bg-yellow-100 text-yellow-800 border-yellow-200"
-                          : "bg-slate-100 text-slate-800 border-slate-200"
-                      }`}
-                    >
-                      {selectedLead.leadStatus || "Not Set"}
-                    </span>
+                    {isEditingDetails ? (
+                      <select
+                        value={selectedLead.leadStatus || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            leadStatus: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="">Select Status</option>
+                        {leadStatusOptions.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span
+                        className={`inline-block px-3 py-1.5 rounded-full text-xs font-medium border whitespace-nowrap ${getStatusColor(
+                          selectedLead.leadStatus
+                        )}`}
+                      >
+                        {selectedLead.leadStatus || "Not Set"}
+                      </span>
+                    )}
                   </div>
 
                   <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-pink-100/50">
                     <p className="text-xs font-medium text-pink-600 mb-2">
                       Result
                     </p>
-                    <span
-                      className={`inline-block px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${
-                        selectedLead.result === "closed"
-                          ? "bg-green-100 text-green-700 border border-green-200"
-                          : "bg-amber-100 text-amber-700 border border-amber-200"
-                      }`}
-                    >
-                      {selectedLead.result || "pending"}
-                    </span>
+                    {isEditingDetails ? (
+                      <select
+                        value={selectedLead.result || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            result: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="">Select</option>
+                        <option value="pending">Pending</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                    ) : (
+                      <span
+                        className={`inline-block px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${
+                          selectedLead.result === "closed"
+                            ? "bg-green-100 text-green-700 border border-green-200"
+                            : "bg-amber-100 text-amber-700 border border-amber-200"
+                        }`}
+                      >
+                        {selectedLead.result || "pending"}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1084,9 +1411,23 @@ export default function FollowUpPlanner() {
                         Salesperson
                       </p>
                     </div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedLead.salesperson || "Not assigned"}
-                    </p>
+                    {isEditingDetails ? (
+                      <input
+                        type="text"
+                        value={selectedLead.salesperson || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            salesperson: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedLead.salesperson || "Not assigned"}
+                      </p>
+                    )}
                   </div>
 
                   <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-emerald-100/50">
@@ -1096,9 +1437,23 @@ export default function FollowUpPlanner() {
                         Brand
                       </p>
                     </div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedLead.brand || "Not specified"}
-                    </p>
+                    {isEditingDetails ? (
+                      <input
+                        type="text"
+                        value={selectedLead.brand || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            brand: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedLead.brand || "Not specified"}
+                      </p>
+                    )}
                   </div>
 
                   <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-emerald-100/50 sm:col-span-2">
@@ -1108,31 +1463,46 @@ export default function FollowUpPlanner() {
                         Deal Value
                       </p>
                     </div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedLead.dealValue
-                        ? `₹${selectedLead.dealValue}`
-                        : "Not specified"}
-                    </p>
+                    {isEditingDetails ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={selectedLead.dealValue || ""}
+                        onChange={(e) =>
+                          setSelectedLead({
+                            ...selectedLead,
+                            dealValue: e.target.value,
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedLead.dealValue
+                          ? `₹${selectedLead.dealValue}`
+                          : "Not specified"}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Follow-Up Section */}
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 sm:p-5 border border-blue-100">
+              <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl p-4 sm:p-5 border border-indigo-100">
                 <div className="flex items-center gap-2 mb-4">
-                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
                     <Calendar className="text-white" size={16} />
                   </div>
-                  <h3 className="text-base font-semibold text-blue-900">
+                  <h3 className="text-base font-semibold text-indigo-900">
                     Follow-Up
                   </h3>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-blue-100/50">
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-indigo-100/50">
                     <div className="flex items-center gap-2 mb-1">
-                      <Calendar className="w-3.5 h-3.5 text-blue-600" />
-                      <p className="text-xs font-medium text-blue-600">
+                      <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                      <p className="text-xs font-medium text-indigo-600">
                         Follow-Up Date
                       </p>
                     </div>
@@ -1149,10 +1519,10 @@ export default function FollowUpPlanner() {
                     </p>
                   </div>
 
-                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-blue-100/50">
+                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-indigo-100/50">
                     <div className="flex items-center gap-2 mb-1">
-                      <Clock className="w-3.5 h-3.5 text-blue-600" />
-                      <p className="text-xs font-medium text-blue-600">Day</p>
+                      <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                      <p className="text-xs font-medium text-indigo-600">Day</p>
                     </div>
                     <p className="text-sm font-medium text-gray-900">
                       {selectedLead.day || "Not set"}
@@ -1165,26 +1535,29 @@ export default function FollowUpPlanner() {
             {/* Footer Buttons */}
             <div className="sticky bottom-0 bg-gray-50 border-t px-4 sm:px-6 py-4 flex flex-col-reverse sm:flex-row justify-end gap-3 rounded-b-2xl">
               <button
-                onClick={() => setShowDetailModal(false)}
+                onClick={() => {
+                  setShowDetailModal(false);
+                  setIsEditingDetails(false);
+                }}
                 className="w-full sm:w-auto px-5 py-2.5 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
               >
                 Close
               </button>
 
-              {/* <button
-                onClick={() => {
-                  setShowDetailModal(false);
-                  handleEditClick(selectedLead);
-                }}
-                className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-all font-medium shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
-              >
-                <Edit2 size={16} />
-                Edit Lead
-              </button> */}
+              {isEditingDetails && (
+                <button
+                  onClick={handleSaveLeadDetails}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition-all font-medium shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
+                >
+                  <Save size={16} />
+                  Save Changes
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
+
       {/* Send Email Modal */}
       {showMessageModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1418,6 +1791,7 @@ export default function FollowUpPlanner() {
           </div>
         </div>
       )}
+
       {/* Edit Modal */}
       {editingLead && (
         <FloatingEditWindow onClose={handleCancelEdit}>
@@ -1460,22 +1834,83 @@ export default function FollowUpPlanner() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Phone
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.phone || ""}
+                    onChange={(e) => handleChange("phone", e.target.value)}
+                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Country
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.country || ""}
+                    onChange={(e) => handleChange("country", e.target.value)}
+                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Links */}
+            <div>
+              <h3 className="text-sm font-semibold text-purple-900 border-b border-purple-200 pb-2 mb-3">
+                Links & Agent
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Website
+                  </label>
+                  <input
+                    type="url"
+                    value={editForm.website || ""}
+                    onChange={(e) => handleChange("website", e.target.value)}
+                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="https://example.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Link
+                  </label>
+                  <input
+                    type="url"
+                    value={editForm.link || ""}
+                    onChange={(e) => handleChange("link", e.target.value)}
+                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="https://example.com/resource"
+                  />
+                </div>
+              </div>
+
               <div className="mt-3">
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Phone
+                  Agent Name
                 </label>
                 <input
                   type="text"
-                  value={editForm.phone || ""}
-                  onChange={(e) => handleChange("phone", e.target.value)}
-                  className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={editForm.agentName || ""}
+                  onChange={(e) => handleChange("agentName", e.target.value)}
+                  className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
             </div>
 
             {/* Communication */}
             <div>
-              <h3 className="text-sm font-semibold text-purple-900 border-b border-purple-200 pb-2 mb-3">
+              <h3 className="text-sm font-semibold text-blue-900 border-b border-blue-200 pb-2 mb-3">
                 Communication
               </h3>
 
@@ -1488,7 +1923,7 @@ export default function FollowUpPlanner() {
                     type="text"
                     value={editForm.subject || ""}
                     onChange={(e) => handleChange("subject", e.target.value)}
-                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
@@ -1500,7 +1935,7 @@ export default function FollowUpPlanner() {
                     rows="3"
                     value={editForm.body || ""}
                     onChange={(e) => handleChange("body", e.target.value)}
-                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   ></textarea>
                 </div>
 
@@ -1512,7 +1947,7 @@ export default function FollowUpPlanner() {
                     rows="2"
                     value={editForm.response || ""}
                     onChange={(e) => handleChange("response", e.target.value)}
-                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   ></textarea>
                 </div>
               </div>
@@ -1535,19 +1970,7 @@ export default function FollowUpPlanner() {
                     className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                   >
                     <option value="">Select Status</option>
-                    {[
-                      "Invoice Pending",
-                      "Invoice Cancel",
-                      "Deal",
-                      "Active Client",
-                      "No Response",
-                      "1 Reply",
-                      "1 Follow Up",
-                      "2 Follow Up",
-                      "3 Follow Up",
-                      "Call",
-                      "Sample Pending",
-                    ].map((opt) => (
+                    {leadStatusOptions.map((opt) => (
                       <option key={opt}>{opt}</option>
                     ))}
                   </select>

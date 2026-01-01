@@ -78,6 +78,52 @@ router.post("/forward", async (req, res) => {
 /* ==========================================================
    ✅ 2️⃣  Get all leads assigned to a specific salesperson
    ========================================================== */
+// router.get("/assigned/:userId", async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+//     const userIdNum = Number(userId);
+//     if (isNaN(userIdNum)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid user ID format.",
+//       });
+//     }
+
+//     const allLeads = await prisma.leadDetails.findMany({
+//       where: { userId: userIdNum },
+//       include: { user: true },
+//       orderBy: { date: "desc" },
+//     });
+
+//     // ✅ Filter to exclude closed or pending results
+//     const leadsToShow = allLeads.filter((lead) => {
+//       const hasAllThree =
+//         lead.leadStatus?.trim() &&
+//         lead.brand?.trim() &&
+//         lead.salesperson?.trim();
+
+//       const result = lead.result?.trim()?.toLowerCase() || "";
+//       // Show only leads that are not closed or pending
+//       if (result === "closed" || result === "pending") return false;
+
+//       return !hasAllThree || result === "";
+//     });
+
+//     res.json({
+//       success: true,
+//       total: leadsToShow.length,
+//       data: leadsToShow,
+//     });
+//   } catch (error) {
+//     console.error("❌ Error fetching forwarded leads for user:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Error fetching forwarded leads",
+//       error: error.message,
+//     });
+//   }
+// });
+// In your API route (e.g., /api/forwardedLeads/assigned/:userId)
 router.get("/assigned/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -91,11 +137,34 @@ router.get("/assigned/:userId", async (req, res) => {
 
     const allLeads = await prisma.leadDetails.findMany({
       where: { userId: userIdNum },
-      include: { user: true },
+      select: {
+        id: true,
+        date: true,
+        client: true,
+        email: true,
+        cc: true,
+        phone: true,
+        subject: true,
+        body: true,
+        response: true,
+        leadType: true,
+        leadStatus: true,
+        brand: true,
+        country: true,
+        result: true,
+        agentName: true, // ✅ Add agentName
+        website: true,   // ✅ Add website
+        SalesLead: {
+          select: { link: true } // ✅ Add link from SalesLead
+        },
+        user: {
+          select: { name: true }
+        }
+      },
       orderBy: { date: "desc" },
     });
 
-    // ✅ Filter to exclude closed or pending results
+    // Filter leads (existing logic)
     const leadsToShow = allLeads.filter((lead) => {
       const hasAllThree =
         lead.leadStatus?.trim() &&
@@ -103,16 +172,21 @@ router.get("/assigned/:userId", async (req, res) => {
         lead.salesperson?.trim();
 
       const result = lead.result?.trim()?.toLowerCase() || "";
-      // Show only leads that are not closed or pending
       if (result === "closed" || result === "pending") return false;
 
       return !hasAllThree || result === "";
     });
 
+    // Map to include link (flatten SalesLead.link)
+    const leadsWithLink = leadsToShow.map(lead => ({
+      ...lead,
+      link: lead.SalesLead?.link || null
+    }));
+
     res.json({
       success: true,
-      total: leadsToShow.length,
-      data: leadsToShow,
+      total: leadsWithLink.length,
+      data: leadsWithLink,
     });
   } catch (error) {
     console.error("❌ Error fetching forwarded leads for user:", error);
@@ -123,6 +197,7 @@ router.get("/assigned/:userId", async (req, res) => {
     });
   }
 });
+
 
 /* ==========================================================
    ✅ 3️⃣  Update a forwarded lead (status, brand, salesperson, result)
