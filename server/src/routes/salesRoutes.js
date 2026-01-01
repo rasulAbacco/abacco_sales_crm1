@@ -14,30 +14,30 @@ router.post("/leads", async (req, res) => {
     const lead = req.body;
 
     console.log("📩 Incoming Lead CRM payload:", lead);
-
     const newLead = await prisma.salesLead.create({
       data: {
-        // Core identifiers
         client: lead.clientEmail ?? lead.client ?? "Unknown Client",
         email: lead.leadEmail ?? lead.email ?? null,
         cc: lead.ccEmail ?? lead.cc ?? null,
         empId: lead.empId ?? lead.employeeId ?? null,
 
-        // Contact
+        agentName: lead.agentName ?? null,   // ✅ ADD
+        website: lead.website ?? null,       // ✅ ADD
+        link: lead.link ?? null,       // ✅ ADD
+
         phone: lead.phone ?? null,
         country: lead.country ?? null,
 
-        // Content
         subject: lead.subjectLine ?? lead.subject ?? null,
         body: lead.emailPitch ?? lead.body ?? null,
         response: lead.emailResponce ?? lead.response ?? null,
 
-        // Classification
         leadType: lead.leadType ?? null,
         Result: lead.Result ?? null,
 
-        // Metadata
+        date: lead.date ? new Date(lead.date) : null, // ✅ ADD
         createdAt: lead.createdAt ? new Date(lead.createdAt) : new Date(),
+
         leadStatus: "New",
       },
     });
@@ -83,16 +83,27 @@ router.post("/leads/bulk", async (req, res) => {
       email: lead.leadEmail ?? lead.email ?? null,
       cc: lead.ccEmail ?? lead.cc ?? null,
       empId: lead.empId ?? lead.employeeId ?? null,
+
+      agentName: lead.agentName ?? null,   // ✅ ADD
+      website: lead.website ?? null,
+      link: lead.link ?? null,  // ✅ ADD
+
       phone: lead.phone ?? null,
       country: lead.country ?? null,
+
       subject: lead.subjectLine ?? lead.subject ?? null,
       body: lead.emailPitch ?? lead.body ?? null,
       response: lead.emailResponce ?? lead.response ?? null,
+
       leadType: lead.leadType ?? null,
       Result: lead.Result ?? null,
+
+      date: lead.date ? new Date(lead.date) : null, // ✅ ADD
       createdAt: lead.createdAt ? new Date(lead.createdAt) : new Date(),
+
       leadStatus: "New",
     }));
+
 
     await prisma.salesLead.createMany({
       data: formattedLeads,
