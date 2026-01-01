@@ -68,6 +68,40 @@ async function findConversationId(prisma, parsed) {
    🔥 HELPER: CREATE MISSING CONVERSATION
    Prevents "Foreign Key" crashes if thread doesn't exist
 ====================================================== */
+// async function createNewConversation(
+//   prisma,
+//   account,
+//   parsed,
+//   messageId,
+//   fromEmail,
+//   toEmail
+// ) {
+//   try {
+//     const subject = parsed.subject || "(No Subject)";
+//     const sentAt = parsed.date || new Date();
+
+//     const newConv = await prisma.conversation.create({
+//       data: {
+//         id: messageId, // Start the thread with this Message ID
+//         emailAccountId: account.id,
+//         subject,
+//         participants: [fromEmail, toEmail].filter(Boolean).join(","),
+//         toRecipients: toEmail,
+//         initiatorEmail: fromEmail,
+//         lastMessageAt: sentAt,
+//         messageCount: 1,
+//         unreadCount: 1,
+//       },
+//     });
+//     return newConv.id;
+//   } catch (err) {
+//     // If it exists (Race condition), return the ID anyway
+//     if (err.code === "P2002") {
+//       return messageId;
+//     }
+//     throw err;
+//   }
+// }
 async function createNewConversation(
   prisma,
   account,
@@ -80,10 +114,22 @@ async function createNewConversation(
     const subject = parsed.subject || "(No Subject)";
     const sentAt = parsed.date || new Date();
 
+    // 🔥 FIX: Ensure account.id is a Number, as your schema defines it as Int
+    const accountId = Number(account.id);
+
+    // Optional: Safety check to verify account exists before proceeding
+    const accountExists = await prisma.emailAccount.findUnique({
+      where: { id: accountId },
+    });
+
+    if (!accountExists) {
+      throw new Error(`EmailAccount with ID ${accountId} not found.`);
+    }
+
     const newConv = await prisma.conversation.create({
       data: {
-        id: messageId, // Start the thread with this Message ID
-        emailAccountId: account.id,
+        id: messageId,
+        emailAccountId: accountId, // Use the verified ID
         subject,
         participants: [fromEmail, toEmail].filter(Boolean).join(","),
         toRecipients: toEmail,
@@ -95,10 +141,7 @@ async function createNewConversation(
     });
     return newConv.id;
   } catch (err) {
-    // If it exists (Race condition), return the ID anyway
-    if (err.code === "P2002") {
-      return messageId;
-    }
+    if (err.code === "P2002") return messageId;
     throw err;
   }
 }
@@ -371,7 +414,6 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
     }
   }
 }
-
 
 /* ======================================================
    CORE: SYNC IMAP ACCOUNT

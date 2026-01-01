@@ -212,7 +212,7 @@ export default function AddAccountModal({ onClose, onAdded }) {
   // 🎨 UI
   // ==========================================================
   return (
-   <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999999] p-4">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999999] p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 rounded-t-2xl flex justify-between items-center">

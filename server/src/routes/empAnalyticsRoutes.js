@@ -76,6 +76,20 @@ function buildRangeFromQuery({ period, year, month, from, to }) {
    IMPORTANT:
    NEW employeeWhere() — USE USER RELATIONS ONLY
 -------------------------------------------------------*/
+// function employeeWhere(userId, extra = {}) {
+//   const cleaned = {};
+//   Object.keys(extra).forEach((k) => {
+//     if (extra[k] !== undefined) cleaned[k] = extra[k];
+//   });
+
+//   return {
+//     ...cleaned,
+//     OR: [
+//       { userId: userId }, // LeadDetails belongs to this user
+//       { salesLead: { userId: userId } }, // Lead belongs to SalesLead by this user
+//     ],
+//   };
+// }
 function employeeWhere(userId, extra = {}) {
   const cleaned = {};
   Object.keys(extra).forEach((k) => {
@@ -85,12 +99,11 @@ function employeeWhere(userId, extra = {}) {
   return {
     ...cleaned,
     OR: [
-      { userId: userId }, // LeadDetails belongs to this user
-      { salesLead: { userId: userId } }, // Lead belongs to SalesLead by this user
+      { userId: userId },
+      { SalesLead: { some: { userId: userId } } }, // ✅ Capitalized and added 'some' for array relation
     ],
   };
 }
-
 /* ------------------------------------------------------
    Dashboard
 -------------------------------------------------------*/
@@ -204,7 +217,6 @@ router.get("/leads/status", async (req, res) => {
   }
 });
 
-
 /* -----------------------
    Leads by Type
 ------------------------*/
@@ -278,7 +290,18 @@ router.get("/leads/monthly", async (req, res) => {
     });
 
     const monthNames = [
-      "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
     ];
 
     const counts = new Array(12).fill(0);
@@ -301,7 +324,6 @@ router.get("/leads/monthly", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 
 /* -----------------------
    Leads by Country
@@ -347,5 +369,5 @@ router.get("/leads/country", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
- 
+
 export default router;
