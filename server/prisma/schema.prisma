@@ -410,20 +410,24 @@ model Attachment {
 model SalesLead {
   id Int @id @default(autoincrement())
 
-  client   String
-  email    String?
-  cc       String?
-  empId    String?
-  phone    String?
-  country  String?
-  subject  String?
-  body     String?
-  response String?
-  leadType String?
-  Result   String?
+  client    String
+  email     String?
+  cc        String?
+  empId     String?
+  agentName String? // ✅ ADD
+  website   String?
+  link      String? // ✅ ADD
+  phone     String?
+  country   String?
+  subject   String?
+  body      String?
+  response  String?
+  leadType  String?
+  Result    String?
 
-  createdAt  DateTime @default(now())
-  leadStatus String   @default("New")
+  date       DateTime? // ✅ ADD (actual lead date)
+  createdAt  DateTime  @default(now())
+  leadStatus String    @default("New")
 
   userId          Int?
   leadDetailsId   Int?
@@ -443,11 +447,17 @@ model SalesLead {
 model LeadDetails {
   id Int @id @default(autoincrement())
 
-  date       DateTime?
+  // ─────────────────────────────────────
+  // Core lead data (from SalesLead)
+  // ─────────────────────────────────────
+  date       DateTime? // actual lead contact date
   client     String
   email      String
   cc         String?
   empId      String?
+  agentName  String? // ✅ NEW
+  website    String? // ✅ NEW
+  link       String?
   phone      String?
   subject    String?
   body       String?
@@ -455,6 +465,9 @@ model LeadDetails {
   leadType   String?
   leadStatus String?   @default("New")
 
+  // ─────────────────────────────────────
+  // Enrichment / CRM fields
+  // ─────────────────────────────────────
   brand        String?
   country      String?
   salesperson  String?
@@ -467,6 +480,9 @@ model LeadDetails {
   followUpHistory Json?
   dealValue       Float?
 
+  // ─────────────────────────────────────
+  // System fields
+  // ─────────────────────────────────────
   createdAt   DateTime @default(now())
   lastUpdated DateTime @updatedAt
 
@@ -475,6 +491,9 @@ model LeadDetails {
 
   userId Int?
 
+  // ─────────────────────────────────────
+  // Relations
+  // ─────────────────────────────────────
   messages      EmailMessage[]
   user          User?          @relation(fields: [userId], references: [id])
   leadEmailMeta LeadEmailMeta?
