@@ -150,8 +150,6 @@ router.get("/leads", async (req, res) => {
 
 export default router;
 
-
-
 // import express from "express";
 // import prisma from "../prismaClient.js";
 
