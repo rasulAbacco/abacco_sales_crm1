@@ -26,7 +26,7 @@ export default function EnhancedScheduleModal({
   onScheduleSuccess,
 }) {
   const [sendAt, setSendAt] = useState("");
-  const [sendTime, setSendTime] = useState("10:00");
+  const [sendTime, setSendTime] = useState("");
   const [customStatuses, setCustomStatuses] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [selectedLeadStatus, setSelectedLeadStatus] = useState("");
@@ -58,15 +58,12 @@ export default function EnhancedScheduleModal({
     ...customStatuses.map((s) => s.name),
   ];
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchCustomStatuses();
-      // Set default date to tomorrow
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      setSendAt(tomorrow.toISOString().split("T")[0]);
-    }
-  }, [isOpen]);
+useEffect(() => {
+  if (isOpen) {
+    fetchCustomStatuses();
+    // 🔥 REMOVED: Default date setting
+  }
+}, [isOpen]);
 
   useEffect(() => {
     if (selectedLeadStatus) {

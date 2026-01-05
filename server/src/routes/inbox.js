@@ -963,15 +963,20 @@ router.get("/download/:uid/:filename", async (req, res) => {
 });
 
 /* 🔍 GET: Search Messages */
+/* 🔍 GET: Dedicated Search Route (Matches From, To, CC, Subject, Body) */
+/* 🔍 GET: Search Messages - FIXED to filter by account */
 router.get("/search", async (req, res) => {
   try {
-    const { query } = req.query;
+    const { query, accountId } = req.query; // 🔥 ADD accountId
+    
     if (!query) return res.json({ success: true, data: [] });
+    if (!accountId) return res.status(400).json({ success: false, message: "accountId required" });
 
     const q = query.toLowerCase();
 
     const messages = await prisma.emailMessage.findMany({
       where: {
+        emailAccountId: Number(accountId), // 🔥 FILTER BY ACCOUNT
         OR: [
           { fromEmail: { contains: q, mode: "insensitive" } },
           { toEmail: { contains: q, mode: "insensitive" } },
@@ -980,7 +985,6 @@ router.get("/search", async (req, res) => {
           { body: { contains: q, mode: "insensitive" } },
         ],
       },
-      include: { emailAccount: true },
       orderBy: { sentAt: "desc" },
     });
 

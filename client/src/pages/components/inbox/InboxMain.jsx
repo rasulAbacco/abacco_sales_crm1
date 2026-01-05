@@ -55,13 +55,13 @@ export default function InboxMain() {
     fetchAccounts();
   }, []);
 
-  // 🔥 FIX: Fetch conversations when account/folder changes
-  useEffect(() => {
-    if (!selectedAccount || !selectedFolder) return;
-    if (activeView === "today") return;
+  // // 🔥 FIX: Fetch conversations when account/folder changes
+  // useEffect(() => {
+  //   if (!selectedAccount || !selectedFolder) return;
+  //   if (activeView === "today") return;
 
-    fetchConversations();
-  }, [selectedAccount, selectedFolder, activeView, filters, searchEmail]);
+  //   fetchConversations();
+  // }, [selectedAccount, selectedFolder, activeView, filters, searchEmail]);
 
   const fetchAccounts = async () => {
     try {
@@ -148,6 +148,80 @@ export default function InboxMain() {
   //     setLoading(false);
   //   }
   // };
+  // =========================================================================
+  // 1️⃣ NEW: Dedicated Function for Search Bar
+  // Uses your specific backend route: /api/inbox/search
+  // =========================================================================
+  const fetchSearchResults = async () => {
+    // If search is empty or we haven't selected an account, stop.
+    if (!searchEmail || searchEmail.trim() === "" || !selectedAccount) return;
+
+    try {
+      setLoading(true);
+      console.log("🔍 Executing Search Bar Logic for:", searchEmail);
+
+      // 🔥 FIX: Pass accountId to backend
+      const res = await api.get(`${API_BASE_URL}/api/inbox/search`, {
+        params: {
+          query: searchEmail,
+          accountId: selectedAccount.id, // 🔥 ADD THIS
+        },
+      });
+
+      const rawMessages = res.data?.data || [];
+
+      // 🧠 TRANSFORMATION: Group messages by Conversation ID
+      const uniqueConversations = new Map();
+
+      rawMessages.forEach((msg) => {
+        // 🔥 NO LONGER NEEDED - backend filters by account now
+        // if (msg.emailAccountId !== selectedAccount.id) return;
+
+        const convId = msg.conversationId;
+
+        if (
+          !uniqueConversations.has(convId) ||
+          new Date(msg.sentAt) >
+            new Date(uniqueConversations.get(convId).sentAt)
+        ) {
+          uniqueConversations.set(convId, msg);
+        }
+      });
+
+      // Format the data so ConversationList.jsx can read it
+      const formattedResults = Array.from(uniqueConversations.values()).map(
+        (msg) => ({
+          conversationId: msg.conversationId,
+          subject: msg.subject || "(No Subject)",
+          initiatorEmail: msg.fromEmail,
+          lastSenderEmail: msg.fromEmail,
+          displayEmail:
+            msg.direction === "sent"
+              ? `To: ${msg.toEmail?.split(",")[0]}`
+              : msg.fromEmail,
+          lastDate: msg.sentAt,
+          lastBody: msg.body
+            ? msg.body.replace(/<[^>]*>/g, "").substring(0, 100)
+            : "",
+          unreadCount: 0,
+          messageCount: 1,
+          isStarred: false,
+        })
+      );
+
+      setConversations(formattedResults);
+    } catch (error) {
+      console.error("Search failed:", error);
+      setConversations([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // =========================================================================
+  // 2️⃣ EXISTING: Function for Filter Section
+  // This logic is completely UNTOUCHED as requested.
+  // =========================================================================
   const fetchConversations = async () => {
     if (!selectedAccount || activeView === "today") return;
 
@@ -158,8 +232,7 @@ export default function InboxMain() {
         folder: selectedFolder,
       };
 
-      if (searchEmail) params.search = searchEmail;
-
+      // Existing Filter Logic (Only runs when search bar is empty)
       if (filters.leadStatus) params.leadStatus = filters.leadStatus;
       if (filters.country) params.country = filters.country;
       if (filters.sender) params.sender = filters.sender;
@@ -171,7 +244,7 @@ export default function InboxMain() {
       if (filters.isUnread) params.isUnread = true;
       if (filters.isStarred) params.isStarred = true;
 
-      console.log("📥 Fetching conversations with params:", params);
+      console.log("📥 Fetching Standard Filters with params:", params);
 
       const res = await api.get(
         `${API_BASE_URL}/api/inbox/conversations/${selectedAccount.id}`,
@@ -186,6 +259,23 @@ export default function InboxMain() {
       setLoading(false);
     }
   };
+
+  // =========================================================================
+  // 3️⃣ UPDATED: useEffect to switch between Search Mode and Normal Mode
+  // =========================================================================
+  useEffect(() => {
+    if (!selectedAccount || !selectedFolder) return;
+    if (activeView === "today") return;
+
+    // 🔥 DECISION LOGIC:
+    // If there is text in the search bar -> Use fetchSearchResults (Filter 1)
+    // If the search bar is empty       -> Use fetchConversations (Filter 2)
+    if (searchEmail && searchEmail.trim() !== "") {
+      fetchSearchResults();
+    } else {
+      fetchConversations();
+    }
+  }, [selectedAccount, selectedFolder, activeView, filters, searchEmail]);
 
   const handleAccountSelect = (account) => {
     setSelectedAccount(account);
