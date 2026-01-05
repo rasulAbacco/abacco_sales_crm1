@@ -39,10 +39,10 @@ const server = http.createServer(app);
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN
   ? process.env.CLIENT_ORIGIN.split(",").map((o) => o.trim())
   : [
-    "http://localhost:5175",
-    "https://abaccosales.onrender.com",
-    "https://sales.clienthubsolutions.com",
-  ];
+      "http://localhost:5175",
+      "https://abaccosales.onrender.com",
+      "https://sales.clienthubsolutions.com",
+    ];
 
 app.use(
   cors({
@@ -122,6 +122,8 @@ import empAnalyticsRoutes from "./src/routes/empAnalyticsRoutes.js";
 import cleanupAccountRoutes from "./src/routes/cleanupAccount.js";
 import imapDownload from "./src/routes/imapDownload.js";
 import leadEmailMetaRoutes from "./src/routes/leadEmailMeta.js";
+import customStatusRoutes from "./src/routes/customStatusRoutes.js";
+import emailTemplatesRoutes from "./src/routes/Emailtemplatesroutes.js";
 
 app.get("/", (req, res) => {
   res.send("🚀 Sales CRM Backend API (IMAP + Real-time Inbox)");
@@ -131,6 +133,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/leads", leadRoutes);
+app.use("/api/customStatus", customStatusRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/salespersons", salespersonsRoute);
 app.use("/api/email", emailRoutes);
@@ -155,6 +158,7 @@ app.use("/api/external", externalEmployeeRoutes);
 app.use("/api/empAnalytics", protect, empAnalyticsRoutes);
 app.use("/api/cleanup-account", cleanupAccountRoutes);
 app.use("/api/lead-email-meta", leadEmailMetaRoutes);
+app.use("/api/email-templates", emailTemplatesRoutes);
 
 /* ==========================================================
    🧪 Manual IMAP Sync Endpoint

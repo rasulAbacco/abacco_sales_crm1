@@ -246,7 +246,8 @@ export default function ConversationList({
                       onChange={(e) => {
                         e.stopPropagation();
                         toggleSelectConversation({
-                          conversationId: conversation.conversationId,
+                          conversationId:
+                            conversation.conversationId || conversation.id,
                           clientEmail,
                           subject: conversation.subject,
                         });

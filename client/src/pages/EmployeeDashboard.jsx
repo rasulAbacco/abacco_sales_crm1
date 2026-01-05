@@ -7,7 +7,8 @@ import InboxPage from "./Inbox";
 import FollowUpPlanner from "./FollowUpPlanner";
 import LeadEmployeeList from "./LeadEmployeeList";
 import ClientReplies from "./ClientReplies";
-// import EmpOverAllDashboard from "./EmpOverAllDashboard";
+import MessageTemplates from "./MessageTemplates";
+import EmployeeDashboards from "./EmployeeDashboards";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -20,8 +21,8 @@ import {
   MessageSquare,
   LogOut,
   User,
+  FileText,
 } from "lucide-react";
-import EmployeeDashboards from "./EmployeeDashboards";
 
 export default function EmployeeDashboard() {
   const [activeTab, setActiveTab] = useState(
@@ -88,6 +89,12 @@ export default function EmployeeDashboard() {
       label: "Follow-Up Planner",
       icon: Calendar,
       description: "Schedule tasks",
+    },
+    {
+      id: "message-templates",
+      label: "Message Templates",
+      icon: FileText,
+      description: "Email templates",
     },
   ];
 
@@ -212,36 +219,15 @@ export default function EmployeeDashboard() {
           isHovered ? "ml-64" : "ml-16"
         }`}
       >
-        {/* Top Bar */}
-        {/* <header className="h-16 bg-white border-b border-gray-100 flex items-center px-6 sticky top-0 z-40">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-sm">
-              {(() => {
-                const Icon = tabs.find((t) => t.id === activeTab)?.icon;
-                return Icon ? <Icon className="w-5 h-5 text-white" /> : null;
-              })()}
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">
-                {tabs.find((t) => t.id === activeTab)?.label}
-              </h1>
-              <p className="text-xs text-gray-500">
-                {tabs.find((t) => t.id === activeTab)?.description}
-              </p>
-            </div>
-          </div>
-        </header> */}
-
         {/* Content Area */}
-        {/* <div className="h-[calc(100vh-4rem)] overflow-y-auto bg-gray-50 relative"> */}
         <div className="min-h-screen bg-gray-50">
-          {/* {activeTab === "dashboard" && <EmpOverAllDashboard />} */}
           {activeTab === "dashboard" && <EmployeeDashboards />}
           {activeTab === "forwarded-leads" && <Forwardedlead leads={leads} />}
           {activeTab === "overall-details" && <OverAlldetails />}
           {activeTab === "pending-details" && <Pending />}
           {activeTab === "inbox" && <InboxPage />}
           {activeTab === "follow-up-planner" && <FollowUpPlanner />}
+          {activeTab === "message-templates" && <MessageTemplates />}
           {activeTab === "total-employee" && <LeadEmployeeList />}
 
           {/* Floating edit window always rendered if editingLead exists */}

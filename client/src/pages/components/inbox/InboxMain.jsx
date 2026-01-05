@@ -4,7 +4,7 @@ import InboxHeader from "./Inboxheader.jsx";
 import ConversationList from "./ConversationList";
 import MessageView from "./MessageView.jsx";
 import AddAccountManager from "./AccountManager.jsx";
-import ScheduleModal from "./ScheduleModal.jsx";
+import ScheduleModal from "./Enhancedschedulemodal.jsx";
 import { api } from "../../../pages/api.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
@@ -57,12 +57,11 @@ export default function InboxMain() {
 
   // 🔥 FIX: Fetch conversations when account/folder changes
   useEffect(() => {
-    if (activeView === "today") return; // Don't fetch inbox when viewing today
+    if (!selectedAccount || !selectedFolder) return;
+    if (activeView === "today") return;
 
-    if (selectedAccount && selectedFolder) {
-      fetchConversations(); // 🔥 Load ALL conversations by default
-    }
-  }, [selectedAccount, selectedFolder, activeView]);
+    fetchConversations();
+  }, [selectedAccount, selectedFolder, activeView, filters, searchEmail]);
 
   const fetchAccounts = async () => {
     try {
@@ -102,37 +101,75 @@ export default function InboxMain() {
   };
 
   // 🔥 FIX: Proper conversation fetching function
-  const fetchConversations = async (customFilters = null) => {
+  // const fetchConversations = async (customFilters = null) => {
+  //   if (!selectedAccount || activeView === "today") return;
+
+  //   try {
+  //     setLoading(true);
+
+  //     const appliedFilters = customFilters || filters;
+
+  //     // 🔥 Only include non-empty filters
+  //     const params = {
+  //       folder: selectedFolder,
+  //     };
+
+  //     // Add search if present
+  //     if (searchEmail) {
+  //       params.search = searchEmail;
+  //     }
+
+  //     // 🔥 Only add filters that have values
+  //     if (appliedFilters.leadStatus)
+  //       params.leadStatus = appliedFilters.leadStatus;
+  //     if (appliedFilters.country) params.country = appliedFilters.country;
+  //     if (appliedFilters.sender) params.sender = appliedFilters.sender;
+  //     if (appliedFilters.recipient) params.recipient = appliedFilters.recipient;
+  //     if (appliedFilters.subject) params.subject = appliedFilters.subject;
+  //     if (appliedFilters.dateFrom) params.dateFrom = appliedFilters.dateFrom;
+  //     if (appliedFilters.dateTo) params.dateTo = appliedFilters.dateTo;
+  //     if (appliedFilters.hasAttachment)
+  //       params.hasAttachment = appliedFilters.hasAttachment;
+  //     if (appliedFilters.isUnread) params.isUnread = appliedFilters.isUnread;
+  //     if (appliedFilters.isStarred) params.isStarred = appliedFilters.isStarred;
+
+  //     console.log("📥 Fetching conversations with params:", params);
+
+  //     const res = await api.get(
+  //       `${API_BASE_URL}/api/inbox/conversations/${selectedAccount.id}`,
+  //       { params }
+  //     );
+
+  //     setConversations(res.data?.data || []);
+  //   } catch (error) {
+  //     console.error("Failed to fetch conversations:", error);
+  //     setConversations([]);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+  const fetchConversations = async () => {
     if (!selectedAccount || activeView === "today") return;
 
     try {
       setLoading(true);
 
-      const appliedFilters = customFilters || filters;
-
-      // 🔥 Only include non-empty filters
       const params = {
         folder: selectedFolder,
       };
 
-      // Add search if present
-      if (searchEmail) {
-        params.search = searchEmail;
-      }
+      if (searchEmail) params.search = searchEmail;
 
-      // 🔥 Only add filters that have values
-      if (appliedFilters.leadStatus)
-        params.leadStatus = appliedFilters.leadStatus;
-      if (appliedFilters.country) params.country = appliedFilters.country;
-      if (appliedFilters.sender) params.sender = appliedFilters.sender;
-      if (appliedFilters.recipient) params.recipient = appliedFilters.recipient;
-      if (appliedFilters.subject) params.subject = appliedFilters.subject;
-      if (appliedFilters.dateFrom) params.dateFrom = appliedFilters.dateFrom;
-      if (appliedFilters.dateTo) params.dateTo = appliedFilters.dateTo;
-      if (appliedFilters.hasAttachment)
-        params.hasAttachment = appliedFilters.hasAttachment;
-      if (appliedFilters.isUnread) params.isUnread = appliedFilters.isUnread;
-      if (appliedFilters.isStarred) params.isStarred = appliedFilters.isStarred;
+      if (filters.leadStatus) params.leadStatus = filters.leadStatus;
+      if (filters.country) params.country = filters.country;
+      if (filters.sender) params.sender = filters.sender;
+      if (filters.recipient) params.recipient = filters.recipient;
+      if (filters.subject) params.subject = filters.subject;
+      if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+      if (filters.dateTo) params.dateTo = filters.dateTo;
+      if (filters.hasAttachment) params.hasAttachment = true;
+      if (filters.isUnread) params.isUnread = true;
+      if (filters.isStarred) params.isStarred = true;
 
       console.log("📥 Fetching conversations with params:", params);
 
@@ -171,17 +208,10 @@ export default function InboxMain() {
     console.log("📌 Applying filters:", newFilters);
     setActiveView("inbox"); // Force inbox view
     setFilters(newFilters); // Update state
-    fetchConversations(newFilters); // Fetch with new filters
   };
 
   const handleSearchEmail = (email) => {
-    setSearchEmail(email);
-    // Trigger search after a slight delay
-    setTimeout(() => {
-      if (selectedAccount) {
-        fetchConversations();
-      }
-    }, 300);
+    setSearchEmail(email); // useEffect will handle fetch
   };
 
   const handleAddAccount = () => {
@@ -205,7 +235,6 @@ export default function InboxMain() {
     }); // Clear filters
     await fetchTodayFollowUps();
   };
-
   const fetchTodayFollowUps = async () => {
     try {
       setLoading(true);
@@ -213,7 +242,7 @@ export default function InboxMain() {
       const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
 
       const formatted = res.data.map((msg) => ({
-        conversationId: msg.conversationId,
+        conversationId: msg.conversationId || `scheduled-${msg.id}`, // ✅ Use unique ID
         subject: msg.subject || "(No subject)",
         senderName: msg.toEmail?.split("@")[0] || "Follow-up",
         senderEmail: msg.toEmail,
@@ -223,6 +252,8 @@ export default function InboxMain() {
         lastBody: msg.bodyHtml,
         unreadCount: 0,
         isScheduled: true,
+        // ✅ ADD: Pass the full scheduled message data
+        scheduledMessageData: msg,
       }));
 
       setConversations(formatted);
@@ -344,7 +375,7 @@ export default function InboxMain() {
         />
       )}
 
-      {showScheduleModal && (
+      {/* {showScheduleModal && (
         <ScheduleModal
           onClose={() => {
             setShowScheduleModal(false);
@@ -353,6 +384,18 @@ export default function InboxMain() {
           }}
           account={selectedAccount}
           selectedConversations={selectedConversations}
+        />
+      )} */}
+      {showScheduleModal && (
+        <ScheduleModal
+          isOpen={showScheduleModal}
+          selectedAccount={selectedAccount}
+          selectedConversations={selectedConversations}
+          onClose={() => {
+            setShowScheduleModal(false);
+            setIsScheduleMode(false);
+            setSelectedConversations([]);
+          }}
         />
       )}
     </div>

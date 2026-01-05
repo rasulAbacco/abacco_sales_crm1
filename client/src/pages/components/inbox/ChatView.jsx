@@ -746,34 +746,93 @@ export default function ChatView({ selectedAccount, clientEmail, onBack, selecte
     setIsComposerOpen(true)
   }
 
-  const handleReplyAll = (msg) => {
-    const myEmail = selectedAccount.email.toLowerCase()
+  // const handleReplyAll = (msg) => {
+  //   const myEmail = selectedAccount.email.toLowerCase()
 
-    // Always send TO the sender of selected message
-    const toEmail = msg.fromEmail.toLowerCase()
+  //   // Always send TO the sender of selected message
+  //   const toEmail = msg.fromEmail.toLowerCase()
 
-    // CC should include ALL conversation participants except main TO
-    const ccEmails = participants.filter((email) => email !== toEmail && email !== myEmail)
+  //   // CC should include ALL conversation participants except main TO
+  //   const ccEmails = participants.filter((email) => email !== toEmail && email !== myEmail)
 
-    // Build UI
-    setComposeMode("reply-all")
-    setReplyAllSourceMsg(msg)
-    setFromEmail(selectedAccount.email)
-    setForwardTo(msg.fromEmail)
-    setCcList(ccEmails.length > 0 ? ccEmails : [""])
-    setSubject(msg.subject?.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`)
+  //   // Build UI
+  //   setComposeMode("reply-all")
+  //   setReplyAllSourceMsg(msg)
+  //   setFromEmail(selectedAccount.email)
+  //   setForwardTo(msg.fromEmail)
+  //   setCcList(ccEmails.length > 0 ? ccEmails : [""])
+  //   setSubject(msg.subject?.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`)
 
-    // quoted message
-    const quoted = `
-    <div style="margin-top:10px;padding-left:10px;border-left:3px solid #dadce0;">
-      <b>On ${new Date(msg.sentAt).toLocaleString()}</b>
-      <a href="mailto:${msg.fromEmail}">${msg.fromEmail}</a> wrote:
+  //   // quoted message
+  //   const quoted = `
+  //   <div style="margin-top:10px;padding-left:10px;border-left:3px solid #dadce0;">
+  //     <b>On ${new Date(msg.sentAt).toLocaleString()}</b>
+  //     <a href="mailto:${msg.fromEmail}">${msg.fromEmail}</a> wrote:
+  //     <div>${msg.body}</div>
+  //   </div>
+  // `
+  //   setReplyInfo(quoted)
+  //   setIsComposerOpen(true)
+  // }
+const handleReplyAll = (msg) => {
+  const myEmail = selectedAccount.email.toLowerCase();
+
+  let toEmail = "";
+  let ccEmails = [];
+
+  // 🔑 CASE 1: RECEIVED MESSAGE
+  if (msg.direction === "received") {
+    // Reply-All → TO = sender
+    toEmail = msg.fromEmail.toLowerCase();
+
+    // CC = everyone except sender & me
+    ccEmails = participants.filter(
+      (email) =>
+        email.toLowerCase() !== toEmail && email.toLowerCase() !== myEmail
+    );
+  }
+
+  // 🔑 CASE 2: SENT MESSAGE
+  else if (msg.direction === "sent") {
+    // Reply-All → TO = original recipient(s)
+    toEmail = msg.toEmail.toLowerCase();
+
+    // CC = original CC list (exclude me if present)
+    if (msg.ccEmail) {
+      ccEmails = msg.ccEmail
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter((email) => email !== myEmail);
+    }
+  }
+
+  // ---------------- UI SETUP ----------------
+  setComposeMode("reply-all");
+  setReplyAllSourceMsg(msg);
+  setFromEmail(selectedAccount.email);
+  setForwardTo(toEmail);
+  setCcList(ccEmails.length > 0 ? ccEmails : [""]);
+
+  setSubject(
+    msg.subject?.toLowerCase().startsWith("re:")
+      ? msg.subject
+      : `Re: ${msg.subject}`
+  );
+
+  // ---------------- QUOTED MESSAGE ----------------
+  const quoted = `
+    <div style="margin-top:12px;padding-left:12px;border-left:3px solid #dadce0;">
+      <div style="font-size:12px;color:#555;margin-bottom:6px;">
+        On ${new Date(msg.sentAt).toLocaleString()},
+        <a href="mailto:${msg.fromEmail}">${msg.fromEmail}</a> wrote:
+      </div>
       <div>${msg.body}</div>
     </div>
-  `
-    setReplyInfo(quoted)
-    setIsComposerOpen(true)
-  }
+  `;
+
+  setReplyInfo(quoted);
+  setIsComposerOpen(true);
+};
 
   const handleForwardMessage = (msg) => {
     // 🧠 Build forwarded message block

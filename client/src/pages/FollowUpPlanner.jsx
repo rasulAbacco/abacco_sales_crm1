@@ -27,6 +27,8 @@ import {
   Link as LinkIcon,
 } from "lucide-react";
 import FloatingEditWindow from "./components/FloatingEditWindow";
+import CustomStatusManager from "../components/Customstatusmanager";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export default function FollowUpPlanner() {
@@ -66,8 +68,28 @@ export default function FollowUpPlanner() {
     "Call",
     "Sample Pending",
   ];
+  const DEFAULT_LEAD_STATUSES = [
+    "Invoice Pending",
+    "Invoice Cancel",
+    "Deal",
+    "Active Client",
+    "No Response",
+    "1 Reply",
+    "1 Follow Up",
+    "2 Follow Up",
+    "3 Follow Up",
+    "Call",
+    "Sample Pending",
+  ];
+  const [customStatuses, setCustomStatuses] = useState([]);
+  const [showStatusManager, setShowStatusManager] = useState(false);
 
-  const resultOptions = ["pending", "closed"];
+  const allLeadStatuses = [
+    ...DEFAULT_LEAD_STATUSES,
+    ...customStatuses.map((s) => s.name),
+  ];
+
+  // const resultOptions = ["pending", "closed"];
 
   const getStatusColor = (status) => {
     const colors = {
@@ -101,6 +123,22 @@ export default function FollowUpPlanner() {
       }
     };
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    const fetchCustomStatuses = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/customStatus`);
+        const json = await res.json();
+        if (json.success) {
+          setCustomStatuses(json.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch custom statuses", err);
+      }
+    };
+
+    fetchCustomStatuses();
   }, []);
 
   const handleEditClick = (lead) => {
@@ -703,10 +741,9 @@ export default function FollowUpPlanner() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 bg-white/70 backdrop-blur-md border border-slate-300/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm min-w-[180px]"
           >
             <option value="all">All Statuses</option>
-            {leadStatusOptions.map((status) => (
+            {allLeadStatuses.map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>
@@ -1325,36 +1362,19 @@ export default function FollowUpPlanner() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-pink-100/50">
-                    <p className="text-xs font-medium text-pink-600 mb-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-pink-600">
                       Lead Status
                     </p>
-                    {isEditingDetails ? (
-                      <select
-                        value={selectedLead.leadStatus || ""}
-                        onChange={(e) =>
-                          setSelectedLead({
-                            ...selectedLead,
-                            leadStatus: e.target.value,
-                          })
-                        }
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+
+                    {isEditingDetails && (
+                      <button
+                        type="button"
+                        onClick={() => setShowStatusManager(true)}
+                        className="text-xs text-indigo-600 hover:underline"
                       >
-                        <option value="">Select Status</option>
-                        {leadStatusOptions.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span
-                        className={`inline-block px-3 py-1.5 rounded-full text-xs font-medium border whitespace-nowrap ${getStatusColor(
-                          selectedLead.leadStatus
-                        )}`}
-                      >
-                        {selectedLead.leadStatus || "Not Set"}
-                      </span>
+                        + Manage Status
+                      </button>
                     )}
                   </div>
 
@@ -1961,17 +1981,31 @@ export default function FollowUpPlanner() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Lead Status
-                  </label>
+                  {/* HEADER WITH MANAGE BUTTON */}
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-slate-700">
+                      Lead Status
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowStatusManager(true)}
+                      className="text-xs text-indigo-600 hover:underline"
+                    >
+                      + Manage Status
+                    </button>
+                  </div>
+
+                  {/* DROPDOWN */}
                   <select
                     value={editForm.leadStatus || ""}
                     onChange={(e) => handleChange("leadStatus", e.target.value)}
-                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
                     <option value="">Select Status</option>
-                    {leadStatusOptions.map((opt) => (
-                      <option key={opt}>{opt}</option>
+                    {allLeadStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -2108,6 +2142,25 @@ export default function FollowUpPlanner() {
             </div>
           </form>
         </FloatingEditWindow>
+      )}
+
+      {showStatusManager && (
+        <CustomStatusManager
+          isOpen={showStatusManager}
+          onClose={() => setShowStatusManager(false)}
+          customStatuses={customStatuses}
+          onStatusCreated={(status) =>
+            setCustomStatuses((prev) => [status, ...prev])
+          }
+          onStatusUpdated={(updated) =>
+            setCustomStatuses((prev) =>
+              prev.map((s) => (s.id === updated.id ? updated : s))
+            )
+          }
+          onStatusDeleted={(id) =>
+            setCustomStatuses((prev) => prev.filter((s) => s.id !== id))
+          }
+        />
       )}
     </div>
   );
