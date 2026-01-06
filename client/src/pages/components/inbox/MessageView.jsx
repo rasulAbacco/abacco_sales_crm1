@@ -401,7 +401,7 @@ export default function MessageView({
     const quoted = `
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
     <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
-      <b>From:</b> ${message.fromEmail}<br/>
+      <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
       <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
       <b>To:</b> ${message.toEmail}<br/>
       ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
@@ -437,7 +437,7 @@ export default function MessageView({
     const quoted = `
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
     <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
-      <b>From:</b> ${message.fromEmail}<br/>
+      <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
       <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
       <b>To:</b> ${message.toEmail}<br/>
       ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
@@ -876,7 +876,8 @@ export default function MessageView({
                                       : "text-orange-700"
                                   }`}
                                 >
-                                  {message.fromEmail}
+                                  {message.fromName || message.fromEmail}{" "}
+                                  {/* ✅ NEW CODE: Shows Name if available */}
                                   {isInternal && (
                                     <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-600 text-[10px] rounded uppercase tracking-wider font-bold">
                                       Internal
