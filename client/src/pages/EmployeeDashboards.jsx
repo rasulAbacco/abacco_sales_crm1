@@ -416,7 +416,6 @@ export default function EmployeeDashboards() {
             icon={Clock}
             color="#f59e0b"
           />
-          
         </div>
 
         {/* Charts (Monthly + Status + Type) */}
@@ -470,8 +469,6 @@ export default function EmployeeDashboards() {
             </div>
           </div>
         </div>
-
-         
 
         {/* Summary Card */}
         <div className="mt-8 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl p-6 text-white shadow-lg">

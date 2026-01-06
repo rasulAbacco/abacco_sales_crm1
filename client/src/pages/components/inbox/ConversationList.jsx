@@ -106,14 +106,26 @@ export default function ConversationList({
     }
   };
 
-  const truncateText = (text, maxLength = 80) => {
-    if (!text) return "";
-    const cleanText = text.replace(/<[^>]*>/g, "").trim();
+  // Helper to strip HTML, CSS, and Entities for clean preview
+  const truncateText = (html, maxLength = 80) => {
+    if (!html) return "";
+
+    // 1. Remove <style> and <script> tags AND their content completely
+    // This fixes the "v:* {behavior..." and other hidden code issues
+    let cleanHtml = html.replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, "");
+
+    // 2. Use Browser DOM to strip remaining tags & decode entities (like &nbsp;)
+    const tmp = document.createElement("DIV");
+    tmp.innerHTML = cleanHtml;
+    let cleanText = tmp.textContent || tmp.innerText || "";
+
+    // 3. Collapse multiple spaces/newlines into a single space
+    cleanText = cleanText.replace(/\s+/g, " ").trim();
+
     return cleanText.length > maxLength
       ? cleanText.substring(0, maxLength) + "..."
       : cleanText;
   };
-
   const handleConversationSelect = async (conversation) => {
     // 1. Immediately show the MessageView
     onConversationSelect(conversation);
@@ -207,11 +219,16 @@ export default function ConversationList({
             const isSelected =
               selectedConversation?.conversationId === conversationId;
 
+            // const clientEmail =
+            //   conversation.senderEmail ||
+            //   conversation.primaryRecipient ||
+            //   conversation.lastSender ||
+            //   conversation.initiatorEmail ||
+            //   "Unknown";
+            // 🔥 UPDATE: Use the Name if available, otherwise Email
             const clientEmail =
-              conversation.senderEmail ||
-              conversation.primaryRecipient ||
-              conversation.lastSender ||
-              conversation.initiatorEmail ||
+              conversation.displayName ||
+              conversation.displayEmail ||
               "Unknown";
 
             const hasMultipleParticipants = false;

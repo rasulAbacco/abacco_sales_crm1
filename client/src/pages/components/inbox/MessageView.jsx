@@ -25,6 +25,7 @@ import {
   ChevronUp,
   Clock,
   Edit,
+  RotateCw,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { api } from "../../../pages/api.js";
@@ -781,7 +782,7 @@ export default function MessageView({
                     className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
                     title="Restore to Inbox"
                   >
-                    <Reply className="w-4 h-4 text-blue-600 rotate-180" />
+                    <RotateCw className="w-4 h-4 text-blue-600 rotate-180" />
                   </button>
                   <button
                     onClick={handlePermanentDelete}

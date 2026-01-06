@@ -82,7 +82,6 @@ model EmailAccount {
   // Relations
   User              User               @relation(fields: [userId], references: [id])
   messages          EmailMessage[]
-  conversations     Conversation[]
   scheduledMessages ScheduledMessage[]
   syncStates        SyncState[]
   folders           EmailFolder[]
@@ -136,8 +135,7 @@ model EmailFolder {
 // CONVERSATION - Outlook-style (Message-ID based)
 // ============================================================
 model Conversation {
-  id             String @id // Message-ID from original outbound email
-  emailAccountId Int
+  id String @id // Pure Message-ID (no account prefix)
 
   // Core conversation data
   subject      String
@@ -163,15 +161,14 @@ model Conversation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
-  emailAccount     EmailAccount       @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  // Relations (NO emailAccount relation)
   messages         EmailMessage[]
   tags             ConversationTag[]
   scheduledMessage ScheduledMessage[]
   comments         EmailComment[]
 
-  @@index([emailAccountId])
   @@index([lastMessageAt])
+  @@index([initiatorEmail])
 }
 
 // ============================================================
