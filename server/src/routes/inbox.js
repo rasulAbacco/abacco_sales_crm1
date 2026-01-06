@@ -705,18 +705,34 @@ router.get("/conversations/:accountId", async (req, res) => {
     /* ==================================================
        4️⃣ FORMAT RESPONSE
     ================================================== */
+    /* ==================================================
+       4️⃣ FORMAT RESPONSE
+    ================================================== */
     let result = conversations.map((conv) => {
       const m = conv.messages[0];
+
+      // 🔥 LOGIC: Determine Name vs Email to show in list
+      let displayName = "Unknown";
+      let displayEmail = "Unknown";
+
+      if (m?.direction === "received") {
+        // If received, show Sender Name or Email
+        displayName = m.fromName || m.fromEmail;
+        displayEmail = m.fromEmail;
+      } else {
+        // If sent, show Recipient Name or Email
+        const firstTo = m?.toEmail?.split(",")[0] || "";
+        displayName = m?.toName || firstTo;
+        displayEmail = firstTo;
+      }
 
       return {
         conversationId: conv.id,
         subject: conv.subject || "(No Subject)",
         initiatorEmail: conv.initiatorEmail,
         lastSenderEmail: m?.fromEmail || null,
-        displayEmail:
-          m?.direction === "received"
-            ? m?.fromEmail
-            : m?.toEmail?.split(",")[0] || "Unknown",
+        displayName, // ✅ Sending Name now
+        displayEmail, // ✅ Keeping Email for reference
         lastDate: conv.lastMessageAt,
         lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
         unreadCount: conv.unreadCount,
@@ -968,9 +984,12 @@ router.get("/download/:uid/:filename", async (req, res) => {
 router.get("/search", async (req, res) => {
   try {
     const { query, accountId } = req.query; // 🔥 ADD accountId
-    
+
     if (!query) return res.json({ success: true, data: [] });
-    if (!accountId) return res.status(400).json({ success: false, message: "accountId required" });
+    if (!accountId)
+      return res
+        .status(400)
+        .json({ success: false, message: "accountId required" });
 
     const q = query.toLowerCase();
 

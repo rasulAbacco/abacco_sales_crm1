@@ -33,9 +33,9 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 }
 
 /* ======================================================
-   🔥 HELPER: FIND CONVERSATION
+   🔥 HELPER: FIND CONVERSATION (Account Safe)
 ====================================================== */
-async function findConversationId(prisma, parsed) {
+async function findConversationId(prisma, accountId, parsed) {
   const inReplyTo = parsed.inReplyTo || null;
   let referencesArray = [];
   if (Array.isArray(parsed.references)) {
@@ -44,15 +44,18 @@ async function findConversationId(prisma, parsed) {
     referencesArray = parsed.references.split(/\s+/).filter(Boolean);
   }
 
-  const threadIdsToCheck = [
-    inReplyTo,
-    ...[...referencesArray].reverse(),
-  ].filter(Boolean);
+  // Normalize IDs to match our account-specific format
+  const threadIdsToCheck = [inReplyTo, ...[...referencesArray].reverse()]
+    .filter(Boolean)
+    .map((ref) => `${accountId}-${ref}`); // 🔥 Look for ID prefixed with AccountID
 
   if (threadIdsToCheck.length === 0) return null;
 
   const conversation = await prisma.conversation.findFirst({
-    where: { id: { in: threadIdsToCheck } },
+    where: {
+      emailAccountId: accountId, // strict check
+      id: { in: threadIdsToCheck },
+    },
     select: { id: true },
   });
 
@@ -75,10 +78,12 @@ async function createNewConversation(
     const sentAt = parsed.date || new Date();
     const accountId = Number(account.id);
 
-    // Optimized: No extra DB check here. Prisma throws error if account missing.
+    // 🔥 FIX: Make Conversation ID unique to this account to prevent collisions
+    const uniqueConvId = `${accountId}-${messageId}`;
+
     const newConv = await prisma.conversation.create({
       data: {
-        id: messageId,
+        id: uniqueConvId,
         emailAccountId: accountId,
         subject,
         participants: [fromEmail, toEmail].filter(Boolean).join(","),
@@ -91,7 +96,13 @@ async function createNewConversation(
     });
     return newConv.id;
   } catch (err) {
-    if (err.code === "P2002") return messageId;
+    if (err.code === "P2002") return `${Number(account.id)}-${messageId}`; // Return expected ID if exists
+
+    // 🔥 CRITICAL FIX: If Account is missing (Foreign Key Error), ABORT SYNC
+    if (err.code === "P2003") {
+      throw new Error("ABORT_SYNC_ACCOUNT_MISSING");
+    }
+
     throw err;
   }
 }
@@ -102,18 +113,18 @@ async function createNewConversation(
 async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
   const messageId =
     parsed.messageId || msg.envelope?.messageId || `uid-${msg.uid}`;
+  const accountId = Number(account.id);
 
   // 1️⃣ Check if message exists
   const exists = await prisma.emailMessage.findUnique({
     where: {
       emailAccountId_messageId: {
-        emailAccountId: account.id,
+        emailAccountId: accountId,
         messageId,
       },
     },
   });
 
-  // 🔥 FIX: If message exists but has NO name, update it!
   if (exists) {
     const fromObj = parsed.from?.value?.[0];
     const fromName = fromObj?.name || null;
@@ -125,7 +136,7 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
         data: { fromName },
       });
     }
-    return; // Message handled
+    return;
   }
 
   // 2️⃣ Extract Info
@@ -165,13 +176,13 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
     logErrorToFile(account.email, `Lead match failed: ${err.message}`);
   }
 
-  // 4️⃣ Process Attachments
+  // 4️⃣ Attachments
   let attachmentsMeta = [];
   if (parsed.attachments?.length) {
     for (const att of parsed.attachments) {
       if (!att.content) continue;
       const contentHash = generateHash(att.content);
-      const uniqueKey = `${contentHash}-${account.id}-${Date.now()}`;
+      const uniqueKey = `${contentHash}-${accountId}-${Date.now()}`;
       try {
         const storageUrl = await uploadToR2WithHash(
           att.content,
@@ -195,7 +206,7 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
   }
 
   // 5️⃣ Find/Create Conversation
-  let conversationId = await findConversationId(prisma, parsed);
+  let conversationId = await findConversationId(prisma, accountId, parsed);
   if (!conversationId) {
     try {
       conversationId = await createNewConversation(
@@ -207,6 +218,7 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
         toEmail
       );
     } catch (err) {
+      if (err.message === "ABORT_SYNC_ACCOUNT_MISSING") throw err; // Pass up to stop loop
       logErrorToFile(
         account.email,
         `Failed to create conversation: ${err.message}`
@@ -219,12 +231,12 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
   try {
     await prisma.emailMessage.create({
       data: {
-        emailAccountId: account.id,
+        emailAccountId: accountId,
         conversationId,
         messageId,
         subject: parsed.subject || "(No Subject)",
         fromEmail,
-        fromName, // ✅ Name Saved
+        fromName,
         toEmail,
         toName,
         ccEmail,
@@ -249,6 +261,7 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
       })
       .catch(() => {});
   } catch (err) {
+    if (err.code === "P2003") throw new Error("ABORT_SYNC_ACCOUNT_MISSING"); // Stop if account deleted
     if (err.code !== "P2002")
       logErrorToFile(account.email, `DB Save Error: ${err.message}`);
   }
@@ -262,7 +275,6 @@ const activeSyncs = new Set();
 async function syncImap(prisma, account) {
   if (activeSyncs.has(account.id)) return;
 
-  // ✅ CRITICAL FIX: Verify account exists to prevent zombie processes
   const freshAccount = await prisma.emailAccount.findUnique({
     where: { id: account.id },
   });
@@ -276,25 +288,26 @@ async function syncImap(prisma, account) {
   activeSyncs.add(account.id);
   console.log(`🔄 Syncing: ${account.email}`);
 
-  const client = new ImapFlow({
-    host: account.imapHost,
-    port: account.imapPort || 993,
-    secure: true,
-    auth: {
-      user: account.imapUser || account.email,
-      pass: account.encryptedPass,
-    },
-    tls: { rejectUnauthorized: false },
-    logger: false,
-    socketTimeout: 60000,
-    connectionTimeout: 30000,
-  });
-
-  client.on("error", (err) =>
-    logErrorToFile(account.email, `IMAP Error: ${err.message}`)
-  );
-
+  let client;
   try {
+    client = new ImapFlow({
+      host: account.imapHost,
+      port: account.imapPort || 993,
+      secure: true,
+      auth: {
+        user: account.imapUser || account.email,
+        pass: account.encryptedPass,
+      },
+      tls: { rejectUnauthorized: false },
+      logger: false,
+      socketTimeout: 90000,
+      connectionTimeout: 60000,
+    });
+
+    client.on("error", (err) =>
+      logErrorToFile(account.email, `IMAP Error: ${err.message}`)
+    );
+
     await client.connect();
     const mailboxes = await client.list();
     const foldersToSync = [];
@@ -317,9 +330,11 @@ async function syncImap(prisma, account) {
         const uids = await client.search({ all: true });
         if (uids.length > 0) {
           const reversedUids = uids.reverse();
-          const SMALL_BATCH = 2;
-          const STABLE_LIMIT = pLimit(1);
-          const THROTTLE_MS = 1000;
+
+          // 🔥 Speed settings
+          const SMALL_BATCH = 10;
+          const STABLE_LIMIT = pLimit(5);
+          const THROTTLE_MS = 150;
 
           for (let i = 0; i < reversedUids.length; i += SMALL_BATCH) {
             if (!client.usable) break;
@@ -355,6 +370,14 @@ async function syncImap(prisma, account) {
                       type
                     );
                   } catch (e) {
+                    // 🔥 CRITICAL: If account deleted, STOP EVERYTHING
+                    if (e.message === "ABORT_SYNC_ACCOUNT_MISSING") {
+                      console.log(
+                        `🛑 Stopping sync for ${account.email} - Account deleted.`
+                      );
+                      client.close();
+                      throw e; // Break the batch loop
+                    }
                     if (e.message.includes("Connection not available"))
                       client.close();
                     logErrorToFile(
@@ -372,7 +395,11 @@ async function syncImap(prisma, account) {
       }
     }
   } catch (err) {
-    logErrorToFile(account.email, `Sync Fatal Error: ${err.message}`);
+    if (err.message === "ABORT_SYNC_ACCOUNT_MISSING") {
+      // Suppress error log, just exit gracefully
+    } else {
+      logErrorToFile(account.email, `Sync Fatal Error: ${err.message}`);
+    }
   } finally {
     activeSyncs.delete(account.id);
     if (client) await client.logout().catch(() => {});
