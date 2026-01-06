@@ -256,6 +256,56 @@ router.get("/today", protect, async (req, res) => {
   }
 });
 
+
+/* ============================================================
+   📧 GET /scheduled-messages/:id/conversation → GET FULL CONVERSATION
+   ============================================================ */
+router.get("/:id/conversation", protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get scheduled message
+    const scheduled = await prisma.scheduledMessage.findFirst({
+      where: {
+        id: parseInt(id),
+        userId: req.user.id,
+      },
+    });
+
+    if (!scheduled) {
+      return res.status(404).json({
+        success: false,
+        message: "Scheduled message not found",
+      });
+    }
+
+    // Fetch FULL conversation history
+    const messages = await prisma.emailMessage.findMany({
+      where: {
+        conversationId: scheduled.conversationId,
+        emailAccountId: scheduled.accountId,
+      },
+      orderBy: { sentAt: "asc" },
+      include: {
+        attachments: true,
+        tags: { include: { Tag: true } },
+      },
+    });
+
+    return res.json({
+      success: true,
+      scheduledMessage: scheduled, // The draft
+      conversationMessages: messages, // Full history
+    });
+  } catch (err) {
+    console.error("❌ Error fetching scheduled conversation:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch conversation",
+    });
+  }
+});
+
 /* ============================================================
    ✏️ PATCH /scheduled-messages/:id → UPDATE SCHEDULED MESSAGE
    ============================================================ */

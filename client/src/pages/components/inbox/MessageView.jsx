@@ -1,4 +1,4 @@
-// 🔥 FIXED: MessageView.jsx - Scheduled message body now loads correctly into editor
+// 🔥 FIXED: MessageView.jsx - Complete with all functionality
 
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -43,6 +43,7 @@ export default function MessageView({
   const [replyMode, setReplyMode] = useState(null);
   const [replyingToMessageId, setReplyingToMessageId] = useState(null);
   const [editingScheduledId, setEditingScheduledId] = useState(null);
+  const [scheduledDraft, setScheduledDraft] = useState(null);
   const [replyData, setReplyData] = useState({
     from: "",
     to: "",
@@ -59,93 +60,40 @@ export default function MessageView({
   const editorRef = useRef(null);
   const [showQuotedText, setShowQuotedText] = useState(false);
 
-  // 🔥 Function to detect if message is an editable scheduled message
-  const isEditableScheduled = (message) => {
-    return (
-      message.isScheduled === true &&
-      (message.status === "pending" || !message.status)
-    );
+  // ============================================================
+  // HELPER FUNCTIONS
+  // ============================================================
+
+  const isEditableScheduled = () => {
+    return scheduledDraft && scheduledDraft.status === "pending";
   };
 
-  // 🔥 FIXED: Function to display scheduled messages with proper body handling
-  const displayScheduledMessage = (scheduledData) => {
-    console.log("🔍 Displaying scheduled message:", scheduledData);
-
-    const formattedMessage = {
-      id: scheduledData.id, // 🔥 FIXED: Use actual ID for proper editing
-      conversationId:
-        scheduledData.conversationId || `scheduled-${scheduledData.id}`,
-      messageId: `scheduled-${scheduledData.id}`,
-      fromEmail: selectedAccount.email,
-      fromName: accountUserName || selectedAccount.email,
-      toEmail: scheduledData.toEmail,
-      ccEmail: scheduledData.ccEmail || null,
-      subject: scheduledData.subject || "(No Subject)",
-      body: scheduledData.bodyHtml || scheduledData.body || "", // 🔥 FIXED: Fallback chain
-      bodyHtml: scheduledData.bodyHtml || scheduledData.body || "", // 🔥 FIXED: Fallback chain
-      direction: "sent",
-      sentAt: scheduledData.sendAt,
-      isRead: true,
-      isScheduled: true,
-      status: scheduledData.status || "pending",
-      attachments: scheduledData.attachments
-        ? typeof scheduledData.attachments === "string"
-          ? JSON.parse(scheduledData.attachments)
-          : scheduledData.attachments
-        : [],
-      tags: [],
-    };
-
-    console.log("✅ Formatted scheduled message with body:", {
-      id: formattedMessage.id,
-      bodyLength: formattedMessage.bodyHtml?.length || 0,
-      body: formattedMessage.bodyHtml?.substring(0, 100) + "...",
-    });
-
-    setMessages([formattedMessage]);
-  };
-
-  // ✅ UPDATED: Modified useEffect to handle scheduled messages
-  useEffect(() => {
-    if (selectedConversation && selectedAccount) {
-      setCountry(null);
-
-      // Check if this is a scheduled message
-      if (
-        selectedConversation.isScheduled &&
-        selectedConversation.scheduledMessageData
-      ) {
-        console.log(
-          "📅 Loading scheduled message from conversation:",
-          selectedConversation.scheduledMessageData
-        );
-        displayScheduledMessage(selectedConversation.scheduledMessageData);
-        fetchCountry();
-        fetchAccountUserName();
-      } else {
-        fetchMessages();
-        fetchCountry();
-        fetchAccountUserName();
-        markConversationAsRead();
-      }
-    }
-  }, [selectedConversation, selectedAccount, selectedFolder]);
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      const latestId = messages[0].id;
-      setExpandedMessages({ [latestId]: true });
-    }
-  }, [messages]);
-
-  const markConversationAsRead = async () => {
+  const fetchScheduledConversation = async (scheduledMessageId) => {
     try {
-      await api.post(`${API_BASE_URL}/api/inbox/mark-read-conversation`, {
-        conversationId: selectedConversation.conversationId,
-        accountId: selectedAccount.id,
-      });
+      setLoading(true);
+
+      const response = await api.get(
+        `${API_BASE_URL}/api/scheduled-messages/${scheduledMessageId}/conversation`
+      );
+
+      if (response.data.success) {
+        setMessages(response.data.conversationMessages);
+        setScheduledDraft(response.data.scheduledMessage);
+
+        console.log(
+          "✅ Loaded conversation:",
+          response.data.conversationMessages.length,
+          "messages"
+        );
+        console.log(
+          "✅ Stored scheduled draft:",
+          response.data.scheduledMessage.subject
+        );
+      }
     } catch (error) {
-      console.error("❌ Failed to mark conversation as read:", error);
+      console.error("❌ Error fetching scheduled conversation:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -176,6 +124,17 @@ export default function MessageView({
       console.error("Error fetching messages:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const markConversationAsRead = async () => {
+    try {
+      await api.post(`${API_BASE_URL}/api/inbox/mark-read-conversation`, {
+        conversationId: selectedConversation.conversationId,
+        accountId: selectedAccount.id,
+      });
+    } catch (error) {
+      console.error("❌ Failed to mark conversation as read:", error);
     }
   };
 
@@ -219,6 +178,111 @@ export default function MessageView({
       console.error("Error fetching user name:", error);
     }
   };
+
+  const toggleMessageExpand = (messageId) => {
+    setExpandedMessages((prev) => ({
+      ...prev,
+      [messageId]: !prev[messageId],
+    }));
+  };
+
+  const stripHtmlTags = (html) => {
+    const tmp = document.createElement("DIV");
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || "";
+  };
+
+  const formatSender = (name, email) => {
+    if (name && name.trim() !== "" && name !== email) {
+      return `${name} &lt;${email}&gt;`;
+    }
+    return email;
+  };
+
+  const formatHeaderAddress = (name, email) => {
+    const cleanEmail = email?.trim() || "";
+    const cleanName = name?.trim();
+    return cleanName ? `${cleanName} &lt;${cleanEmail}&gt;` : cleanEmail;
+  };
+
+  const formatLongDate = (dateStr) => {
+    return new Date(dateStr).toLocaleString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const formatDate = (date) => {
+    const messageDate = new Date(date);
+    return messageDate.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+  };
+
+  const formatText = (command) => {
+    document.execCommand(command, false, null);
+    editorRef.current?.focus();
+  };
+
+  const insertLink = () => {
+    const url = prompt("Enter URL:");
+    if (url) {
+      document.execCommand("createLink", false, url);
+    }
+    editorRef.current?.focus();
+  };
+
+  // ============================================================
+  // EFFECTS
+  // ============================================================
+
+  useEffect(() => {
+    if (selectedConversation && selectedAccount) {
+      setCountry(null);
+      setScheduledDraft(null);
+
+      if (
+        selectedConversation.isScheduled &&
+        selectedConversation.scheduledMessageId
+      ) {
+        console.log("📅 Loading FULL conversation for scheduled message");
+        fetchScheduledConversation(selectedConversation.scheduledMessageId);
+      } else {
+        fetchMessages();
+        markConversationAsRead();
+      }
+
+      fetchCountry();
+      fetchAccountUserName();
+    }
+  }, [selectedConversation, selectedAccount, selectedFolder]);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      const latestId = messages[0].id;
+      setExpandedMessages({ [latestId]: true });
+    }
+  }, [messages]);
+
+  // ============================================================
+  // ACTION HANDLERS
+  // ============================================================
 
   const handleTrashClick = async () => {
     const confirmed = window.confirm(
@@ -274,144 +338,23 @@ export default function MessageView({
     if (res.data.success) onBack();
   };
 
-  const toggleMessageExpand = (messageId) => {
-    setExpandedMessages((prev) => ({
-      ...prev,
-      [messageId]: !prev[messageId],
-    }));
-  };
+  // ============================================================
+  // REPLY HANDLERS
+  // ============================================================
 
-  const stripHtmlTags = (html) => {
-    const tmp = document.createElement("DIV");
-    tmp.innerHTML = html;
-    return tmp.textContent || tmp.innerText || "";
-  };
-
-  const formatSender = (name, email) => {
-    if (name && name.trim() !== "" && name !== email) {
-      return `${name} &lt;${email}&gt;`;
-    }
-    return email;
-  };
-
-  const formatHeaderAddress = (name, email) => {
-    const cleanEmail = email?.trim() || "";
-    const cleanName = name?.trim();
-    return cleanName ? `${cleanName} &lt;${cleanEmail}&gt;` : cleanEmail;
-  };
-
-  const formatLongDate = (dateStr) => {
-    return new Date(dateStr).toLocaleString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  // 🔥 Reply handler with scheduled message detection
-  // const handleReply = (type, message) => {
-  //   if (!message) return;
-
-  //   console.log("🔍 handleReply called with:", {
-  //     type,
-  //     messageId: message.id,
-  //     isScheduled: message.isScheduled,
-  //     body: message.bodyHtml?.substring(0, 50),
-  //   });
-
-  //   // 🔥 CRITICAL DECISION POINT: Is this a scheduled message?
-  //   if (isEditableScheduled(message)) {
-  //     handleEditScheduled(type, message);
-  //     return; // Exit early - different flow
-  //   }
-
-  //   // Normal reply flow continues below...
-  //   const originalSender = formatSender(message.fromName, message.fromEmail);
-  //   const sentDate = formatLongDate(message.sentAt);
-  //   const originalTo = message.toEmail;
-  //   const originalCc = message.ccEmail
-  //     ? message.ccEmail.split(",").join("; ")
-  //     : "";
-  //   const originalSubject = message.subject || "(No Subject)";
-
-  //   const outlookHeader = `
-  //     <hr style="border:none; border-top:1px solid #E1E1E1">
-  //     <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-  //       <b>From:</b> ${originalSender}<br>
-  //       <b>Sent:</b> ${sentDate}<br>
-  //       <b>To:</b> ${originalTo}<br>
-  //       ${originalCc ? `<b>Cc:</b> ${originalCc}<br>` : ""}
-  //       <b>Subject:</b> ${originalSubject}
-  //     </div>
-  //     <br>
-  //   `;
-
-  //   const quotedBody = `
-  //     ${outlookHeader}
-  //     <div>
-  //       ${message.bodyHtml || message.body}
-  //     </div>
-  //   `;
-
-  //   setReplyingToMessageId(message.id);
-  //   setReplyMode(type);
-
-  //   const prefix = message.subject?.startsWith("Re:") ? "" : "Re: ";
-  //   const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
-
-  //   let to = message.fromEmail;
-  //   let cc = "";
-
-  //   if (type === "replyAll") {
-  //     to = message.fromEmail;
-
-  //     const otherRecipients = [
-  //       ...(message.toEmail ? message.toEmail.split(",") : []),
-  //       ...(message.ccEmail ? message.ccEmail.split(",") : []),
-  //     ]
-  //       .map((e) => e.trim())
-  //       .filter((e) => e !== selectedAccount.email && e !== message.fromEmail);
-
-  //     cc = [...new Set(otherRecipients)].join(", ");
-  //   }
-
-  //   setReplyData({
-  //     from: selectedAccount.email,
-  //     to: to,
-  //     cc: cc,
-  //     subject: newSubject,
-  //     body: "",
-  //   });
-
-  //   setReplyData((prev) => ({ ...prev, body: quotedBody }));
-  //   setShowQuotedText(true);
-
-  //   setTimeout(() => {
-  //     if (editorRef.current) editorRef.current.innerHTML = "";
-  //   }, 0);
-  // };
   const handleReply = (type, message) => {
     if (!message) return;
 
     console.log("🔍 handleReply:", {
       type,
-      id: message.id,
-      direction: message.direction,
-      isScheduled: message.isScheduled,
+      hasScheduledDraft: !!scheduledDraft,
     });
 
-    // 🔥 1. Scheduled message → edit scheduled flow
-    if (isEditableScheduled(message)) {
-      handleEditScheduled(type, message);
+    if (scheduledDraft && scheduledDraft.status === "pending") {
+      handleReplyWithScheduledDraft(type, message);
       return;
     }
 
-    // -----------------------------
-    // 2. NORMAL REPLY FLOW
-    // -----------------------------
     setReplyingToMessageId(message.id);
     setReplyMode(type);
 
@@ -426,9 +369,7 @@ export default function MessageView({
     let to = "";
     let cc = "";
 
-    // 🔑 CASE A: RECEIVED MESSAGE
     if (message.direction === "received") {
-      // Reply → sender
       to = message.fromEmail;
 
       if (type === "replyAll") {
@@ -445,11 +386,7 @@ export default function MessageView({
 
         cc = [...new Set(recipients)].join(", ");
       }
-    }
-
-    // 🔑 CASE B: SENT MESSAGE
-    else if (message.direction === "sent") {
-      // Reply → original TO
+    } else if (message.direction === "sent") {
       to = message.toEmail;
 
       if (type === "replyAll" && message.ccEmail) {
@@ -461,9 +398,6 @@ export default function MessageView({
       }
     }
 
-    // -----------------------------
-    // 3. QUOTED CONTENT (Outlook style)
-    // -----------------------------
     const quoted = `
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
     <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
@@ -477,9 +411,6 @@ export default function MessageView({
     </div>
   `;
 
-    // -----------------------------
-    // 4. SET REPLY DATA
-    // -----------------------------
     setReplyData({
       from: selectedAccount.email,
       to,
@@ -490,7 +421,6 @@ export default function MessageView({
 
     setShowQuotedText(true);
 
-    // Clear editor so user types above quote
     setTimeout(() => {
       if (editorRef.current) {
         editorRef.current.innerHTML = "";
@@ -499,63 +429,77 @@ export default function MessageView({
     }, 0);
   };
 
-
-  // 🔥 FIXED: Handle editing scheduled messages with proper body loading
-  const handleEditScheduled = (actionType, message) => {
-    console.log("🔥 handleEditScheduled called with message:", {
-      id: message.id,
-      bodyHtml: message.bodyHtml?.substring(0, 100),
-      body: message.body?.substring(0, 100),
-      bodyLength: (message.bodyHtml || message.body || "").length,
-    });
-
-    // Set mode to indicate we're editing a scheduled message
+  const handleReplyWithScheduledDraft = (type, message) => {
     setReplyMode("editScheduled");
-    setEditingScheduledId(message.id);
-    setReplyingToMessageId(message.id);
+    setEditingScheduledId(scheduledDraft.id);
 
-    // 🔥 KEY DIFFERENCE: Load SCHEDULED content, not previous email
+    // Build quoted conversation history (same as normal reply)
+    const quoted = `
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
+    <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
+      <b>From:</b> ${message.fromEmail}<br/>
+      <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
+      <b>To:</b> ${message.toEmail}<br/>
+      ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
+      <b>Subject:</b> ${message.subject || "(No Subject)"}
+      <br/><br/>
+      ${message.bodyHtml || message.body || ""}
+    </div>
+  `;
+
+    // Determine To/Cc based on type
+    let to = scheduledDraft.toEmail;
+    let cc = scheduledDraft.ccEmail || "";
+
+    if (type === "replyAll") {
+      const myEmail = selectedAccount.email.toLowerCase();
+
+      // Get all recipients
+      const recipients = [
+        ...(message.toEmail ? message.toEmail.split(",") : []),
+        ...(message.ccEmail ? message.ccEmail.split(",") : []),
+      ]
+        .map((e) => e.trim())
+        .filter(
+          (e) =>
+            e.toLowerCase() !== myEmail &&
+            e.toLowerCase() !== message.fromEmail.toLowerCase()
+        );
+
+      cc = [...new Set(recipients)].join(", ");
+    }
+
     setReplyData({
       from: selectedAccount.email,
-      to: message.toEmail,
-      cc: message.ccEmail || "",
-      subject: message.subject || "",
-      body: "", // We'll use the editor directly
+      to,
+      cc,
+      subject: scheduledDraft.subject || "",
+      body: quoted, // Store quoted history
     });
 
-    // 🔥 FIXED: Pre-fill editor with scheduled content
+    // Pre-fill editor with SCHEDULED BODY + QUOTED HISTORY
     setTimeout(() => {
       if (editorRef.current) {
-        const bodyContent = message.bodyHtml || message.body || "";
-        console.log(
-          "✅ Setting editor content:",
-          bodyContent.substring(0, 100)
-        );
-        editorRef.current.innerHTML = bodyContent;
+        // Combine scheduled content with quoted history
+        const fullContent = `${scheduledDraft.bodyHtml || ""}${quoted}`;
+        editorRef.current.innerHTML = fullContent;
+
+        // Place cursor at the beginning for easy editing
         editorRef.current.focus();
-
-        // Place cursor at start for immediate editing
-        try {
-          const range = document.createRange();
-          const sel = window.getSelection();
-          if (editorRef.current.childNodes.length > 0) {
-            range.setStart(editorRef.current.childNodes[0], 0);
-          } else {
-            range.setStart(editorRef.current, 0);
-          }
-          range.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } catch (e) {
-          console.error("Cursor positioning error:", e);
+        const range = document.createRange();
+        const sel = window.getSelection();
+        if (editorRef.current.childNodes.length > 0) {
+          range.setStart(editorRef.current.childNodes[0], 0);
+        } else {
+          range.setStart(editorRef.current, 0);
         }
-      } else {
-        console.error("❌ editorRef.current is null!");
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
       }
-    }, 100); // 🔥 Increased timeout to ensure DOM is ready
+    }, 100);
 
-    // Don't show quoted text for scheduled messages
-    setShowQuotedText(false);
+    setShowQuotedText(true); // Enable quoted text section
   };
 
   const handleForward = (type, message) => {
@@ -563,7 +507,6 @@ export default function MessageView({
 
     const fromHeader = formatHeaderAddress(message.fromName, message.fromEmail);
     const toHeader = message.toEmail;
-
     const ccHeader = message.ccEmail
       ? message.ccEmail
           .split(",")
@@ -587,12 +530,9 @@ export default function MessageView({
       <br>
     `;
 
-    const forwardedBody = `
-      ${forwardHeader}
-      <div>
-        ${message.bodyHtml || message.body}
-      </div>
-    `;
+    const forwardedBody = `${forwardHeader}<div>${
+      message.bodyHtml || message.body
+    }</div>`;
 
     setReplyingToMessageId(message.id);
     setReplyMode("forward");
@@ -622,38 +562,10 @@ export default function MessageView({
     }, 0);
   };
 
-  // 🔥 Send handler with scheduled update logic
-  const handleSendReply = async () => {
-    const bodyContent = editorRef.current?.innerHTML || "";
+  // ============================================================
+  // SEND HANDLERS
+  // ============================================================
 
-    if (!bodyContent.trim() || !selectedAccount) {
-      alert("Please enter message content");
-      return;
-    }
-
-    if (!replyData.to.trim()) {
-      alert("Please enter a recipient email address");
-      return;
-    }
-
-    setIsSending(true);
-
-    try {
-      // 🔥 CRITICAL DECISION POINT: Are we updating a scheduled message?
-      if (replyMode === "editScheduled" && editingScheduledId) {
-        await updateScheduledMessage(bodyContent);
-      } else {
-        await sendNormalReply(bodyContent);
-      }
-    } catch (error) {
-      console.error("Error sending message:", error);
-      alert("Failed to send message. Please try again.");
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  // 🔥 Update existing scheduled message
   const updateScheduledMessage = async (bodyContent) => {
     console.log("🔄 Updating scheduled message:", editingScheduledId);
 
@@ -675,24 +587,12 @@ export default function MessageView({
       console.log("✅ Scheduled message updated successfully");
       alert("Scheduled message updated successfully!");
 
-      // Refresh the scheduled message display
-      if (selectedConversation.scheduledMessageData) {
-        // Update the local data
-        const updatedScheduledData = {
-          ...selectedConversation.scheduledMessageData,
-          subject: replyData.subject,
-          bodyHtml: bodyContent,
-          toEmail: replyData.to,
-          ccEmail: replyData.cc || null,
-        };
-        displayScheduledMessage(updatedScheduledData);
-      }
+      await fetchScheduledConversation(editingScheduledId);
 
       closeReplyModal();
     }
   };
 
-  // 🔥 Normal reply sending logic
   const sendNormalReply = async (bodyContent) => {
     let finalBody = bodyContent;
     if (showQuotedText && replyData.body) {
@@ -737,7 +637,35 @@ export default function MessageView({
     }
   };
 
-  // 🔥 Clean modal close
+  const handleSendReply = async () => {
+    const bodyContent = editorRef.current?.innerHTML || "";
+
+    if (!bodyContent.trim() || !selectedAccount) {
+      alert("Please enter message content");
+      return;
+    }
+
+    if (!replyData.to.trim()) {
+      alert("Please enter a recipient email address");
+      return;
+    }
+
+    setIsSending(true);
+
+    try {
+      if (replyMode === "editScheduled" && editingScheduledId) {
+        await updateScheduledMessage(bodyContent);
+      } else {
+        await sendNormalReply(bodyContent);
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+      alert("Failed to send message. Please try again.");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const closeReplyModal = () => {
     setReplyMode(null);
     setReplyingToMessageId(null);
@@ -755,6 +683,10 @@ export default function MessageView({
       editorRef.current.innerHTML = "";
     }
   };
+
+  // ============================================================
+  // ATTACHMENT HANDLERS
+  // ============================================================
 
   const handleAttachmentUpload = (e) => {
     const files = Array.from(e.target.files || []);
@@ -777,43 +709,15 @@ export default function MessageView({
     setAttachments(newAttachments);
   };
 
-  const formatDate = (date) => {
-    const messageDate = new Date(date);
-    return messageDate.toLocaleString([], {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
-  };
-
   const downloadAttachment = (attachment) => {
     if (attachment.storageUrl || attachment.url) {
       window.open(attachment.storageUrl || attachment.url, "_blank");
     }
   };
 
-  const formatText = (command) => {
-    document.execCommand(command, false, null);
-    editorRef.current?.focus();
-  };
-
-  const insertLink = () => {
-    const url = prompt("Enter URL:");
-    if (url) {
-      document.execCommand("createLink", false, url);
-    }
-    editorRef.current?.focus();
-  };
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   if (!selectedConversation) {
     return (
@@ -906,19 +810,19 @@ export default function MessageView({
         </div>
       </div>
 
-      {/* 🔥 Scheduled message banner with edit hint */}
-      {messages.length > 0 && messages[0].isScheduled && (
+      {/* Scheduled message banner */}
+      {scheduledDraft && scheduledDraft.status === "pending" && (
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-600" />
               <span className="text-sm font-medium text-amber-900">
                 Scheduled Email - Will be sent on{" "}
-                {new Date(messages[0].sentAt).toLocaleString()}
+                {new Date(scheduledDraft.sendAt).toLocaleString()}
               </span>
             </div>
             <span className="text-xs text-amber-700">
-              💡 Click Edit Scheduled to modify before sending
+              💡 Click Reply to edit before sending
             </span>
           </div>
         </div>
@@ -936,7 +840,7 @@ export default function MessageView({
               .filter((msg) => {
                 if (selectedFolder === "sent") return msg.direction === "sent";
                 if (["spam", "trash"].includes(selectedFolder)) return true;
-                return msg.direction === "received" || msg.isScheduled;
+                return msg.direction === "received";
               })
               .reverse()
               .map((message) => {
@@ -944,7 +848,6 @@ export default function MessageView({
                 const accountDomain = selectedAccount.email.split("@")[1];
                 const senderDomain = message.fromEmail.split("@")[1];
                 const isInternal = accountDomain === senderDomain;
-                const isScheduled = isEditableScheduled(message);
 
                 return (
                   <div key={message.id} className="relative mb-3">
@@ -953,11 +856,7 @@ export default function MessageView({
                         isInternal
                           ? "bg-white border-blue-100"
                           : "bg-orange-50/20 border-orange-100"
-                      } ${!message.isRead ? "ring-1 ring-blue-400" : ""} ${
-                        message.isScheduled
-                          ? "bg-amber-50/30 border-amber-200"
-                          : ""
-                      }`}
+                      } ${!message.isRead ? "ring-1 ring-blue-400" : ""}`}
                     >
                       <div
                         className="px-6 py-4 cursor-pointer hover:bg-black/5"
@@ -981,11 +880,6 @@ export default function MessageView({
                                   {isInternal && (
                                     <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-600 text-[10px] rounded uppercase tracking-wider font-bold">
                                       Internal
-                                    </span>
-                                  )}
-                                  {message.isScheduled && (
-                                    <span className="ml-2 px-1.5 py-0.5 bg-amber-100 text-amber-600 text-[10px] rounded uppercase tracking-wider font-bold">
-                                      Scheduled
                                     </span>
                                   )}
                                 </span>
@@ -1047,7 +941,6 @@ export default function MessageView({
                       {isExpanded && (
                         <div className="px-6 pb-6">
                           <div className="border-t border-gray-100 pt-4">
-                            {/* 🔥 Button text changes for scheduled messages */}
                             <div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-50">
                               <button
                                 onClick={(e) => {
@@ -1056,7 +949,8 @@ export default function MessageView({
                                 }}
                                 className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 shadow-sm"
                               >
-                                {isScheduled ? (
+                                {scheduledDraft &&
+                                scheduledDraft.status === "pending" ? (
                                   <>
                                     <Edit className="w-3.5 h-3.5" /> Edit
                                     Scheduled
@@ -1068,8 +962,7 @@ export default function MessageView({
                                 )}
                               </button>
 
-                              {/* Only show Reply All/Forward for non-scheduled */}
-                              {!isScheduled && (
+                              {!scheduledDraft && (
                                 <>
                                   <button
                                     onClick={(e) => {
@@ -1161,7 +1054,7 @@ export default function MessageView({
         )}
       </div>
 
-      {/* 🔥 Reply Modal with scheduled message handling */}
+      {/* Reply Modal */}
       {replyMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
@@ -1175,7 +1068,6 @@ export default function MessageView({
                   <ChevronLeft className="w-5 h-5 text-gray-600" />
                 </button>
                 <h3 className="text-lg font-semibold text-gray-900">
-                  {/* 🔥 Dynamic title based on mode */}
                   {replyMode === "editScheduled" && "Edit Scheduled Message"}
                   {replyMode === "reply" && "Reply"}
                   {replyMode === "replyAll" && "Reply All"}
@@ -1290,10 +1182,11 @@ export default function MessageView({
                   </div>
 
                   {/* Editor */}
+                  {/* Editor */}
                   <div
                     ref={editorRef}
                     contentEditable
-                    className="min-h-[200px] max-h-[300px] overflow-y-auto p-4 focus:outline-none"
+                    className="min-h-[200px] max-h-[400px] overflow-y-auto p-4 focus:outline-none"
                     style={{
                       fontFamily: "Calibri, sans-serif",
                       fontSize: "11pt",
@@ -1302,7 +1195,17 @@ export default function MessageView({
                     placeholder="Type your message here..."
                   />
 
-                  {/* 🔥 Only show quoted text for normal replies */}
+                  {/* Quoted Text Section - ALWAYS VISIBLE for scheduled edits */}
+                  {replyMode === "editScheduled" && (
+                    <div className="border-t border-gray-200 bg-gray-50 px-4 py-2">
+                      <p className="text-xs text-gray-500 italic">
+                        ✏️ Edit your scheduled message above. Previous
+                        conversation is included below.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Normal reply quoted text toggle */}
                   {replyMode !== "editScheduled" &&
                     (replyMode === "reply" || replyMode === "replyAll") && (
                       <div className="border-t border-gray-200">
@@ -1392,7 +1295,6 @@ export default function MessageView({
                       ) : (
                         <Send className="w-4 h-4" />
                       )}
-                      {/* 🔥 Dynamic button text */}
                       {replyMode === "editScheduled"
                         ? "Update Schedule"
                         : "Send"}

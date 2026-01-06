@@ -58,12 +58,12 @@ export default function EnhancedScheduleModal({
     ...customStatuses.map((s) => s.name),
   ];
 
-useEffect(() => {
-  if (isOpen) {
-    fetchCustomStatuses();
-    // 🔥 REMOVED: Default date setting
-  }
-}, [isOpen]);
+  useEffect(() => {
+    if (isOpen) {
+      fetchCustomStatuses();
+      // 🔥 REMOVED: Default date setting
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (selectedLeadStatus) {
