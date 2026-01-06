@@ -324,6 +324,9 @@ router.get("/conversation-detail", async (req, res) => {
   }
 });
 
+// ============================================================
+// 📥 GET: Inbox Conversations (FINAL – LeadStatus Fixed)
+// ============================================================
 // router.get("/conversations/:accountId", async (req, res) => {
 //   try {
 //     const accountId = Number(req.params.accountId);
@@ -344,36 +347,46 @@ router.get("/conversation-detail", async (req, res) => {
 //       dateTo,
 //       hasAttachment,
 //       country,
-//       leadStatus, // ✅ ADD THIS
+//       leadStatus, // ✅ handled OUTSIDE SQL
 //       searchEmail,
 //     } = req.query;
 
-//     /* --------------------------------------------------
-//        1️⃣ BUILD RAW SQL CONDITIONS (DYNAMIC)
-//     -------------------------------------------------- */
+//     /* ==================================================
+//        1️⃣ BUILD SQL CONDITIONS (NO leadStatus here)
+//     ================================================== */
 //     const conditions = [];
 //     const params = [];
 
-//     // Account (always)
+//     // account
 //     conditions.push(`em."emailAccountId" = $${params.length + 1}`);
 //     params.push(accountId);
 
-//     // Folder
+//     // folder
 //     if (folder === "inbox") {
-//       conditions.push(`em.folder = 'inbox'`);
-//       conditions.push(`em.direction = 'received'`);
-//       conditions.push(`em."isTrash" = false`);
-//       conditions.push(`em."isSpam" = false`);
-//       conditions.push(`em."hideInbox" = false`);
+//       conditions.push(`
+//         em.folder = 'inbox'
+//         AND em.direction = 'received'
+//         AND em."isTrash" = false
+//         AND em."isSpam" = false
+//         AND em."hideInbox" = false
+//       `);
 //     } else if (folder === "sent") {
-//       conditions.push(`em.folder = 'sent'`);
-//       conditions.push(`em.direction = 'sent'`);
-//       conditions.push(`em."isTrash" = false`);
+//       conditions.push(`
+//         em.folder = 'sent'
+//         AND em.direction = 'sent'
+//         AND em."isTrash" = false
+//       `);
+//     } else if (folder === "spam") {
+//       conditions.push(`em.folder = 'spam'`);
+//     } else if (folder === "trash") {
+//       conditions.push(`em."isTrash" = true`);
 //     }
 
-//     // Sender / Recipient / Search
+//     // sender / recipient / search
 //     if (sender || recipient || searchEmail) {
-//       const val = `%${(sender || recipient || searchEmail).toLowerCase()}%`;
+//       const val = `%${(sender || recipient || searchEmail)
+//         .toLowerCase()
+//         .trim()}%`;
 //       conditions.push(`
 //         (
 //           lower(em."fromEmail") LIKE $${params.length + 1}
@@ -384,23 +397,23 @@ router.get("/conversation-detail", async (req, res) => {
 //       params.push(val);
 //     }
 
-//     // Subject
+//     // subject
 //     if (subject) {
 //       conditions.push(`lower(em.subject) LIKE $${params.length + 1}`);
 //       params.push(`%${subject.toLowerCase()}%`);
 //     }
 
-//     // Unread
+//     // unread
 //     if (isUnread === "true") {
 //       conditions.push(`em."isRead" = false`);
 //     }
 
-//     // Starred
+//     // starred
 //     if (isStarred === "true") {
 //       conditions.push(`em."isStarred" = true`);
 //     }
 
-//     // Date range
+//     // date range
 //     if (dateFrom) {
 //       conditions.push(`em."sentAt" >= $${params.length + 1}`);
 //       params.push(new Date(dateFrom));
@@ -410,14 +423,17 @@ router.get("/conversation-detail", async (req, res) => {
 //       params.push(new Date(dateTo));
 //     }
 
-//     // Attachment
+//     // attachment
 //     if (hasAttachment === "true") {
-//       conditions.push(`EXISTS (
-//         SELECT 1 FROM "Attachment" a WHERE a."emailMessageId" = em.id
-//       )`);
+//       conditions.push(`
+//         EXISTS (
+//           SELECT 1 FROM "Attachment" a
+//           WHERE a."emailMessageId" = em.id
+//         )
+//       `);
 //     }
 
-//     // 🌍 COUNTRY (HYBRID – THIS FIXES EVERYTHING)
+//     // 🌍 country (KEEP AS-IS)
 //     if (country) {
 //       conditions.push(`
 //         (
@@ -427,47 +443,32 @@ router.get("/conversation-detail", async (req, res) => {
 //       `);
 //       params.push(country);
 //     }
-//     // 🏷️ LEAD STATUS (case-insensitive)
-//     if (leadStatus) {
-//       conditions.push(`
-//     (
-//       lower(ld."leadStatus") = $${params.length + 1}
-//       OR lower(ld_fallback."leadStatus") = $${params.length + 1}
-//     )
-//   `);
-//       params.push(leadStatus.toLowerCase());
-//     }
 
-//     /* --------------------------------------------------
-//        2️⃣ RAW SQL → MESSAGE IDS
-//     -------------------------------------------------- */
+//     /* ==================================================
+//        2️⃣ FETCH MESSAGE IDS (RAW SQL)
+//     ================================================== */
 //     const sql = `
-//   SELECT DISTINCT em.id
-//   FROM "EmailMessage" em
+//       SELECT DISTINCT em.id
+//       FROM "EmailMessage" em
 
-//   -- direct lead (new CRM emails)
-//   LEFT JOIN "LeadDetails" ld
-//     ON ld.id = em."leadDetailId"
+//       LEFT JOIN "LeadDetails" ld
+//         ON ld.id = em."leadDetailId"
 
-//   LEFT JOIN "LeadEmailMeta" lem
-//     ON lem."leadDetailId" = ld.id
+//       LEFT JOIN "LeadEmailMeta" lem
+//         ON lem."leadDetailId" = ld.id
 
-//   -- fallback lead (old IMAP emails)
-//   LEFT JOIN "LeadEmailMeta" lem_fallback
-//     ON (
-//       lower(em."fromEmail") = lower(lem_fallback.email)
-//       OR lower(em."toEmail") LIKE '%' || lower(lem_fallback.email) || '%'
-//       OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.email) || '%'
-//       OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.cc) || '%'
-//     )
+//       LEFT JOIN "LeadEmailMeta" lem_fallback
+//         ON (
+//           lower(em."fromEmail") = lower(lem_fallback.email)
+//           OR lower(em."toEmail") LIKE '%' || lower(lem_fallback.email) || '%'
+//           OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.email) || '%'
+//           OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.cc) || '%'
+//         )
 
-//   LEFT JOIN "LeadDetails" ld_fallback
-//     ON ld_fallback.id = lem_fallback."leadDetailId"
+//       WHERE ${conditions.join(" AND ")}
 
-//   WHERE ${conditions.join(" AND ")}
-
-//   ORDER BY em.id DESC
-// `;
+//       ORDER BY em.id DESC
+//     `;
 
 //     const rows = await prisma.$queryRawUnsafe(sql, ...params);
 //     const messageIds = rows.map((r) => r.id);
@@ -476,53 +477,109 @@ router.get("/conversation-detail", async (req, res) => {
 //       return res.json({ success: true, total: 0, data: [] });
 //     }
 
-//     /* --------------------------------------------------
-//        3️⃣ FETCH CONVERSATIONS (CLEAN PRISMA)
-//     -------------------------------------------------- */
+//     /* ==================================================
+//        3️⃣ FETCH CONVERSATIONS (PRISMA)
+//     ================================================== */
 //     const conversations = await prisma.conversation.findMany({
 //       where: {
 //         emailAccountId: accountId,
-//         id: { in: conversationIds }, // 🔥 THIS LINE FIXES EVERYTHING
+//         messages: {
+//           some: { id: { in: messageIds } },
+//         },
 //       },
 //       include: {
 //         messages: {
 //           orderBy: { sentAt: "desc" },
 //           take: 1,
-//           include: {
-//             leadDetail: { include: { leadEmailMeta: true } },
-//           },
 //         },
 //       },
 //       orderBy: { lastMessageAt: "desc" },
 //     });
 
-//     /* --------------------------------------------------
+//     /* ==================================================
 //        4️⃣ FORMAT RESPONSE
-//     -------------------------------------------------- */
-//     const result = conversations.map((conv) => {
+//     ================================================== */
+//     /* ==================================================
+//        4️⃣ FORMAT RESPONSE
+//     ================================================== */
+//     let result = conversations.map((conv) => {
 //       const m = conv.messages[0];
+
+//       // 🔥 LOGIC: Determine Name vs Email to show in list
+//       let displayName = "Unknown";
+//       let displayEmail = "Unknown";
+
+//       if (m?.direction === "received") {
+//         // If received, show Sender Name or Email
+//         displayName = m.fromName || m.fromEmail;
+//         displayEmail = m.fromEmail;
+//       } else {
+//         // If sent, show Recipient Name or Email
+//         const firstTo = m?.toEmail?.split(",")[0] || "";
+//         displayName = m?.toName || firstTo;
+//         displayEmail = firstTo;
+//       }
+
 //       return {
 //         conversationId: conv.id,
 //         subject: conv.subject || "(No Subject)",
-//         displayEmail:
-//           m.direction === "received"
-//             ? m.fromEmail
-//             : m.toEmail?.split(",")[0] || "Unknown",
 //         initiatorEmail: conv.initiatorEmail,
-//         lastSenderEmail: m.fromEmail,
+//         lastSenderEmail: m?.fromEmail || null,
+//         displayName, // ✅ Sending Name now
+//         displayEmail, // ✅ Keeping Email for reference
 //         lastDate: conv.lastMessageAt,
-//         lastBody: m.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+//         lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
 //         unreadCount: conv.unreadCount,
 //         messageCount: conv.messageCount,
 //         isStarred: conv.isStarred,
-//         country:
-//           m.leadDetail?.leadEmailMeta?.country || m.leadDetail?.country || null,
 //       };
 //     });
 
-//     return res.json({ success: true, total: result.length, data: result });
+//     /* ==================================================
+//        5️⃣ 🔥 LEAD STATUS FILTER (ChatSidebar STYLE)
+//     ================================================== */
+//     if (leadStatus) {
+//       const leads = await prisma.leadDetails.findMany({
+//         where: {
+//           leadStatus: { equals: leadStatus, mode: "insensitive" },
+//         },
+//         select: { email: true, cc: true },
+//       });
+
+//       const leadEmails = new Set();
+
+//       leads.forEach((l) => {
+//         if (l.email) leadEmails.add(l.email.toLowerCase().trim());
+//         if (l.cc) {
+//           l.cc
+//             .split(/[;,]/)
+//             .map((e) => e.toLowerCase().trim())
+//             .forEach((e) => e && leadEmails.add(e));
+//         }
+//       });
+
+//       const normalize = (s) =>
+//         (s || "").toLowerCase().replace(/<|>|"/g, "").trim();
+
+//       result = result.filter((conv) => {
+//         return (
+//           leadEmails.has(normalize(conv.displayEmail)) ||
+//           leadEmails.has(normalize(conv.lastSenderEmail)) ||
+//           leadEmails.has(normalize(conv.initiatorEmail))
+//         );
+//       });
+//     }
+
+//     /* ==================================================
+//        6️⃣ RETURN
+//     ================================================== */
+//     return res.json({
+//       success: true,
+//       total: result.length,
+//       data: result,
+//     });
 //   } catch (err) {
-//     console.error("🔥 Inbox filter error:", err);
+//     console.error("🔥 Inbox conversations error:", err);
 //     return res.status(500).json({
 //       success: false,
 //       message: "Failed to load conversations",
@@ -530,9 +587,6 @@ router.get("/conversation-detail", async (req, res) => {
 //     });
 //   }
 // });
-// ============================================================
-// 📥 GET: Inbox Conversations (FINAL – LeadStatus Fixed)
-// ============================================================
 router.get("/conversations/:accountId", async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
@@ -553,12 +607,12 @@ router.get("/conversations/:accountId", async (req, res) => {
       dateTo,
       hasAttachment,
       country,
-      leadStatus, // ✅ handled OUTSIDE SQL
+      leadStatus,
       searchEmail,
     } = req.query;
 
     /* ==================================================
-       1️⃣ BUILD SQL CONDITIONS (NO leadStatus here)
+       1️⃣ BUILD SQL CONDITIONS
     ================================================== */
     const conditions = [];
     const params = [];
@@ -639,7 +693,7 @@ router.get("/conversations/:accountId", async (req, res) => {
       `);
     }
 
-    // 🌍 country (KEEP AS-IS)
+    // country
     if (country) {
       conditions.push(`
         (
@@ -684,17 +738,20 @@ router.get("/conversations/:accountId", async (req, res) => {
     }
 
     /* ==================================================
-       3️⃣ FETCH CONVERSATIONS (PRISMA)
+       3️⃣ FETCH CONVERSATIONS (✅ FIXED - NO emailAccountId)
     ================================================== */
     const conversations = await prisma.conversation.findMany({
       where: {
-        emailAccountId: accountId,
+        // ✅ REMOVED: emailAccountId filter
         messages: {
           some: { id: { in: messageIds } },
         },
       },
       include: {
         messages: {
+          where: {
+            emailAccountId: accountId, // ✅ Filter messages by account here instead
+          },
           orderBy: { sentAt: "desc" },
           take: 1,
         },
@@ -705,44 +762,40 @@ router.get("/conversations/:accountId", async (req, res) => {
     /* ==================================================
        4️⃣ FORMAT RESPONSE
     ================================================== */
-    /* ==================================================
-       4️⃣ FORMAT RESPONSE
-    ================================================== */
-    let result = conversations.map((conv) => {
-      const m = conv.messages[0];
+    let result = conversations
+      .filter((conv) => conv.messages.length > 0) // ✅ Only return conversations with messages for this account
+      .map((conv) => {
+        const m = conv.messages[0];
 
-      // 🔥 LOGIC: Determine Name vs Email to show in list
-      let displayName = "Unknown";
-      let displayEmail = "Unknown";
+        let displayName = "Unknown";
+        let displayEmail = "Unknown";
 
-      if (m?.direction === "received") {
-        // If received, show Sender Name or Email
-        displayName = m.fromName || m.fromEmail;
-        displayEmail = m.fromEmail;
-      } else {
-        // If sent, show Recipient Name or Email
-        const firstTo = m?.toEmail?.split(",")[0] || "";
-        displayName = m?.toName || firstTo;
-        displayEmail = firstTo;
-      }
+        if (m?.direction === "received") {
+          displayName = m.fromName || m.fromEmail;
+          displayEmail = m.fromEmail;
+        } else {
+          const firstTo = m?.toEmail?.split(",")[0] || "";
+          displayName = m?.toName || firstTo;
+          displayEmail = firstTo;
+        }
 
-      return {
-        conversationId: conv.id,
-        subject: conv.subject || "(No Subject)",
-        initiatorEmail: conv.initiatorEmail,
-        lastSenderEmail: m?.fromEmail || null,
-        displayName, // ✅ Sending Name now
-        displayEmail, // ✅ Keeping Email for reference
-        lastDate: conv.lastMessageAt,
-        lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
-        unreadCount: conv.unreadCount,
-        messageCount: conv.messageCount,
-        isStarred: conv.isStarred,
-      };
-    });
+        return {
+          conversationId: conv.id,
+          subject: conv.subject || "(No Subject)",
+          initiatorEmail: conv.initiatorEmail,
+          lastSenderEmail: m?.fromEmail || null,
+          displayName,
+          displayEmail,
+          lastDate: conv.lastMessageAt,
+          lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+          unreadCount: conv.unreadCount,
+          messageCount: conv.messageCount,
+          isStarred: conv.isStarred,
+        };
+      });
 
     /* ==================================================
-       5️⃣ 🔥 LEAD STATUS FILTER (ChatSidebar STYLE)
+       5️⃣ LEAD STATUS FILTER
     ================================================== */
     if (leadStatus) {
       const leads = await prisma.leadDetails.findMany({
@@ -793,7 +846,6 @@ router.get("/conversations/:accountId", async (req, res) => {
     });
   }
 });
-
 router.get("/conversations/:accountId/stats", async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
