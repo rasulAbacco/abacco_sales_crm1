@@ -1,4 +1,4 @@
-// 🔥 FIXED: MessageView.jsx - Complete with all functionality
+// 🔥 UPDATED: MessageView.jsx - Editable Quoted Text + Format-Preserving Paste
 
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -20,17 +20,128 @@ import {
   Italic,
   Underline,
   List,
+  ListOrdered,
   Link as LinkIcon,
   ChevronDown,
   ChevronUp,
   Clock,
   Edit,
   RotateCw,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Type,
+  Strikethrough,
+  Minus,
+  Quote,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { api } from "../../../pages/api.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// 🎨 Outlook-style default fonts
+const FONT_FAMILIES = [
+  { value: "Calibri, sans-serif", label: "Calibri" },
+  { value: "Arial, sans-serif", label: "Arial" },
+  { value: "'Times New Roman', serif", label: "Times New Roman" },
+  { value: "'Courier New', monospace", label: "Courier New" },
+  { value: "Georgia, serif", label: "Georgia" },
+  { value: "Verdana, sans-serif", label: "Verdana" },
+  { value: "Tahoma, sans-serif", label: "Tahoma" },
+  { value: "'Comic Sans MS', cursive", label: "Comic Sans MS" },
+  { value: "'Trebuchet MS', sans-serif", label: "Trebuchet MS" },
+  { value: "Impact, sans-serif", label: "Impact" },
+];
+
+// 📏 Font sizes like Outlook
+const FONT_SIZES = [
+  { value: "8pt", label: "8" },
+  { value: "9pt", label: "9" },
+  { value: "10pt", label: "10" },
+  { value: "11pt", label: "11" },
+  { value: "12pt", label: "12" },
+  { value: "14pt", label: "14" },
+  { value: "16pt", label: "16" },
+  { value: "18pt", label: "18" },
+  { value: "20pt", label: "20" },
+  { value: "22pt", label: "22" },
+  { value: "24pt", label: "24" },
+  { value: "26pt", label: "26" },
+  { value: "28pt", label: "28" },
+  { value: "36pt", label: "36" },
+  { value: "48pt", label: "48" },
+  { value: "72pt", label: "72" },
+];
+
+// 🎨 Common colors like Outlook
+const COLORS = [
+  "#000000",
+  "#444444",
+  "#666666",
+  "#999999",
+  "#CCCCCC",
+  "#EEEEEE",
+  "#F3F3F3",
+  "#FFFFFF",
+  "#FF0000",
+  "#FF9900",
+  "#FFFF00",
+  "#00FF00",
+  "#00FFFF",
+  "#0000FF",
+  "#9900FF",
+  "#FF00FF",
+  "#F4CCCC",
+  "#FCE5CD",
+  "#FFF2CC",
+  "#D9EAD3",
+  "#D0E0E3",
+  "#C9DAF8",
+  "#D9D2E9",
+  "#EAD1DC",
+  "#EA9999",
+  "#F9CB9C",
+  "#FFE599",
+  "#B6D7A8",
+  "#A2C4C9",
+  "#A4C2F4",
+  "#B4A7D6",
+  "#D5A6BD",
+  "#E06666",
+  "#F6B26B",
+  "#FFD966",
+  "#93C47D",
+  "#76A5AF",
+  "#6D9EEB",
+  "#8E7CC3",
+  "#C27BA0",
+  "#CC0000",
+  "#E69138",
+  "#F1C232",
+  "#6AA84F",
+  "#45818E",
+  "#3C78D8",
+  "#674EA7",
+  "#A64D79",
+  "#990000",
+  "#B45F06",
+  "#BF9000",
+  "#38761D",
+  "#134F5C",
+  "#1155CC",
+  "#351C75",
+  "#741B47",
+  "#660000",
+  "#783F04",
+  "#7F6000",
+  "#274E13",
+  "#0C343D",
+  "#1C4587",
+  "#20124D",
+  "#4C1130",
+];
 
 export default function MessageView({
   selectedAccount,
@@ -59,7 +170,13 @@ export default function MessageView({
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const editorRef = useRef(null);
-  const [showQuotedText, setShowQuotedText] = useState(false);
+
+  // 🎨 Editor state for formatting
+  const [currentFont, setCurrentFont] = useState("Calibri, sans-serif");
+  const [currentSize, setCurrentSize] = useState("11pt");
+  const [currentColor, setCurrentColor] = useState("#000000");
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const colorPickerRef = useRef(null);
 
   // ============================================================
   // HELPER FUNCTIONS
@@ -72,24 +189,12 @@ export default function MessageView({
   const fetchScheduledConversation = async (scheduledMessageId) => {
     try {
       setLoading(true);
-
       const response = await api.get(
         `${API_BASE_URL}/api/scheduled-messages/${scheduledMessageId}/conversation`
       );
-
       if (response.data.success) {
         setMessages(response.data.conversationMessages);
         setScheduledDraft(response.data.scheduledMessage);
-
-        console.log(
-          "✅ Loaded conversation:",
-          response.data.conversationMessages.length,
-          "messages"
-        );
-        console.log(
-          "✅ Stored scheduled draft:",
-          response.data.scheduledMessage.subject
-        );
       }
     } catch (error) {
       console.error("❌ Error fetching scheduled conversation:", error);
@@ -100,7 +205,6 @@ export default function MessageView({
 
   const fetchMessages = async () => {
     if (!selectedConversation || !selectedAccount) return;
-
     setLoading(true);
     try {
       const response = await api.get(
@@ -113,7 +217,6 @@ export default function MessageView({
           },
         }
       );
-
       if (response.data.success) {
         const updatedMessages = (response.data.data || []).map((msg) => ({
           ...msg,
@@ -141,21 +244,14 @@ export default function MessageView({
 
   const fetchCountry = async () => {
     if (!selectedConversation) return;
-
     const email =
       selectedConversation.primaryRecipient || selectedConversation.email;
     if (!email) return;
-
     try {
       const response = await api.get(
         `${API_BASE_URL}/api/inbox/conversation/${email}/country`,
-        {
-          params: {
-            emailAccountId: selectedAccount.id,
-          },
-        }
+        { params: { emailAccountId: selectedAccount.id } }
       );
-
       if (response.data.success && response.data.country) {
         setCountry(response.data.country);
       }
@@ -166,12 +262,10 @@ export default function MessageView({
 
   const fetchAccountUserName = async () => {
     if (!selectedAccount?.id) return;
-
     try {
       const response = await api.get(
         `${API_BASE_URL}/api/inbox/accounts/${selectedAccount.id}/user`
       );
-
       if (response.data.success && response.data.userName) {
         setAccountUserName(response.data.userName);
       }
@@ -236,17 +330,152 @@ export default function MessageView({
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   };
 
-  const formatText = (command) => {
-    document.execCommand(command, false, null);
+  // ============================================================
+  // 🎨 FORMATTING FUNCTIONS
+  // ============================================================
+
+  const formatText = (command, value = null) => {
+    document.execCommand(command, false, value);
     editorRef.current?.focus();
+  };
+
+  const applyFontFamily = (font) => {
+    setCurrentFont(font);
+    formatText("fontName", font);
+  };
+
+  const applyFontSize = (size) => {
+    setCurrentSize(size);
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const span = document.createElement("span");
+      span.style.fontSize = size;
+      try {
+        range.surroundContents(span);
+      } catch (e) {
+        // If can't surround, insert at position
+        const content = range.extractContents();
+        span.appendChild(content);
+        range.insertNode(span);
+      }
+    }
+    editorRef.current?.focus();
+  };
+
+  const applyColor = (color) => {
+    setCurrentColor(color);
+    formatText("foreColor", color);
+    setShowColorPicker(false);
+  };
+
+  const applyHighlight = (color) => {
+    formatText("backColor", color);
   };
 
   const insertLink = () => {
     const url = prompt("Enter URL:");
     if (url) {
-      document.execCommand("createLink", false, url);
+      formatText("createLink", url);
     }
+  };
+
+  const insertHorizontalLine = () => {
+    formatText("insertHorizontalRule");
+  };
+
+  // 🔥 NEW: FORMAT-PRESERVING PASTE - Keeps original formatting
+  const handlePaste = (e) => {
+    e.preventDefault();
+
+    const clipboardData = e.clipboardData || window.clipboardData;
+    const pastedHTML = clipboardData.getData("text/html");
+    const pastedText = clipboardData.getData("text/plain");
+
+    // 🎯 PRESERVE ORIGINAL FORMATTING
+    // Use HTML if available, otherwise plain text
+    const contentToInsert = pastedHTML || pastedText.replace(/\n/g, "<br>");
+
+    // Clean for security but keep formatting
+    const cleanHTML = DOMPurify.sanitize(contentToInsert, {
+      ALLOWED_TAGS: [
+        "p",
+        "br",
+        "strong",
+        "b",
+        "em",
+        "i",
+        "u",
+        "s",
+        "strike",
+        "span",
+        "div",
+        "font",
+        "a",
+        "ul",
+        "ol",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "table",
+        "tr",
+        "td",
+        "th",
+        "tbody",
+        "thead",
+        "blockquote",
+        "pre",
+        "code",
+        "hr",
+      ],
+      ALLOWED_ATTR: [
+        "style",
+        "href",
+        "target",
+        "class",
+        "id",
+        "color",
+        "size",
+        "face",
+        "align",
+      ],
+      ALLOWED_STYLES: {
+        "*": {
+          color: [/^#[0-9a-fA-F]{3,6}$/],
+          "background-color": [/^#[0-9a-fA-F]{3,6}$/],
+          "font-size": [/^\d+pt$/, /^\d+px$/],
+          "font-family": [/.*/],
+          "font-weight": [/^(bold|normal|\d+)$/],
+          "font-style": [/^(italic|normal)$/],
+          "text-decoration": [/^(underline|line-through|none)$/],
+          "text-align": [/^(left|right|center|justify)$/],
+        },
+      },
+    });
+
+    // Insert at cursor position
+    document.execCommand("insertHTML", false, cleanHTML);
+
     editorRef.current?.focus();
+  };
+
+  // 🔥 SMOOTH COPY HANDLER - Preserves formatting
+  const handleCopy = (e) => {
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const clonedSelection = range.cloneContents();
+      const div = document.createElement("div");
+      div.appendChild(clonedSelection);
+
+      e.clipboardData.setData("text/html", div.innerHTML);
+      e.clipboardData.setData("text/plain", selection.toString());
+      e.preventDefault();
+    }
   };
 
   // ============================================================
@@ -262,7 +491,6 @@ export default function MessageView({
         selectedConversation.isScheduled &&
         selectedConversation.scheduledMessageId
       ) {
-        console.log("📅 Loading FULL conversation for scheduled message");
         fetchScheduledConversation(selectedConversation.scheduledMessageId);
       } else {
         fetchMessages();
@@ -281,6 +509,19 @@ export default function MessageView({
     }
   }, [messages]);
 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        colorPickerRef.current &&
+        !colorPickerRef.current.contains(event.target)
+      ) {
+        setShowColorPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   // ============================================================
   // ACTION HANDLERS
   // ============================================================
@@ -289,9 +530,7 @@ export default function MessageView({
     const confirmed = window.confirm(
       "Are you sure you want to move this conversation to Trash?"
     );
-
     if (!confirmed) return;
-
     try {
       const response = await api.patch(
         `${API_BASE_URL}/api/inbox/hide-inbox-conversation`,
@@ -300,7 +539,6 @@ export default function MessageView({
           accountId: selectedAccount.id,
         }
       );
-
       if (response.data.success) {
         alert("Conversation moved to Trash.");
         onBack();
@@ -340,16 +578,98 @@ export default function MessageView({
   };
 
   // ============================================================
-  // REPLY HANDLERS
+  // 🔥 UPDATED: REPLY HANDLERS - Editable quoted text
   // ============================================================
 
+  // const handleReply = (type, message) => {
+  //   if (!message) return;
+
+  //   if (scheduledDraft && scheduledDraft.status === "pending") {
+  //     handleReplyWithScheduledDraft(type, message);
+  //     return;
+  //   }
+
+  //   setReplyingToMessageId(message.id);
+  //   setReplyMode(type);
+
+  //   const prefix = message.subject?.toLowerCase().startsWith("re:")
+  //     ? ""
+  //     : "Re: ";
+  //   const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
+  //   const myEmail = selectedAccount.email.toLowerCase();
+
+  //   let to = "";
+  //   let cc = "";
+
+  //   if (message.direction === "received") {
+  //     to = message.fromEmail;
+  //     if (type === "replyAll") {
+  //       const recipients = [
+  //         ...(message.toEmail ? message.toEmail.split(",") : []),
+  //         ...(message.ccEmail ? message.ccEmail.split(",") : []),
+  //       ]
+  //         .map((e) => e.trim())
+  //         .filter(
+  //           (e) =>
+  //             e.toLowerCase() !== myEmail &&
+  //             e.toLowerCase() !== message.fromEmail.toLowerCase()
+  //         );
+  //       cc = [...new Set(recipients)].join(", ");
+  //     }
+  //   } else if (message.direction === "sent") {
+  //     to = message.toEmail;
+  //     if (type === "replyAll" && message.ccEmail) {
+  //       cc = message.ccEmail
+  //         .split(",")
+  //         .map((e) => e.trim())
+  //         .filter((e) => e.toLowerCase() !== myEmail)
+  //         .join(", ");
+  //     }
+  //   }
+
+  //   // 🔥 Build quoted message (will be editable)
+  //   const quoted = `
+  //   <br/><br/>
+  //   <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
+  //   <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
+  //     <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
+  //     <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
+  //     <b>To:</b> ${message.toEmail}<br/>
+  //     ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
+  //     <b>Subject:</b> ${message.subject || "(No Subject)"}
+  //     <br/><br/>
+  //     ${message.bodyHtml || message.body || ""}
+  //   </div>
+  // `;
+
+  //   setReplyData({
+  //     from: selectedAccount.email,
+  //     to,
+  //     cc,
+  //     subject: newSubject,
+  //     body: "", // Empty - will show in editor
+  //   });
+
+  //   // 🔥 Load FULL content into editor (new message area + quoted text)
+  //   setTimeout(() => {
+  //     if (editorRef.current) {
+  //       editorRef.current.innerHTML = `<div><br/></div>${quoted}`;
+
+  //       // Place cursor at the beginning
+  //       editorRef.current.focus();
+  //       const range = document.createRange();
+  //       const sel = window.getSelection();
+
+  //       // Set cursor at very start
+  //       range.setStart(editorRef.current, 0);
+  //       range.collapse(true);
+  //       sel.removeAllRanges();
+  //       sel.addRange(range);
+  //     }
+  //   }, 100);
+  // };
   const handleReply = (type, message) => {
     if (!message) return;
-
-    console.log("🔍 handleReply:", {
-      type,
-      hasScheduledDraft: !!scheduledDraft,
-    });
 
     if (scheduledDraft && scheduledDraft.status === "pending") {
       handleReplyWithScheduledDraft(type, message);
@@ -362,9 +682,7 @@ export default function MessageView({
     const prefix = message.subject?.toLowerCase().startsWith("re:")
       ? ""
       : "Re: ";
-
     const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
-
     const myEmail = selectedAccount.email.toLowerCase();
 
     let to = "";
@@ -372,7 +690,6 @@ export default function MessageView({
 
     if (message.direction === "received") {
       to = message.fromEmail;
-
       if (type === "replyAll") {
         const recipients = [
           ...(message.toEmail ? message.toEmail.split(",") : []),
@@ -384,12 +701,10 @@ export default function MessageView({
               e.toLowerCase() !== myEmail &&
               e.toLowerCase() !== message.fromEmail.toLowerCase()
           );
-
         cc = [...new Set(recipients)].join(", ");
       }
     } else if (message.direction === "sent") {
       to = message.toEmail;
-
       if (type === "replyAll" && message.ccEmail) {
         cc = message.ccEmail
           .split(",")
@@ -399,14 +714,27 @@ export default function MessageView({
       }
     }
 
+    // 🔥 FIX: Added style="font-weight: bold;" to all <b> tags
     const quoted = `
+    <br/><br/>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
-    <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
-      <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
-      <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
-      <b>To:</b> ${message.toEmail}<br/>
-      ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
-      <b>Subject:</b> ${message.subject || "(No Subject)"}
+    <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+      <b style="font-weight: bold;">From:</b> ${formatSender(
+        message.fromName,
+        message.fromEmail
+      )}<br/>
+      <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
+        message.sentAt
+      )}<br/>
+      <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
+      ${
+        message.ccEmail
+          ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
+          : ""
+      }
+      <b style="font-weight: bold;">Subject:</b> ${
+        message.subject || "(No Subject)"
+      }
       <br/><br/>
       ${message.bodyHtml || message.body || ""}
     </div>
@@ -417,45 +745,121 @@ export default function MessageView({
       to,
       cc,
       subject: newSubject,
-      body: quoted,
+      body: "",
     });
-
-    setShowQuotedText(true);
 
     setTimeout(() => {
       if (editorRef.current) {
-        editorRef.current.innerHTML = "";
+        editorRef.current.innerHTML = `<div><br/></div>${quoted}`;
         editorRef.current.focus();
+
+        // Place cursor at start
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.setStart(editorRef.current, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
       }
-    }, 0);
+    }, 100);
   };
 
+  // const handleReplyWithScheduledDraft = (type, message) => {
+  //   setReplyMode("editScheduled");
+  //   setEditingScheduledId(scheduledDraft.id);
+
+  //   const quoted = `
+  //   <br/><br/>
+  //   <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
+  //   <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
+  //     <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
+  //     <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
+  //     <b>To:</b> ${message.toEmail}<br/>
+  //     ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
+  //     <b>Subject:</b> ${message.subject || "(No Subject)"}
+  //     <br/><br/>
+  //     ${message.bodyHtml || message.body || ""}
+  //   </div>
+  // `;
+
+  //   let to = scheduledDraft.toEmail;
+  //   let cc = scheduledDraft.ccEmail || "";
+
+  //   if (type === "replyAll") {
+  //     const myEmail = selectedAccount.email.toLowerCase();
+  //     const recipients = [
+  //       ...(message.toEmail ? message.toEmail.split(",") : []),
+  //       ...(message.ccEmail ? message.ccEmail.split(",") : []),
+  //     ]
+  //       .map((e) => e.trim())
+  //       .filter(
+  //         (e) =>
+  //           e.toLowerCase() !== myEmail &&
+  //           e.toLowerCase() !== message.fromEmail.toLowerCase()
+  //       );
+  //     cc = [...new Set(recipients)].join(", ");
+  //   }
+
+  //   setReplyData({
+  //     from: selectedAccount.email,
+  //     to,
+  //     cc,
+  //     subject: scheduledDraft.subject || "",
+  //     body: "",
+  //   });
+
+  //   setTimeout(() => {
+  //     if (editorRef.current) {
+  //       const fullContent = `${
+  //         scheduledDraft.bodyHtml || ""
+  //       }<br/><br/>${quoted}`;
+  //       editorRef.current.innerHTML = fullContent;
+  //       editorRef.current.focus();
+
+  //       const range = document.createRange();
+  //       const sel = window.getSelection();
+  //       range.setStart(editorRef.current, 0);
+  //       range.collapse(true);
+  //       sel.removeAllRanges();
+  //       sel.addRange(range);
+  //     }
+  //   }, 100);
+  // };
   const handleReplyWithScheduledDraft = (type, message) => {
     setReplyMode("editScheduled");
     setEditingScheduledId(scheduledDraft.id);
 
-    // Build quoted conversation history (same as normal reply)
+    // 🔥 FIX: Added style="font-weight: bold;" to all <b> tags
     const quoted = `
+    <br/><br/>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
-    <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
-      <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
-      <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
-      <b>To:</b> ${message.toEmail}<br/>
-      ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
-      <b>Subject:</b> ${message.subject || "(No Subject)"}
+    <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+      <b style="font-weight: bold;">From:</b> ${formatSender(
+        message.fromName,
+        message.fromEmail
+      )}<br/>
+      <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
+        message.sentAt
+      )}<br/>
+      <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
+      ${
+        message.ccEmail
+          ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
+          : ""
+      }
+      <b style="font-weight: bold;">Subject:</b> ${
+        message.subject || "(No Subject)"
+      }
       <br/><br/>
       ${message.bodyHtml || message.body || ""}
     </div>
   `;
 
-    // Determine To/Cc based on type
     let to = scheduledDraft.toEmail;
     let cc = scheduledDraft.ccEmail || "";
 
     if (type === "replyAll") {
       const myEmail = selectedAccount.email.toLowerCase();
-
-      // Get all recipients
       const recipients = [
         ...(message.toEmail ? message.toEmail.split(",") : []),
         ...(message.ccEmail ? message.ccEmail.split(",") : []),
@@ -466,7 +870,6 @@ export default function MessageView({
             e.toLowerCase() !== myEmail &&
             e.toLowerCase() !== message.fromEmail.toLowerCase()
         );
-
       cc = [...new Set(recipients)].join(", ");
     }
 
@@ -475,34 +878,86 @@ export default function MessageView({
       to,
       cc,
       subject: scheduledDraft.subject || "",
-      body: quoted, // Store quoted history
+      body: "",
     });
 
-    // Pre-fill editor with SCHEDULED BODY + QUOTED HISTORY
     setTimeout(() => {
       if (editorRef.current) {
-        // Combine scheduled content with quoted history
-        const fullContent = `${scheduledDraft.bodyHtml || ""}${quoted}`;
+        const fullContent = `${
+          scheduledDraft.bodyHtml || ""
+        }<br/><br/>${quoted}`;
         editorRef.current.innerHTML = fullContent;
-
-        // Place cursor at the beginning for easy editing
         editorRef.current.focus();
+
         const range = document.createRange();
         const sel = window.getSelection();
-        if (editorRef.current.childNodes.length > 0) {
-          range.setStart(editorRef.current.childNodes[0], 0);
-        } else {
-          range.setStart(editorRef.current, 0);
-        }
+        range.setStart(editorRef.current, 0);
         range.collapse(true);
         sel.removeAllRanges();
         sel.addRange(range);
       }
     }, 100);
-
-    setShowQuotedText(true); // Enable quoted text section
   };
 
+  // const handleForward = (type, message) => {
+  //   if (!message) return;
+
+  //   const fromHeader = formatHeaderAddress(message.fromName, message.fromEmail);
+  //   const toHeader = message.toEmail;
+  //   const ccHeader = message.ccEmail
+  //     ? message.ccEmail
+  //         .split(",")
+  //         .map((e) => e.trim())
+  //         .join("; ")
+  //     : "";
+
+  //   const sentDate = formatLongDate(message.sentAt);
+  //   const subjectHeader = message.subject || "(No Subject)";
+
+  //   const forwardHeader = `
+  //     <br/>
+  //     <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+  //       <hr style="border:none; border-top:1px solid #E1E1E1">
+  //       <b>From:</b> ${fromHeader}<br>
+  //       <b>Sent:</b> ${sentDate}<br>
+  //       <b>To:</b> ${toHeader}<br>
+  //       ${ccHeader ? `<b>Cc:</b> ${ccHeader}<br>` : ""}
+  //       <b>Subject:</b> ${subjectHeader}
+  //     </div>
+  //     <br/>
+  //   `;
+
+  //   const forwardedBody = `<div><br/></div>${forwardHeader}<div>${
+  //     message.bodyHtml || message.body
+  //   }</div>`;
+
+  //   setReplyingToMessageId(message.id);
+  //   setReplyMode("forward");
+
+  //   const prefix = message.subject?.startsWith("Fwd:") ? "" : "Fwd: ";
+
+  //   setReplyData({
+  //     from: selectedAccount.email,
+  //     to: "",
+  //     cc: "",
+  //     subject: `${prefix}${message.subject || "(No Subject)"}`,
+  //     body: "",
+  //   });
+
+  //   setTimeout(() => {
+  //     if (editorRef.current) {
+  //       editorRef.current.innerHTML = forwardedBody;
+  //       editorRef.current.focus();
+
+  //       const range = document.createRange();
+  //       const sel = window.getSelection();
+  //       range.setStart(editorRef.current, 0);
+  //       range.collapse(true);
+  //       sel.removeAllRanges();
+  //       sel.addRange(range);
+  //     }
+  //   }, 100);
+  // };
   const handleForward = (type, message) => {
     if (!message) return;
 
@@ -518,20 +973,25 @@ export default function MessageView({
     const sentDate = formatLongDate(message.sentAt);
     const subjectHeader = message.subject || "(No Subject)";
 
+    // 🔥 FIX: Added style="font-weight: bold;" and aligned HR/Div structure
     const forwardHeader = `
-      <br>
+      <br/>
+      <hr style="border:none; border-top:1px solid #E1E1E1; margin:12px 0;">
       <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-        <hr style="border:none; border-top:1px solid #E1E1E1">
-        <b>From:</b> ${fromHeader}<br>
-        <b>Sent:</b> ${sentDate}<br>
-        <b>To:</b> ${toHeader}<br>
-        ${ccHeader ? `<b>Cc:</b> ${ccHeader}<br>` : ""}
-        <b>Subject:</b> ${subjectHeader}
+        <b style="font-weight: bold;">From:</b> ${fromHeader}<br>
+        <b style="font-weight: bold;">Sent:</b> ${sentDate}<br>
+        <b style="font-weight: bold;">To:</b> ${toHeader}<br>
+        ${
+          ccHeader
+            ? `<b style="font-weight: bold;">Cc:</b> ${ccHeader}<br>`
+            : ""
+        }
+        <b style="font-weight: bold;">Subject:</b> ${subjectHeader}
       </div>
-      <br>
+      <br/>
     `;
 
-    const forwardedBody = `${forwardHeader}<div>${
+    const forwardedBody = `<div><br/></div>${forwardHeader}<div>${
       message.bodyHtml || message.body
     }</div>`;
 
@@ -545,7 +1005,7 @@ export default function MessageView({
       to: "",
       cc: "",
       subject: `${prefix}${message.subject || "(No Subject)"}`,
-      body: forwardedBody,
+      body: "",
     });
 
     setTimeout(() => {
@@ -560,16 +1020,10 @@ export default function MessageView({
         sel.removeAllRanges();
         sel.addRange(range);
       }
-    }, 0);
+    }, 100);
   };
 
-  // ============================================================
-  // SEND HANDLERS
-  // ============================================================
-
   const updateScheduledMessage = async (bodyContent) => {
-    console.log("🔄 Updating scheduled message:", editingScheduledId);
-
     const payload = {
       subject: replyData.subject,
       bodyHtml: bodyContent,
@@ -577,29 +1031,19 @@ export default function MessageView({
       ccEmail: replyData.cc || null,
     };
 
-    console.log("📤 PATCH payload:", payload);
-
     const response = await api.patch(
       `${API_BASE_URL}/api/scheduled-messages/${editingScheduledId}`,
       payload
     );
 
     if (response.data.success) {
-      console.log("✅ Scheduled message updated successfully");
       alert("Scheduled message updated successfully!");
-
       await fetchScheduledConversation(editingScheduledId);
-
       closeReplyModal();
     }
   };
 
   const sendNormalReply = async (bodyContent) => {
-    let finalBody = bodyContent;
-    if (showQuotedText && replyData.body) {
-      finalBody = bodyContent + replyData.body;
-    }
-
     let endpoint;
     if (replyMode === "replyAll")
       endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
@@ -614,7 +1058,7 @@ export default function MessageView({
       to: replyData.to,
       cc: replyData.cc || null,
       subject: replyData.subject,
-      body: finalBody,
+      body: bodyContent, // Entire editor content (new + quoted)
       attachments: attachments.map((att) => ({
         filename: att.name,
         url: att.url,
@@ -671,7 +1115,6 @@ export default function MessageView({
     setReplyMode(null);
     setReplyingToMessageId(null);
     setEditingScheduledId(null);
-    setShowQuotedText(false);
     setReplyData({
       from: "",
       to: "",
@@ -684,10 +1127,6 @@ export default function MessageView({
       editorRef.current.innerHTML = "";
     }
   };
-
-  // ============================================================
-  // ATTACHMENT HANDLERS
-  // ============================================================
 
   const handleAttachmentUpload = (e) => {
     const files = Array.from(e.target.files || []);
@@ -717,7 +1156,7 @@ export default function MessageView({
   };
 
   // ============================================================
-  // RENDER
+  // RENDER - Messages List (KEEP AS IS)
   // ============================================================
 
   if (!selectedConversation) {
@@ -735,7 +1174,7 @@ export default function MessageView({
 
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Header */}
+      {/* Header - SAME AS BEFORE */}
       <div className="border-b border-gray-200 px-6 py-4 bg-gray-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -774,44 +1213,41 @@ export default function MessageView({
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2">
-              {selectedFolder === "trash" ? (
-                <>
-                  <button
-                    onClick={handleRestore}
-                    className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
-                    title="Restore to Inbox"
-                  >
-                    <RotateCw className="w-4 h-4 text-blue-600 rotate-180" />
-                  </button>
-                  <button
-                    onClick={handlePermanentDelete}
-                    className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
-                    title="Delete Permanently"
-                  >
-                    <Trash2 className="w-4 h-4 text-red-600" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={handleTrashClick}
-                    className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
-                    title="Move to Trash"
-                  >
-                    <Trash2 className="w-4 h-4 text-gray-600 group-hover:text-red-600" />
-                  </button>
-                </>
-              )}
-              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <MoreVertical className="w-4 h-4 text-gray-600" />
-              </button>
-            </div>
+            {selectedFolder === "trash" ? (
+              <>
+                <button
+                  onClick={handleRestore}
+                  className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
+                  title="Restore to Inbox"
+                >
+                  <RotateCw className="w-4 h-4 text-blue-600 rotate-180" />
+                </button>
+                <button
+                  onClick={handlePermanentDelete}
+                  className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
+                  title="Delete Permanently"
+                >
+                  <Trash2 className="w-4 h-4 text-red-600" />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleTrashClick}
+                  className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
+                  title="Move to Trash"
+                >
+                  <Trash2 className="w-4 h-4 text-gray-600 group-hover:text-red-600" />
+                </button>
+              </>
+            )}
+            <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <MoreVertical className="w-4 h-4 text-gray-600" />
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Scheduled message banner */}
       {scheduledDraft && scheduledDraft.status === "pending" && (
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-3">
           <div className="flex items-center justify-between">
@@ -829,7 +1265,7 @@ export default function MessageView({
         </div>
       )}
 
-      {/* Messages List */}
+      {/* Messages List - SAME AS BEFORE */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center h-full">
@@ -877,8 +1313,7 @@ export default function MessageView({
                                       : "text-orange-700"
                                   }`}
                                 >
-                                  {message.fromName || message.fromEmail}{" "}
-                                  {/* ✅ NEW CODE: Shows Name if available */}
+                                  {message.fromName || message.fromEmail}
                                   {isInternal && (
                                     <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-600 text-[10px] rounded uppercase tracking-wider font-bold">
                                       Internal
@@ -1056,11 +1491,10 @@ export default function MessageView({
         )}
       </div>
 
-      {/* Reply Modal */}
+      {/* 🔥 UPDATED REPLY MODAL - Single editable area */}
       {replyMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
-            {/* Header */}
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[95vh] overflow-hidden">
             <div className="border-b border-gray-200 px-6 py-4 bg-gray-50 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <button
@@ -1084,8 +1518,7 @@ export default function MessageView({
               </button>
             </div>
 
-            {/* Content */}
-            <div className="overflow-y-auto max-h-[calc(90vh-120px)]">
+            <div className="overflow-y-auto max-h-[calc(95vh-140px)]">
               <div className="p-6">
                 <div className="space-y-4 mb-4">
                   <div className="flex items-center gap-2">
@@ -1143,107 +1576,226 @@ export default function MessageView({
                 </div>
 
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  {/* Toolbar */}
-                  <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-300">
-                    <button
-                      onClick={() => formatText("bold")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Bold"
-                    >
-                      <Bold className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("italic")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Italic"
-                    >
-                      <Italic className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("underline")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Underline"
-                    >
-                      <Underline className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
-                    <button
-                      onClick={() => formatText("insertUnorderedList")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Bullet List"
-                    >
-                      <List className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={insertLink}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Insert Link"
-                    >
-                      <LinkIcon className="w-4 h-4 text-gray-600" />
-                    </button>
+                  {/* 🎨 FULL TOOLBAR */}
+                  <div className="bg-gradient-to-b from-gray-50 to-gray-100 border-b border-gray-300">
+                    <div className="flex items-center gap-2 p-2 flex-wrap">
+                      {/* Font Family */}
+                      <div className="relative">
+                        <select
+                          value={currentFont}
+                          onChange={(e) => applyFontFamily(e.target.value)}
+                          className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none pr-8"
+                          style={{ minWidth: "140px" }}
+                        >
+                          {FONT_FAMILIES.map((font) => (
+                            <option key={font.value} value={font.value}>
+                              {font.label}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      </div>
+
+                      {/* Font Size */}
+                      <div className="relative">
+                        <select
+                          value={currentSize}
+                          onChange={(e) => applyFontSize(e.target.value)}
+                          className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none pr-8"
+                          style={{ minWidth: "70px" }}
+                        >
+                          {FONT_SIZES.map((size) => (
+                            <option key={size.value} value={size.value}>
+                              {size.label}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      </div>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+
+                      {/* Text Formatting */}
+                      <button
+                        onClick={() => formatText("bold")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Bold"
+                      >
+                        <Bold className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("italic")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Italic"
+                      >
+                        <Italic className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("underline")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Underline"
+                      >
+                        <Underline className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("strikeThrough")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Strikethrough"
+                      >
+                        <Strikethrough className="w-4 h-4 text-gray-700" />
+                      </button>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+
+                      {/* Font Color */}
+                      <div className="relative" ref={colorPickerRef}>
+                        <button
+                          onClick={() => setShowColorPicker(!showColorPicker)}
+                          className="p-2 hover:bg-white rounded transition-colors relative"
+                          title="Font Color"
+                        >
+                          <Type className="w-4 h-4 text-gray-700" />
+                          <div
+                            className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-4 h-1 rounded"
+                            style={{ backgroundColor: currentColor }}
+                          ></div>
+                        </button>
+
+                        {showColorPicker && (
+                          <div
+                            className="absolute top-full left-0 mt-2 bg-white border border-gray-300 rounded-lg shadow-xl p-3 z-50"
+                            style={{ width: "240px" }}
+                          >
+                            <div className="mb-2 text-xs font-semibold text-gray-600">
+                              Font Color
+                            </div>
+                            <div className="grid grid-cols-8 gap-1 mb-3">
+                              {COLORS.map((color) => (
+                                <button
+                                  key={color}
+                                  onClick={() => applyColor(color)}
+                                  className="w-6 h-6 rounded border-2 hover:scale-110 transition-transform"
+                                  style={{
+                                    backgroundColor: color,
+                                    borderColor:
+                                      color === currentColor
+                                        ? "#3B82F6"
+                                        : "#E5E7EB",
+                                  }}
+                                  title={color}
+                                />
+                              ))}
+                            </div>
+                            <div className="pt-2 border-t border-gray-200">
+                              <div className="text-xs font-semibold text-gray-600 mb-2">
+                                Highlight Color
+                              </div>
+                              <div className="grid grid-cols-8 gap-1">
+                                {COLORS.slice(8, 32).map((color) => (
+                                  <button
+                                    key={color}
+                                    onClick={() => applyHighlight(color)}
+                                    className="w-6 h-6 rounded border-2 border-gray-200 hover:scale-110 transition-transform"
+                                    style={{ backgroundColor: color }}
+                                    title={color}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+
+                      {/* Lists */}
+                      <button
+                        onClick={() => formatText("insertUnorderedList")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Bullet List"
+                      >
+                        <List className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("insertOrderedList")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Numbered List"
+                      >
+                        <ListOrdered className="w-4 h-4 text-gray-700" />
+                      </button>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+
+                      {/* Alignment */}
+                      <button
+                        onClick={() => formatText("justifyLeft")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Align Left"
+                      >
+                        <AlignLeft className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("justifyCenter")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Align Center"
+                      >
+                        <AlignCenter className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("justifyRight")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Align Right"
+                      >
+                        <AlignRight className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("justifyFull")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Justify"
+                      >
+                        <AlignJustify className="w-4 h-4 text-gray-700" />
+                      </button>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+
+                      <button
+                        onClick={insertLink}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Insert Link"
+                      >
+                        <LinkIcon className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={insertHorizontalLine}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Horizontal Line"
+                      >
+                        <Minus className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("formatBlock", "blockquote")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Quote"
+                      >
+                        <Quote className="w-4 h-4 text-gray-700" />
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Editor */}
-                  {/* Editor */}
+                  {/* 🔥 SINGLE EDITABLE AREA - New message + quoted text all editable */}
                   <div
                     ref={editorRef}
                     contentEditable
-                    className="min-h-[200px] max-h-[400px] overflow-y-auto p-4 focus:outline-none"
+                    onPaste={handlePaste}
+                    onCopy={handleCopy}
+                    className="min-h-[400px] max-h-[500px] overflow-y-auto p-4 focus:outline-none transition-all"
                     style={{
                       fontFamily: "Calibri, sans-serif",
                       fontSize: "11pt",
-                      lineHeight: "1.35",
+                      lineHeight: "1.5",
                     }}
                     placeholder="Type your message here..."
                   />
-
-                  {/* Quoted Text Section - ALWAYS VISIBLE for scheduled edits */}
-                  {replyMode === "editScheduled" && (
-                    <div className="border-t border-gray-200 bg-gray-50 px-4 py-2">
-                      <p className="text-xs text-gray-500 italic">
-                        ✏️ Edit your scheduled message above. Previous
-                        conversation is included below.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Normal reply quoted text toggle */}
-                  {replyMode !== "editScheduled" &&
-                    (replyMode === "reply" || replyMode === "replyAll") && (
-                      <div className="border-t border-gray-200">
-                        <button
-                          onClick={() => setShowQuotedText(!showQuotedText)}
-                          className="w-full px-4 py-2 flex items-center justify-center gap-2 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
-                        >
-                          <span className="text-lg leading-none">•••</span>
-                          <span>
-                            {showQuotedText ? "Hide" : "Show"} quoted text
-                          </span>
-                        </button>
-
-                        {showQuotedText && (
-                          <div
-                            className="p-4 bg-gray-50 border-t border-gray-200 max-h-[400px] overflow-y-auto"
-                            contentEditable
-                            suppressContentEditableWarning
-                            dangerouslySetInnerHTML={{
-                              __html: DOMPurify.sanitize(replyData.body || ""),
-                            }}
-                            onBlur={(e) => {
-                              setReplyData({
-                                ...replyData,
-                                body: e.currentTarget.innerHTML,
-                              });
-                            }}
-                            style={{
-                              fontFamily: "Calibri, sans-serif",
-                              fontSize: "11pt",
-                              lineHeight: "1.35",
-                            }}
-                          />
-                        )}
-                      </div>
-                    )}
 
                   {attachments.length > 0 && (
                     <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
@@ -1251,7 +1803,7 @@ export default function MessageView({
                         {attachments.map((att, index) => (
                           <div
                             key={index}
-                            className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-gray-300"
+                            className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-gray-300 shadow-sm"
                           >
                             <File className="w-3 h-3 text-gray-500" />
                             <span className="text-xs text-gray-700">
@@ -1269,8 +1821,7 @@ export default function MessageView({
                     </div>
                   )}
 
-                  {/* Footer */}
-                  <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                  <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
                     <div>
                       <input
                         ref={fileInputRef}
@@ -1290,7 +1841,7 @@ export default function MessageView({
                     <button
                       onClick={handleSendReply}
                       disabled={isSending}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-colors text-sm font-medium"
+                      className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-all text-sm font-medium shadow-sm hover:shadow-md"
                     >
                       {isSending ? (
                         <Loader2 className="w-4 h-4 animate-spin" />

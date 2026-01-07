@@ -6,17 +6,525 @@ html, body {
 } */
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-fadeIn {
   animation: fadeIn 0.25s ease-in-out;
 }
 
-
 img {
   max-width: 100%;
   height: auto;
   display: block;
+}
+
+///////////////////////////////////////////////////////////////
+/* 🎨 Enhanced MessageView Styles - Smooth Outlook-like Experience */
+
+/* ============================================================
+   SMOOTH TRANSITIONS FOR ALL INTERACTIVE ELEMENTS
+   ============================================================ */
+
+.message-editor-toolbar button,
+.message-editor-toolbar select {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.message-editor-toolbar button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.message-editor-toolbar button:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================================
+   CONTENT EDITABLE EDITOR ENHANCEMENTS
+   ============================================================ */
+
+[contenteditable="true"] {
+  outline: none;
+  caret-color: #3b82f6;
+}
+
+[contenteditable="true"]:focus {
+  background-color: #fafafa;
+}
+
+/* Placeholder styling */
+[contenteditable="true"]:empty:before {
+  content: attr(placeholder);
+  color: #9ca3af;
+  font-style: italic;
+  pointer-events: none;
+}
+
+/* Selection color */
+[contenteditable="true"]::selection {
+  background-color: #dbeafe;
+  color: #1e3a8a;
+}
+
+/* ============================================================
+   SMOOTH PASTE ANIMATION
+   ============================================================ */
+
+@keyframes pasteHighlight {
+  0% {
+    background-color: #fef3c7;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+[contenteditable="true"] span[style*="Calibri"] {
+  animation: pasteHighlight 0.6s ease-out;
+}
+
+/* ============================================================
+   COLOR PICKER SMOOTH APPEARANCE
+   ============================================================ */
+
+.color-picker-dropdown {
+  animation: slideDown 0.2s ease-out;
+  transform-origin: top;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Color swatch hover effect */
+.color-swatch {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.color-swatch:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* ============================================================
+   DROPDOWN SELECT STYLING
+   ============================================================ */
+
+select {
+  transition: all 0.15s ease;
+}
+
+select:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  outline: none;
+}
+
+/* ============================================================
+   ATTACHMENT PILLS ANIMATION
+   ============================================================ */
+
+.attachment-pill {
+  animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ============================================================
+   TOOLBAR DIVIDER STYLING
+   ============================================================ */
+
+.toolbar-divider {
+  background: linear-gradient(to bottom, transparent, #d1d5db, transparent);
+  height: 24px;
+  width: 1px;
+  margin: 0 4px;
+}
+
+/* ============================================================
+   SMOOTH SCROLLBAR FOR EDITOR
+   ============================================================ */
+
+[contenteditable="true"]::-webkit-scrollbar {
+  width: 8px;
+}
+
+[contenteditable="true"]::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+[contenteditable="true"]::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+[contenteditable="true"]::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* ============================================================
+   QUOTED TEXT SECTION
+   ============================================================ */
+
+.quoted-text-section {
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+}
+
+.quoted-text-toggle {
+  transition: all 0.2s ease;
+}
+
+.quoted-text-toggle:hover {
+  background-color: #f3f4f6;
+}
+
+/* ============================================================
+   SEND BUTTON PULSE ANIMATION
+   ============================================================ */
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ============================================================
+   LOADING SPINNER
+   ============================================================ */
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+/* ============================================================
+   TOOLTIP ENHANCEMENTS
+   ============================================================ */
+
+[title] {
+  position: relative;
+}
+
+[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background-color: #1f2937;
+  color: white;
+  font-size: 11px;
+  white-space: nowrap;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  opacity: 0;
+  animation: tooltipFadeIn 0.2s ease-out 0.5s forwards;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+@keyframes tooltipFadeIn {
+  to {
+    opacity: 1;
+  }
+}
+
+/* ============================================================
+   RICH TEXT FORMATTING STYLES
+   ============================================================ */
+
+[contenteditable="true"] blockquote {
+  border-left: 4px solid #e5e7eb;
+  padding-left: 12px;
+  margin-left: 0;
+  color: #6b7280;
+  font-style: italic;
+}
+
+[contenteditable="true"] code {
+  background-color: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: "Courier New", monospace;
+  font-size: 0.9em;
+}
+
+[contenteditable="true"] a {
+  color: #3b82f6;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+[contenteditable="true"] a:hover {
+  color: #2563eb;
+}
+
+[contenteditable="true"] hr {
+  border: none;
+  border-top: 2px solid #e5e7eb;
+  margin: 16px 0;
+}
+
+[contenteditable="true"] ul,
+[contenteditable="true"] ol {
+  padding-left: 24px;
+  margin: 8px 0;
+}
+
+[contenteditable="true"] li {
+  margin: 4px 0;
+}
+
+/* ============================================================
+   MODAL ENTRANCE ANIMATION
+   ============================================================ */
+
+.reply-modal {
+  animation: modalFadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.reply-modal > div {
+  animation: modalSlideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes modalSlideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ============================================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .message-editor-toolbar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .toolbar-divider {
+    display: none;
+  }
+
+  [contenteditable="true"] {
+    min-height: 200px;
+    max-height: 300px;
+  }
+}
+
+/* ============================================================
+   FOCUS RING FOR ACCESSIBILITY
+   ============================================================ */
+
+button:focus-visible,
+select:focus-visible,
+[contenteditable]:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   SMOOTH HEIGHT TRANSITIONS
+   ============================================================ */
+
+.expandable-section {
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease,
+    padding 0.3s ease;
+  overflow: hidden;
+}
+
+/* ============================================================
+   CUSTOM SCROLLBAR FOR MODAL
+   ============================================================ */
+
+.modal-content::-webkit-scrollbar {
+  width: 10px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+  background: #f9fafb;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 5px;
+  border: 2px solid #f9fafb;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* ============================================================
+   BUTTON STATES
+   ============================================================ */
+
+button {
+  position: relative;
+  overflow: hidden;
+}
+
+button::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  transition: width 0.3s, height 0.3s;
+}
+
+button:active::before {
+  width: 200%;
+  height: 200%;
+}
+
+/* ============================================================
+   SMOOTH COLOR PICKER GRID
+   ============================================================ */
+
+.color-picker-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.color-picker-grid button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============================================================
+   TEXT FORMATTING INDICATORS
+   ============================================================ */
+
+.formatting-indicator {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  transition: all 0.2s ease;
+}
+
+/* ============================================================
+   ATTACHMENT UPLOAD PROGRESS
+   ============================================================ */
+
+@keyframes progressBar {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.upload-progress {
+  animation: progressBar 1s ease-out;
+}
+
+/* ============================================================
+   KEYBOARD SHORTCUT HINTS
+   ============================================================ */
+
+.shortcut-hint {
+  font-size: 10px;
+  color: #9ca3af;
+  margin-left: 4px;
+  font-family: "Courier New", monospace;
+}
+
+/* ============================================================
+   SMOOTH FOCUS TRANSITIONS
+   ============================================================ */
+
+* {
+  transition: outline 0.2s ease;
+}
+
+/* ============================================================
+   PRINT STYLES
+   ============================================================ */
+
+@media print {
+  .message-editor-toolbar,
+  button,
+  .attachment-pill button {
+    display: none;
+  }
+
+  [contenteditable="true"] {
+    border: none;
+    padding: 0;
+  }
 }
