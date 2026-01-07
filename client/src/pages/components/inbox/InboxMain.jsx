@@ -353,40 +353,40 @@ export default function InboxMain() {
   //     setLoading(false);
   //   }
   // };
-const fetchTodayFollowUps = async () => {
-  try {
-    setLoading(true);
+  const fetchTodayFollowUps = async () => {
+    try {
+      setLoading(true);
 
-    const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
+      const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
 
-    // ✅ Format for conversation list (NOT preview body)
-    const formatted = res.data.map((msg) => ({
-      conversationId: msg.conversationId,
-      subject: msg.subject || "(No subject)",
-      senderName: msg.toEmail?.split("@")[0] || "Follow-up",
-      senderEmail: msg.toEmail,
-      email: msg.toEmail,
-      primaryRecipient: msg.toEmail,
-      lastDate: msg.sendAt,
+      // ✅ Format for conversation list (NOT preview body)
+      const formatted = res.data.map((msg) => ({
+        conversationId: msg.conversationId,
+        subject: msg.subject || "(No subject)",
+        senderName: msg.toEmail?.split("@")[0] || "Follow-up",
+        senderEmail: msg.toEmail,
+        email: msg.toEmail,
+        primaryRecipient: msg.toEmail,
+        lastDate: msg.sendAt,
 
-      // 🔥 KEY CHANGE: Don't use scheduled body as preview
-      lastBody: "(Scheduled follow-up)", // Generic text
+        // 🔥 KEY CHANGE: Don't use scheduled body as preview
+        lastBody: "(Scheduled follow-up)", // Generic text
 
-      unreadCount: 0,
-      isScheduled: true,
+        unreadCount: 0,
+        isScheduled: true,
 
-      // ✅ Pass FULL scheduled data for later use
-      scheduledMessageId: msg.id,
-      scheduledMessageData: msg,
-    }));
+        // ✅ Pass FULL scheduled data for later use
+        scheduledMessageId: msg.id,
+        scheduledMessageData: msg,
+      }));
 
-    setConversations(formatted);
-  } catch (err) {
-    console.error("❌ Failed to fetch today follow-ups", err);
-  } finally {
-    setLoading(false);
-  }
-};
+      setConversations(formatted);
+    } catch (err) {
+      console.error("❌ Failed to fetch today follow-ups", err);
+    } finally {
+      setLoading(false);
+    }
+  };
   const handleSchedule = () => {
     setIsScheduleMode(true);
     setSelectedConversations([]);
