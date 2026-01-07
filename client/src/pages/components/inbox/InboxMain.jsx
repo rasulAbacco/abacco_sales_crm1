@@ -331,18 +331,24 @@ export default function InboxMain() {
 
   //     const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
 
+  //     // ✅ Format for conversation list (NOT preview body)
   //     const formatted = res.data.map((msg) => ({
-  //       conversationId: msg.conversationId || `scheduled-${msg.id}`, // ✅ Use unique ID
+  //       conversationId: msg.conversationId,
   //       subject: msg.subject || "(No subject)",
   //       senderName: msg.toEmail?.split("@")[0] || "Follow-up",
   //       senderEmail: msg.toEmail,
   //       email: msg.toEmail,
   //       primaryRecipient: msg.toEmail,
   //       lastDate: msg.sendAt,
-  //       lastBody: msg.bodyHtml,
+
+  //       // 🔥 KEY CHANGE: Don't use scheduled body as preview
+  //       lastBody: "(Scheduled follow-up)", // Generic text
+
   //       unreadCount: 0,
   //       isScheduled: true,
-  //       // ✅ ADD: Pass the full scheduled message data
+
+  //       // ✅ Pass FULL scheduled data for later use
+  //       scheduledMessageId: msg.id,
   //       scheduledMessageData: msg,
   //     }));
 
@@ -359,23 +365,20 @@ export default function InboxMain() {
 
       const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
 
-      // ✅ Format for conversation list (NOT preview body)
+      // ✅ Format for conversation list
       const formatted = res.data.map((msg) => ({
         conversationId: msg.conversationId,
         subject: msg.subject || "(No subject)",
-        senderName: msg.toEmail?.split("@")[0] || "Follow-up",
-        senderEmail: msg.toEmail,
-        email: msg.toEmail,
+
+        // 🔥 FIX: Map to 'displayName' and 'displayEmail' so ConversationList can read it
+        displayName: msg.toEmail,
+        displayEmail: msg.toEmail,
+
         primaryRecipient: msg.toEmail,
         lastDate: msg.sendAt,
-
-        // 🔥 KEY CHANGE: Don't use scheduled body as preview
-        lastBody: "(Scheduled follow-up)", // Generic text
-
+        lastBody: "(Scheduled follow-up)",
         unreadCount: 0,
         isScheduled: true,
-
-        // ✅ Pass FULL scheduled data for later use
         scheduledMessageId: msg.id,
         scheduledMessageData: msg,
       }));
@@ -387,6 +390,7 @@ export default function InboxMain() {
       setLoading(false);
     }
   };
+
   const handleSchedule = () => {
     setIsScheduleMode(true);
     setSelectedConversations([]);
