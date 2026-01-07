@@ -359,37 +359,51 @@ export default function InboxMain() {
   //     setLoading(false);
   //   }
   // };
-  const fetchTodayFollowUps = async () => {
-    try {
-      setLoading(true);
+const fetchTodayFollowUps = async () => {
+  try {
+    setLoading(true);
 
-      const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
+    const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
 
-      // ✅ Format for conversation list
-      const formatted = res.data.map((msg) => ({
+    // ✅ Format for conversation list
+    const formatted = res.data.map((msg) => {
+      // 🔥 FIX: Extract actual email if stored as "Name <email@example.com>"
+      let actualEmail = msg.toEmail;
+
+      if (msg.toEmail.includes("<") && msg.toEmail.includes(">")) {
+        // Format: "John Doe <john@example.com>" → extract "john@example.com"
+        const match = msg.toEmail.match(/<(.+?)>/);
+        if (match && match[1]) {
+          actualEmail = match[1];
+        }
+      }
+
+      return {
         conversationId: msg.conversationId,
         subject: msg.subject || "(No subject)",
 
-        // 🔥 FIX: Map to 'displayName' and 'displayEmail' so ConversationList can read it
-        displayName: msg.toEmail,
-        displayEmail: msg.toEmail,
+        // ✅ Use extracted email, not the full string with name
+        displayName: actualEmail,
+        displayEmail: actualEmail,
 
-        primaryRecipient: msg.toEmail,
+        primaryRecipient: actualEmail,
         lastDate: msg.sendAt,
         lastBody: "(Scheduled follow-up)",
         unreadCount: 0,
         isScheduled: true,
         scheduledMessageId: msg.id,
         scheduledMessageData: msg,
-      }));
+      };
+    });
 
-      setConversations(formatted);
-    } catch (err) {
-      console.error("❌ Failed to fetch today follow-ups", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    setConversations(formatted);
+  } catch (err) {
+    console.error("❌ Failed to fetch today follow-ups", err);
+    setConversations([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleSchedule = () => {
     setIsScheduleMode(true);

@@ -5,39 +5,57 @@ import { protect } from "../middlewares/authMiddleware.js";
 const router = express.Router();
 
 /* ============================================================
-   📬 POST /scheduled-messages → SINGLE SCHEDULE (REPLY)
+   🔧 HELPER: Resolve real recipient email from conversation
+   ============================================================ */
+const resolveToEmailFromConversation = async ({
+  prisma,
+  conversationId,
+  accountId,
+}) => {
+  const lastMessage = await prisma.emailMessage.findFirst({
+    where: {
+      conversationId,
+      emailAccountId: accountId,
+    },
+    orderBy: { sentAt: "desc" },
+  });
+
+  if (!lastMessage) return null;
+
+  if (lastMessage.direction === "received") {
+    return lastMessage.fromEmail;
+  }
+
+  if (lastMessage.direction === "sent" && lastMessage.toEmail) {
+    return lastMessage.toEmail.split(",")[0].trim();
+  }
+
+  return null;
+};
+
+/* ============================================================
+   📬 POST /scheduled-messages → SINGLE SCHEDULE
    ============================================================ */
 router.post("/", protect, async (req, res) => {
   try {
     const {
       accountId,
       conversationId,
-      toEmail,
       subject,
       bodyHtml,
       sendAt,
       attachments,
     } = req.body;
 
-    if (!accountId || !toEmail || !sendAt) {
+    if (!accountId || !conversationId || !sendAt) {
       return res.status(400).json({
         success: false,
-        message: "accountId, toEmail and sendAt are required",
-      });
-    }
-
-    if (!conversationId) {
-      return res.status(400).json({
-        success: false,
-        message: "conversationId is required for reply scheduling",
+        message: "accountId, conversationId and sendAt are required",
       });
     }
 
     const account = await prisma.emailAccount.findFirst({
-      where: {
-        id: Number(accountId),
-        userId: req.user.id,
-      },
+      where: { id: Number(accountId), userId: req.user.id },
     });
 
     if (!account) {
@@ -47,25 +65,35 @@ router.post("/", protect, async (req, res) => {
       });
     }
 
-    // 🔁 Check existing scheduled reply
+    // ✅ Resolve email strictly from conversation
+    const resolvedToEmail = await resolveToEmailFromConversation({
+      prisma,
+      conversationId,
+      accountId: account.id,
+    });
+
+    if (!resolvedToEmail || !resolvedToEmail.includes("@")) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to resolve recipient email from conversation",
+      });
+    }
+
     const existing = await prisma.scheduledMessage.findFirst({
       where: {
         userId: req.user.id,
         accountId: account.id,
-        conversationId, // ✅ STRING
-        toEmail,
+        conversationId,
+        toEmail: resolvedToEmail,
       },
     });
 
     if (existing) {
-      const finalBody =
-        bodyHtml && bodyHtml.trim() !== "" ? bodyHtml : existing.bodyHtml;
-
       const updated = await prisma.scheduledMessage.update({
         where: { id: existing.id },
         data: {
-          subject: subject || existing.subject,
-          bodyHtml: finalBody,
+          subject: subject ?? existing.subject,
+          bodyHtml: bodyHtml ?? existing.bodyHtml,
           sendAt: new Date(sendAt),
           attachments: attachments ?? existing.attachments,
           status: "pending",
@@ -73,19 +101,15 @@ router.post("/", protect, async (req, res) => {
         },
       });
 
-      return res.json({
-        success: true,
-        message: "Scheduled reply updated",
-        data: updated,
-      });
+      return res.json({ success: true, data: updated });
     }
 
     const created = await prisma.scheduledMessage.create({
       data: {
         userId: req.user.id,
         accountId: account.id,
-        conversationId, // ✅ STRING
-        toEmail,
+        conversationId,
+        toEmail: resolvedToEmail, // ✅ EMAIL ONLY
         subject,
         bodyHtml,
         sendAt: new Date(sendAt),
@@ -95,22 +119,17 @@ router.post("/", protect, async (req, res) => {
       },
     });
 
-    return res.status(201).json({
-      success: true,
-      message: "Reply scheduled successfully",
-      data: created,
-    });
+    res.status(201).json({ success: true, data: created });
   } catch (err) {
     console.error("❌ Single schedule error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to schedule reply",
-    });
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to schedule reply" });
   }
 });
 
 /* ============================================================
-   📦 POST /scheduled-messages/bulk → BULK SCHEDULE (REPLY)
+   📦 POST /scheduled-messages/bulk → BULK SCHEDULE
    ============================================================ */
 router.post("/bulk", protect, async (req, res) => {
   try {
@@ -124,10 +143,7 @@ router.post("/bulk", protect, async (req, res) => {
     }
 
     const account = await prisma.emailAccount.findFirst({
-      where: {
-        id: Number(accountId),
-        userId: req.user.id,
-      },
+      where: { id: Number(accountId), userId: req.user.id },
     });
 
     if (!account) {
@@ -140,68 +156,61 @@ router.post("/bulk", protect, async (req, res) => {
     const results = [];
 
     for (const msg of messages) {
-      const { conversationId, toEmail, subject, bodyHtml, attachments } = msg;
+      const { conversationId, subject, bodyHtml, attachments } = msg;
+      if (!conversationId) continue;
 
-      if (!conversationId || !toEmail) continue;
+      const resolvedToEmail = await resolveToEmailFromConversation({
+        prisma,
+        conversationId,
+        accountId: account.id,
+      });
+
+      if (!resolvedToEmail) continue;
 
       const existing = await prisma.scheduledMessage.findFirst({
         where: {
           userId: req.user.id,
           accountId: account.id,
-          conversationId, // ✅ STRING
-          toEmail,
+          conversationId,
+          toEmail: resolvedToEmail,
         },
       });
 
-      let row;
+      const data = {
+        subject,
+        bodyHtml,
+        sendAt: new Date(sendAt),
+        attachments: attachments || null,
+        status: "pending",
+        isFollowedUp: false,
+      };
 
-      if (existing) {
-        const finalBody =
-          bodyHtml && bodyHtml.trim() !== "" ? bodyHtml : existing.bodyHtml;
-
-        row = await prisma.scheduledMessage.update({
-          where: { id: existing.id },
-          data: {
-            subject: subject || existing.subject,
-            bodyHtml: finalBody,
-            sendAt: new Date(sendAt),
-            attachments: attachments ?? existing.attachments,
-            status: "pending",
-            isFollowedUp: false,
-          },
-        });
-      } else {
-        row = await prisma.scheduledMessage.create({
-          data: {
-            userId: req.user.id,
-            accountId: account.id,
-            conversationId, // ✅ STRING
-            toEmail,
-            subject,
-            bodyHtml,
-            sendAt: new Date(sendAt),
-            attachments: attachments || null,
-            status: "pending",
-            isFollowedUp: false,
-          },
-        });
-      }
+      const row = existing
+        ? await prisma.scheduledMessage.update({
+            where: { id: existing.id },
+            data,
+          })
+        : await prisma.scheduledMessage.create({
+            data: {
+              ...data,
+              userId: req.user.id,
+              accountId: account.id,
+              conversationId,
+              toEmail: resolvedToEmail,
+            },
+          });
 
       results.push(row);
     }
 
-    return res.json({
+    res.json({
       success: true,
-      message: `${results.length} reply(ies) scheduled`,
       count: results.length,
       data: results,
     });
   } catch (err) {
     console.error("❌ Bulk schedule error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to schedule bulk replies",
-    });
+    res.status(500).json({ success: false, message: "Bulk schedule failed" });
   }
 });
 
@@ -247,161 +256,550 @@ router.get("/today", protect, async (req, res) => {
       orderBy: { sendAt: "asc" },
     });
 
-    res.json(messages);
+    // 🔒 Normalize legacy bad rows
+    const normalized = await Promise.all(
+      messages.map(async (m) => {
+        if (m.toEmail?.includes("@")) return m;
+
+        const resolved = await resolveToEmailFromConversation({
+          prisma,
+          conversationId: m.conversationId,
+          accountId: m.accountId,
+        });
+
+        return {
+          ...m,
+          toEmail: resolved || m.toEmail,
+        };
+      })
+    );
+
+    res.json(normalized);
   } catch (err) {
     console.error("❌ Fetch today follow-ups error:", err);
-    res.status(500).json({
-      error: "Failed to fetch today's scheduled messages",
-    });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch today's scheduled messages" });
   }
 });
 
-
 /* ============================================================
-   📧 GET /scheduled-messages/:id/conversation → GET FULL CONVERSATION
+   📧 GET /scheduled-messages/:id/conversation
    ============================================================ */
 router.get("/:id/conversation", protect, async (req, res) => {
   try {
-    const { id } = req.params;
-
-    // Get scheduled message
     const scheduled = await prisma.scheduledMessage.findFirst({
-      where: {
-        id: parseInt(id),
-        userId: req.user.id,
-      },
+      where: { id: Number(req.params.id), userId: req.user.id },
     });
 
     if (!scheduled) {
-      return res.status(404).json({
-        success: false,
-        message: "Scheduled message not found",
-      });
+      return res.status(404).json({ success: false });
     }
 
-    // Fetch FULL conversation history
     const messages = await prisma.emailMessage.findMany({
       where: {
         conversationId: scheduled.conversationId,
         emailAccountId: scheduled.accountId,
       },
       orderBy: { sentAt: "asc" },
-      include: {
-        attachments: true,
-        tags: { include: { Tag: true } },
-      },
+      include: { attachments: true },
     });
 
-    return res.json({
+    res.json({
       success: true,
-      scheduledMessage: scheduled, // The draft
-      conversationMessages: messages, // Full history
+      scheduledMessage: scheduled,
+      conversationMessages: messages,
     });
   } catch (err) {
-    console.error("❌ Error fetching scheduled conversation:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch conversation",
-    });
+    console.error("❌ Fetch scheduled conversation error:", err);
+    res.status(500).json({ success: false });
   }
 });
 
 /* ============================================================
-   ✏️ PATCH /scheduled-messages/:id → UPDATE SCHEDULED MESSAGE
+   ✏️ PATCH /scheduled-messages/:id
    ============================================================ */
 router.patch("/:id", protect, async (req, res) => {
   try {
-    const { id } = req.params;
     const { subject, bodyHtml, toEmail, ccEmail, sendAt, attachments } =
       req.body;
 
-    // 🔥 Verify ownership and pending status
     const existing = await prisma.scheduledMessage.findFirst({
       where: {
-        id: parseInt(id),
+        id: Number(req.params.id),
         userId: req.user.id,
-        status: "pending", // Only allow editing pending messages
+        status: "pending",
       },
     });
 
     if (!existing) {
-      return res.status(404).json({
-        success: false,
-        message: "Scheduled message not found or already sent",
-      });
+      return res.status(404).json({ success: false });
     }
 
-    // 🔥 Update only provided fields
     const updateData = {};
+
     if (subject !== undefined) updateData.subject = subject;
     if (bodyHtml !== undefined) updateData.bodyHtml = bodyHtml;
-    if (toEmail !== undefined) updateData.toEmail = toEmail;
     if (ccEmail !== undefined) updateData.ccEmail = ccEmail;
     if (sendAt !== undefined) updateData.sendAt = new Date(sendAt);
     if (attachments !== undefined) updateData.attachments = attachments;
 
-    // Always update timestamp
-    updateData.updatedAt = new Date();
+    // 🔥 HARD GUARD
+    if (toEmail !== undefined) {
+      if (!toEmail.includes("@")) {
+        return res.status(400).json({
+          success: false,
+          message: "toEmail must be a valid email address",
+        });
+      }
+      updateData.toEmail = toEmail;
+    }
 
     const updated = await prisma.scheduledMessage.update({
-      where: { id: parseInt(id) },
+      where: { id: existing.id },
       data: updateData,
     });
 
-    return res.json({
-      success: true,
-      message: "Scheduled message updated successfully",
-      data: updated,
-    });
+    res.json({ success: true, data: updated });
   } catch (err) {
-    console.error("❌ Update scheduled message error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to update scheduled message",
-      error: err.message,
-    });
+    console.error("❌ Update scheduled error:", err);
+    res.status(500).json({ success: false });
   }
 });
 
 /* ============================================================
-   🗑️ DELETE /scheduled-messages/:id → CANCEL SCHEDULED MESSAGE
+   🗑️ DELETE /scheduled-messages/:id
    ============================================================ */
 router.delete("/:id", protect, async (req, res) => {
   try {
-    const { id } = req.params;
-
-    // 🔥 Verify ownership and pending status
     const existing = await prisma.scheduledMessage.findFirst({
       where: {
-        id: parseInt(id),
+        id: Number(req.params.id),
         userId: req.user.id,
-        status: "pending", // Only allow deleting pending messages
+        status: "pending",
       },
     });
 
     if (!existing) {
-      return res.status(404).json({
-        success: false,
-        message: "Scheduled message not found or already sent",
-      });
+      return res.status(404).json({ success: false });
     }
 
     await prisma.scheduledMessage.delete({
-      where: { id: parseInt(id) },
+      where: { id: existing.id },
     });
 
-    return res.json({
-      success: true,
-      message: "Scheduled message canceled successfully",
-    });
+    res.json({ success: true });
   } catch (err) {
-    console.error("❌ Delete scheduled message error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Failed to cancel scheduled message",
-      error: err.message,
-    });
+    console.error("❌ Delete scheduled error:", err);
+    res.status(500).json({ success: false });
   }
 });
 
 export default router;
+
+// import express from "express";
+// import prisma from "../prismaClient.js";
+// import { protect } from "../middlewares/authMiddleware.js";
+
+// const router = express.Router();
+
+// /* ============================================================
+//    📬 POST /scheduled-messages → SINGLE SCHEDULE (REPLY)
+//    ============================================================ */
+// router.post("/", protect, async (req, res) => {
+//   try {
+//     const {
+//       accountId,
+//       conversationId,
+//       toEmail,
+//       subject,
+//       bodyHtml,
+//       sendAt,
+//       attachments,
+//     } = req.body;
+
+//     if (!accountId || !toEmail || !sendAt) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "accountId, toEmail and sendAt are required",
+//       });
+//     }
+
+//     if (!conversationId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "conversationId is required for reply scheduling",
+//       });
+//     }
+
+//     const account = await prisma.emailAccount.findFirst({
+//       where: {
+//         id: Number(accountId),
+//         userId: req.user.id,
+//       },
+//     });
+
+//     if (!account) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Email account not found",
+//       });
+//     }
+
+//     // 🔁 Check existing scheduled reply
+//     const existing = await prisma.scheduledMessage.findFirst({
+//       where: {
+//         userId: req.user.id,
+//         accountId: account.id,
+//         conversationId, // ✅ STRING
+//         toEmail,
+//       },
+//     });
+
+//     if (existing) {
+//       const finalBody =
+//         bodyHtml && bodyHtml.trim() !== "" ? bodyHtml : existing.bodyHtml;
+
+//       const updated = await prisma.scheduledMessage.update({
+//         where: { id: existing.id },
+//         data: {
+//           subject: subject || existing.subject,
+//           bodyHtml: finalBody,
+//           sendAt: new Date(sendAt),
+//           attachments: attachments ?? existing.attachments,
+//           status: "pending",
+//           isFollowedUp: false,
+//         },
+//       });
+
+//       return res.json({
+//         success: true,
+//         message: "Scheduled reply updated",
+//         data: updated,
+//       });
+//     }
+
+//     const created = await prisma.scheduledMessage.create({
+//       data: {
+//         userId: req.user.id,
+//         accountId: account.id,
+//         conversationId, // ✅ STRING
+//         toEmail,
+//         subject,
+//         bodyHtml,
+//         sendAt: new Date(sendAt),
+//         attachments: attachments || null,
+//         status: "pending",
+//         isFollowedUp: false,
+//       },
+//     });
+
+//     return res.status(201).json({
+//       success: true,
+//       message: "Reply scheduled successfully",
+//       data: created,
+//     });
+//   } catch (err) {
+//     console.error("❌ Single schedule error:", err);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to schedule reply",
+//     });
+//   }
+// });
+
+// /* ============================================================
+//    📦 POST /scheduled-messages/bulk → BULK SCHEDULE (REPLY)
+//    ============================================================ */
+// router.post("/bulk", protect, async (req, res) => {
+//   try {
+//     const { accountId, sendAt, messages } = req.body;
+
+//     if (!accountId || !sendAt || !Array.isArray(messages)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "accountId, sendAt and messages[] are required",
+//       });
+//     }
+
+//     const account = await prisma.emailAccount.findFirst({
+//       where: {
+//         id: Number(accountId),
+//         userId: req.user.id,
+//       },
+//     });
+
+//     if (!account) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Email account not found",
+//       });
+//     }
+
+//     const results = [];
+
+//     for (const msg of messages) {
+//       const { conversationId, toEmail, subject, bodyHtml, attachments } = msg;
+
+//       if (!conversationId || !toEmail) continue;
+
+//       const existing = await prisma.scheduledMessage.findFirst({
+//         where: {
+//           userId: req.user.id,
+//           accountId: account.id,
+//           conversationId, // ✅ STRING
+//           toEmail,
+//         },
+//       });
+
+//       let row;
+
+//       if (existing) {
+//         const finalBody =
+//           bodyHtml && bodyHtml.trim() !== "" ? bodyHtml : existing.bodyHtml;
+
+//         row = await prisma.scheduledMessage.update({
+//           where: { id: existing.id },
+//           data: {
+//             subject: subject || existing.subject,
+//             bodyHtml: finalBody,
+//             sendAt: new Date(sendAt),
+//             attachments: attachments ?? existing.attachments,
+//             status: "pending",
+//             isFollowedUp: false,
+//           },
+//         });
+//       } else {
+//         row = await prisma.scheduledMessage.create({
+//           data: {
+//             userId: req.user.id,
+//             accountId: account.id,
+//             conversationId, // ✅ STRING
+//             toEmail,
+//             subject,
+//             bodyHtml,
+//             sendAt: new Date(sendAt),
+//             attachments: attachments || null,
+//             status: "pending",
+//             isFollowedUp: false,
+//           },
+//         });
+//       }
+
+//       results.push(row);
+//     }
+
+//     return res.json({
+//       success: true,
+//       message: `${results.length} reply(ies) scheduled`,
+//       count: results.length,
+//       data: results,
+//     });
+//   } catch (err) {
+//     console.error("❌ Bulk schedule error:", err);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to schedule bulk replies",
+//     });
+//   }
+// });
+
+// /* ============================================================
+//    📅 GET /scheduled-messages → ALL PENDING
+//    ============================================================ */
+// router.get("/", protect, async (req, res) => {
+//   try {
+//     const messages = await prisma.scheduledMessage.findMany({
+//       where: {
+//         userId: req.user.id,
+//         status: "pending",
+//         OR: [{ isFollowedUp: false }, { isFollowedUp: null }],
+//       },
+//       orderBy: { sendAt: "asc" },
+//     });
+
+//     res.json(messages);
+//   } catch (err) {
+//     console.error("❌ Fetch scheduled messages error:", err);
+//     res.status(500).json({ error: "Failed to fetch scheduled messages" });
+//   }
+// });
+
+// /* ============================================================
+//    🕒 GET /scheduled-messages/today → TODAY FOLLOW-UPS
+//    ============================================================ */
+// router.get("/today", protect, async (req, res) => {
+//   try {
+//     const start = new Date();
+//     start.setHours(0, 0, 0, 0);
+
+//     const end = new Date();
+//     end.setHours(23, 59, 59, 999);
+
+//     const messages = await prisma.scheduledMessage.findMany({
+//       where: {
+//         userId: req.user.id,
+//         status: "pending",
+//         sendAt: { gte: start, lte: end },
+//         OR: [{ isFollowedUp: false }, { isFollowedUp: null }],
+//       },
+//       orderBy: { sendAt: "asc" },
+//     });
+
+//     res.json(messages);
+//   } catch (err) {
+//     console.error("❌ Fetch today follow-ups error:", err);
+//     res.status(500).json({
+//       error: "Failed to fetch today's scheduled messages",
+//     });
+//   }
+// });
+
+// /* ============================================================
+//    📧 GET /scheduled-messages/:id/conversation → GET FULL CONVERSATION
+//    ============================================================ */
+// router.get("/:id/conversation", protect, async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     // Get scheduled message
+//     const scheduled = await prisma.scheduledMessage.findFirst({
+//       where: {
+//         id: parseInt(id),
+//         userId: req.user.id,
+//       },
+//     });
+
+//     if (!scheduled) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Scheduled message not found",
+//       });
+//     }
+
+//     // Fetch FULL conversation history
+//     const messages = await prisma.emailMessage.findMany({
+//       where: {
+//         conversationId: scheduled.conversationId,
+//         emailAccountId: scheduled.accountId,
+//       },
+//       orderBy: { sentAt: "asc" },
+//       include: {
+//         attachments: true,
+//         tags: { include: { Tag: true } },
+//       },
+//     });
+
+//     return res.json({
+//       success: true,
+//       scheduledMessage: scheduled, // The draft
+//       conversationMessages: messages, // Full history
+//     });
+//   } catch (err) {
+//     console.error("❌ Error fetching scheduled conversation:", err);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch conversation",
+//     });
+//   }
+// });
+
+// /* ============================================================
+//    ✏️ PATCH /scheduled-messages/:id → UPDATE SCHEDULED MESSAGE
+//    ============================================================ */
+// router.patch("/:id", protect, async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const { subject, bodyHtml, toEmail, ccEmail, sendAt, attachments } =
+//       req.body;
+
+//     // 🔥 Verify ownership and pending status
+//     const existing = await prisma.scheduledMessage.findFirst({
+//       where: {
+//         id: parseInt(id),
+//         userId: req.user.id,
+//         status: "pending", // Only allow editing pending messages
+//       },
+//     });
+
+//     if (!existing) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Scheduled message not found or already sent",
+//       });
+//     }
+
+//     // 🔥 Update only provided fields
+//     const updateData = {};
+//     if (subject !== undefined) updateData.subject = subject;
+//     if (bodyHtml !== undefined) updateData.bodyHtml = bodyHtml;
+//     if (toEmail !== undefined) updateData.toEmail = toEmail;
+//     if (ccEmail !== undefined) updateData.ccEmail = ccEmail;
+//     if (sendAt !== undefined) updateData.sendAt = new Date(sendAt);
+//     if (attachments !== undefined) updateData.attachments = attachments;
+
+//     // Always update timestamp
+//     updateData.updatedAt = new Date();
+
+//     const updated = await prisma.scheduledMessage.update({
+//       where: { id: parseInt(id) },
+//       data: updateData,
+//     });
+
+//     return res.json({
+//       success: true,
+//       message: "Scheduled message updated successfully",
+//       data: updated,
+//     });
+//   } catch (err) {
+//     console.error("❌ Update scheduled message error:", err);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to update scheduled message",
+//       error: err.message,
+//     });
+//   }
+// });
+
+// /* ============================================================
+//    🗑️ DELETE /scheduled-messages/:id → CANCEL SCHEDULED MESSAGE
+//    ============================================================ */
+// router.delete("/:id", protect, async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     // 🔥 Verify ownership and pending status
+//     const existing = await prisma.scheduledMessage.findFirst({
+//       where: {
+//         id: parseInt(id),
+//         userId: req.user.id,
+//         status: "pending", // Only allow deleting pending messages
+//       },
+//     });
+
+//     if (!existing) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Scheduled message not found or already sent",
+//       });
+//     }
+
+//     await prisma.scheduledMessage.delete({
+//       where: { id: parseInt(id) },
+//     });
+
+//     return res.json({
+//       success: true,
+//       message: "Scheduled message canceled successfully",
+//     });
+//   } catch (err) {
+//     console.error("❌ Delete scheduled message error:", err);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to cancel scheduled message",
+//       error: err.message,
+//     });
+//   }
+// });
+
+// export default router;

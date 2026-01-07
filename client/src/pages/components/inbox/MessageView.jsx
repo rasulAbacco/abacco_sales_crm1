@@ -668,101 +668,113 @@ export default function MessageView({
   //     }
   //   }, 100);
   // };
-  const handleReply = (type, message) => {
-    if (!message) return;
+const handleReply = (type, message) => {
+  if (!message) return;
 
-    if (scheduledDraft && scheduledDraft.status === "pending") {
-      handleReplyWithScheduledDraft(type, message);
-      return;
-    }
+  if (scheduledDraft && scheduledDraft.status === "pending") {
+    handleReplyWithScheduledDraft(type, message);
+    return;
+  }
 
-    setReplyingToMessageId(message.id);
-    setReplyMode(type);
+  setReplyingToMessageId(message.id);
+  setReplyMode(type);
 
-    const prefix = message.subject?.toLowerCase().startsWith("re:")
-      ? ""
-      : "Re: ";
-    const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
-    const myEmail = selectedAccount.email.toLowerCase();
+  const prefix = message.subject?.toLowerCase().startsWith("re:")
+    ? ""
+    : "Re: ";
+  const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
+  const myEmail = selectedAccount.email.toLowerCase();
 
-    let to = "";
-    let cc = "";
+  let to = "";
+  let cc = "";
 
-    if (message.direction === "received") {
-      to = message.fromEmail;
-      if (type === "replyAll") {
-        const recipients = [
-          ...(message.toEmail ? message.toEmail.split(",") : []),
-          ...(message.ccEmail ? message.ccEmail.split(",") : []),
-        ]
-          .map((e) => e.trim())
-          .filter(
-            (e) =>
-              e.toLowerCase() !== myEmail &&
-              e.toLowerCase() !== message.fromEmail.toLowerCase()
-          );
-        cc = [...new Set(recipients)].join(", ");
+  if (message.direction === "received") {
+    // ✅ FIXED: Correct Reply All Logic
+    
+    // 1️⃣ TO field = ONLY the original sender
+    to = message.fromEmail;
+
+    if (type === "replyAll") {
+      const ccList = [];
+
+      // 2️⃣ Add original TO recipients to CC (excluding me)
+      if (message.toEmail) {
+        const originalTos = message.toEmail.split(",").map((e) => e.trim());
+        originalTos.forEach((email) => {
+          const normalized = email.toLowerCase();
+          if (normalized !== myEmail && normalized !== message.fromEmail.toLowerCase()) {
+            ccList.push(email);
+          }
+        });
       }
-    } else if (message.direction === "sent") {
-      to = message.toEmail;
-      if (type === "replyAll" && message.ccEmail) {
-        cc = message.ccEmail
-          .split(",")
-          .map((e) => e.trim())
-          .filter((e) => e.toLowerCase() !== myEmail)
-          .join(", ");
-      }
-    }
 
-    // 🔥 FIX: Added style="font-weight: bold;" to all <b> tags
-    const quoted = `
+      // 3️⃣ Add original CC recipients to CC (excluding me and sender)
+      if (message.ccEmail) {
+        const originalCcs = message.ccEmail.split(",").map((e) => e.trim());
+        originalCcs.forEach((email) => {
+          const normalized = email.toLowerCase();
+          if (normalized !== myEmail && normalized !== message.fromEmail.toLowerCase()) {
+            ccList.push(email);
+          }
+        });
+      }
+
+      // 4️⃣ Remove duplicates and join
+      cc = [...new Set(ccList)].join(", ");
+    }
+  } else if (message.direction === "sent") {
+    // When replying to a sent message
+    to = message.toEmail;
+    if (type === "replyAll" && message.ccEmail) {
+      cc = message.ccEmail
+        .split(",")
+        .map((e) => e.trim())
+        .filter((e) => e.toLowerCase() !== myEmail)
+        .join(", ");
+    }
+  }
+
+  // 🔥 FIX: Strip all existing "Re:" prefixes before adding one
+  const cleanSubject = message.subject?.replace(/^(re:\s*)+/gi, "").trim() || "(No Subject)";
+  const finalSubject = `Re: ${cleanSubject}`;
+
+  // Build quoted message
+  const quoted = `
+  <br/><br/>
+  <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
+  <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+    <b style="font-weight: bold;">From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
+    <b style="font-weight: bold;">Sent:</b> ${formatLongDate(message.sentAt)}<br/>
+    <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
+    ${message.ccEmail ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>` : ""}
+    <b style="font-weight: bold;">Subject:</b> ${message.subject || "(No Subject)"}
     <br/><br/>
-    <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
-    <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-      <b style="font-weight: bold;">From:</b> ${formatSender(
-        message.fromName,
-        message.fromEmail
-      )}<br/>
-      <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
-        message.sentAt
-      )}<br/>
-      <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
-      ${
-        message.ccEmail
-          ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
-          : ""
-      }
-      <b style="font-weight: bold;">Subject:</b> ${
-        message.subject || "(No Subject)"
-      }
-      <br/><br/>
-      ${message.bodyHtml || message.body || ""}
-    </div>
-  `;
+    ${message.bodyHtml || message.body || ""}
+  </div>
+`;
 
-    setReplyData({
-      from: selectedAccount.email,
-      to,
-      cc,
-      subject: newSubject,
-      body: "",
-    });
+  setReplyData({
+    from: selectedAccount.email,
+    to,
+    cc,
+    subject: finalSubject,
+    body: "",
+  });
 
-    setTimeout(() => {
-      if (editorRef.current) {
-        editorRef.current.innerHTML = `<div><br/></div>${quoted}`;
-        editorRef.current.focus();
+  setTimeout(() => {
+    if (editorRef.current) {
+      editorRef.current.innerHTML = `<div><br/></div>${quoted}`;
+      editorRef.current.focus();
 
-        // Place cursor at start
-        const range = document.createRange();
-        const sel = window.getSelection();
-        range.setStart(editorRef.current, 0);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-    }, 100);
-  };
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.setStart(editorRef.current, 0);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }, 100);
+};
 
   // const handleReplyWithScheduledDraft = (type, message) => {
   //   setReplyMode("editScheduled");
@@ -825,79 +837,85 @@ export default function MessageView({
   //     }
   //   }, 100);
   // };
-  const handleReplyWithScheduledDraft = (type, message) => {
-    setReplyMode("editScheduled");
-    setEditingScheduledId(scheduledDraft.id);
+const handleReplyWithScheduledDraft = (type, message) => {
+  setReplyMode("editScheduled");
+  setEditingScheduledId(scheduledDraft.id);
 
-    // 🔥 FIX: Added style="font-weight: bold;" to all <b> tags
-    const quoted = `
+  // 🔒 Normalize email (handles: "Name <email>")
+  const normalizeEmail = (value) => {
+    if (!value) return "";
+    const match = value.match(/<(.+?)>/);
+    return match ? match[1].trim() : value.trim();
+  };
+
+  const quoted = `
     <br/><br/>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
     <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-      <b style="font-weight: bold;">From:</b> ${formatSender(
-        message.fromName,
-        message.fromEmail
-      )}<br/>
-      <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
-        message.sentAt
-      )}<br/>
-      <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
-      ${
-        message.ccEmail
-          ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
-          : ""
-      }
-      <b style="font-weight: bold;">Subject:</b> ${
-        message.subject || "(No Subject)"
-      }
+      <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
+      <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
+      <b>To:</b> ${message.toEmail}<br/>
+      ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
+      <b>Subject:</b> ${message.subject || "(No Subject)"}
       <br/><br/>
       ${message.bodyHtml || message.body || ""}
     </div>
   `;
 
-    let to = scheduledDraft.toEmail;
-    let cc = scheduledDraft.ccEmail || "";
+  // ✅ ALWAYS use scheduledDraft.toEmail (email only)
+  let to = normalizeEmail(scheduledDraft.toEmail);
+  let cc = scheduledDraft.ccEmail ? normalizeEmail(scheduledDraft.ccEmail) : "";
 
-    if (type === "replyAll") {
-      const myEmail = selectedAccount.email.toLowerCase();
-      const recipients = [
-        ...(message.toEmail ? message.toEmail.split(",") : []),
-        ...(message.ccEmail ? message.ccEmail.split(",") : []),
-      ]
-        .map((e) => e.trim())
-        .filter(
-          (e) =>
-            e.toLowerCase() !== myEmail &&
-            e.toLowerCase() !== message.fromEmail.toLowerCase()
-        );
-      cc = [...new Set(recipients)].join(", ");
+  if (type === "replyAll") {
+    const myEmail = selectedAccount.email.toLowerCase();
+    const ccList = cc ? cc.split(",").map((e) => normalizeEmail(e)) : [];
+
+    const pushIfValid = (email) => {
+      const normalized = normalizeEmail(email).toLowerCase();
+      if (
+        normalized &&
+        normalized !== myEmail &&
+        normalized !== message.fromEmail?.toLowerCase()
+      ) {
+        ccList.push(normalized);
+      }
+    };
+
+    if (message.toEmail) {
+      message.toEmail.split(",").forEach(pushIfValid);
     }
 
-    setReplyData({
-      from: selectedAccount.email,
-      to,
-      cc,
-      subject: scheduledDraft.subject || "",
-      body: "",
-    });
+    if (message.ccEmail) {
+      message.ccEmail.split(",").forEach(pushIfValid);
+    }
 
-    setTimeout(() => {
-      if (editorRef.current) {
-        const fullContent = `${
-          scheduledDraft.bodyHtml || ""
-        }<br/><br/>${quoted}`;
-        editorRef.current.innerHTML = fullContent;
-        editorRef.current.focus();
+    cc = [...new Set(ccList)].join(", ");
+  }
 
-        const range = document.createRange();
-        const sel = window.getSelection();
-        range.setStart(editorRef.current, 0);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-    }, 100);
-  };
+  setReplyData({
+    from: selectedAccount.email,
+    to, // ✅ email only
+    cc,
+    subject: scheduledDraft.subject || "",
+    body: "",
+  });
+
+  setTimeout(() => {
+    if (editorRef.current) {
+      const fullContent = `${scheduledDraft.bodyHtml || ""}<br/><br/>${quoted}`;
+      editorRef.current.innerHTML = fullContent;
+      editorRef.current.focus();
+
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.setStart(editorRef.current, 0);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }, 100);
+};
+
 
   // const handleForward = (type, message) => {
   //   if (!message) return;
