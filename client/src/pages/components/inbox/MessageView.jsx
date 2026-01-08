@@ -35,6 +35,7 @@ import {
   Strikethrough,
   Minus,
   Quote,
+  ArrowUpDown,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { api } from "../../../pages/api.js";
@@ -147,7 +148,15 @@ const COLORS = [
   "#20124D",
   "#4C1130",
 ];
-
+// 📏 NEW: Line Spacing Options
+const LINE_HEIGHTS = [
+  { value: "1.0", label: "Single" },
+  { value: "1.15", label: "1.15" },
+  { value: "1.5", label: "1.5" },
+  { value: "2.0", label: "Double" },
+  { value: "2.5", label: "2.5" },
+  { value: "3.0", label: "3.0" },
+];
 export default function MessageView({
   selectedAccount,
   selectedConversation,
@@ -163,6 +172,7 @@ export default function MessageView({
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedMessages, setExpandedMessages] = useState({});
+  const [showLineHeightPicker, setShowLineHeightPicker] = useState(false);
   const [replyMode, setReplyMode] = useState(null);
   const [replyingToMessageId, setReplyingToMessageId] = useState(null);
   const [editingScheduledId, setEditingScheduledId] = useState(null);
@@ -344,6 +354,87 @@ export default function MessageView({
   // ============================================================
   // 🎨 FORMATTING FUNCTIONS
   // ============================================================
+  // 🔥 NEW: Logic to apply line spacing to selected blocks
+const applyLineHeight = (value) => {
+  const selection = window.getSelection();
+  if (!selection.rangeCount) return;
+
+  const range = selection.getRangeAt(0);
+
+  // 🔍 Function to find the block-level parent
+  const findBlock = (node) => {
+    const blockTags = [
+      "P",
+      "DIV",
+      "H1",
+      "H2",
+      "H3",
+      "H4",
+      "H5",
+      "H6",
+      "LI",
+      "BLOCKQUOTE",
+    ];
+    let current = node;
+
+    while (current && current !== editorRef.current) {
+      if (current.nodeType === 1 && blockTags.includes(current.tagName)) {
+        return current;
+      }
+      current = current.parentNode;
+    }
+    return null;
+  };
+
+  // 📍 Get start and end blocks of selection
+  const startBlock = findBlock(range.startContainer);
+  const endBlock = findBlock(range.endContainer);
+
+  // 🔧 If no blocks found, wrap content in div first
+  if (!startBlock && !endBlock) {
+    document.execCommand("formatBlock", false, "div");
+    const newBlock = findBlock(
+      window.getSelection().getRangeAt(0).startContainer
+    );
+    if (newBlock) newBlock.style.lineHeight = value;
+    setShowLineHeightPicker(false);
+    editorRef.current?.focus();
+    return;
+  }
+
+  // 📦 Collect all blocks to style (using Set to avoid duplicates)
+  const blocksToStyle = new Set();
+
+  if (startBlock) blocksToStyle.add(startBlock);
+  if (endBlock) blocksToStyle.add(endBlock);
+
+  // 🔄 If start and end are different, get all blocks between them
+  if (startBlock && endBlock && startBlock !== endBlock) {
+    let current = startBlock;
+
+    // Walk through all following siblings and their children
+    while (current && current !== endBlock) {
+      if (current.nextSibling) {
+        current = current.nextSibling;
+        const block = findBlock(current);
+        if (block) blocksToStyle.add(block);
+      } else {
+        // Move up to parent and try its next sibling
+        current = current.parentNode;
+        if (current === editorRef.current || !current) break;
+      }
+    }
+  }
+
+  // ✅ Apply line-height to all collected blocks
+  blocksToStyle.forEach((block) => {
+    block.style.lineHeight = value;
+  });
+
+  // 🎯 Close dropdown and refocus editor
+  setShowLineHeightPicker(false);
+  editorRef.current?.focus();
+};
 
   const formatText = (command, value = null) => {
     document.execCommand(command, false, value);
@@ -550,6 +641,7 @@ export default function MessageView({
   // This version preserves quoted text when applying template
   // ============================================================
 
+
   const applyTemplateWithAccount = (template, account) => {
     if (!template || !account) return;
 
@@ -589,10 +681,10 @@ export default function MessageView({
     templateBody = tempDiv.innerHTML;
 
     // Add signature
-    if (account.senderName) {
-      templateBody += buildSignature(account.senderName);
-    }
-
+   if (account.senderName) {
+     // 🔥 FIX: Remove extra line break to eliminate gap after template content
+     templateBody += `<br>Best regards,<br><b>${account.senderName}</b>`;
+   }
     // Preserve quoted message
     const currentContent = editorRef.current?.innerHTML || "";
     const quotedStart = currentContent.indexOf(
@@ -1714,7 +1806,34 @@ export default function MessageView({
                       </div>
 
                       <div className="w-px h-6 bg-gray-300"></div>
+                      {/* 🔥 NEW: Line Spacing Dropdown */}
+                      <div className="relative">
+                        <button
+                          onClick={() =>
+                            setShowLineHeightPicker(!showLineHeightPicker)
+                          }
+                          className="p-2 hover:bg-white rounded transition-colors flex items-center gap-1"
+                          title="Line Spacing"
+                        >
+                          <ArrowUpDown className="w-4 h-4 text-gray-700" />
+                          <ChevronDown className="w-3 h-3 text-gray-500" />
+                        </button>
 
+                        {showLineHeightPicker && (
+                          <div className="absolute top-full left-0 mt-2 bg-white border border-gray-300 rounded-lg shadow-xl py-1 z-50 w-32">
+                            {LINE_HEIGHTS.map((lh) => (
+                              <button
+                                key={lh.value}
+                                onClick={() => applyLineHeight(lh.value)}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600"
+                                style={{ lineHeight: lh.value }} // Preview the effect in the dropdown
+                              >
+                                {lh.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       {/* Text Formatting */}
                       <button
                         onClick={() => formatText("bold")}
