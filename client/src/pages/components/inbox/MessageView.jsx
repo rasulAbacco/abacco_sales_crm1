@@ -1,4 +1,4 @@
-// 🔥 UPDATED: MessageView.jsx - Editable Quoted Text + Format-Preserving Paste
+// 🔥 FULLY UPDATED: MessageView.jsx - With Account Dropdown + Template Selection + All Original Features
 
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -38,6 +38,11 @@ import {
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { api } from "../../../pages/api.js";
+import {
+  replacePlaceholders,
+  buildSignature,
+  extractRecipientName,
+} from "../../../utils/templateReplacer";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -149,6 +154,12 @@ export default function MessageView({
   selectedFolder,
   onBack,
 }) {
+  // 🔥 NEW: Account and Template state
+  const [accounts, setAccounts] = useState([]);
+  const [selectedFromAccount, setSelectedFromAccount] = useState(null);
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedMessages, setExpandedMessages] = useState({});
@@ -354,7 +365,6 @@ export default function MessageView({
       try {
         range.surroundContents(span);
       } catch (e) {
-        // If can't surround, insert at position
         const content = range.extractContents();
         span.appendChild(content);
         range.insertNode(span);
@@ -384,7 +394,7 @@ export default function MessageView({
     formatText("insertHorizontalRule");
   };
 
-  // 🔥 NEW: FORMAT-PRESERVING PASTE - Keeps original formatting
+  // 🔥 FORMAT-PRESERVING PASTE
   const handlePaste = (e) => {
     e.preventDefault();
 
@@ -392,11 +402,8 @@ export default function MessageView({
     const pastedHTML = clipboardData.getData("text/html");
     const pastedText = clipboardData.getData("text/plain");
 
-    // 🎯 PRESERVE ORIGINAL FORMATTING
-    // Use HTML if available, otherwise plain text
     const contentToInsert = pastedHTML || pastedText.replace(/\n/g, "<br>");
 
-    // Clean for security but keep formatting
     const cleanHTML = DOMPurify.sanitize(contentToInsert, {
       ALLOWED_TAGS: [
         "p",
@@ -457,13 +464,10 @@ export default function MessageView({
       },
     });
 
-    // Insert at cursor position
     document.execCommand("insertHTML", false, cleanHTML);
-
     editorRef.current?.focus();
   };
 
-  // 🔥 SMOOTH COPY HANDLER - Preserves formatting
   const handleCopy = (e) => {
     const selection = window.getSelection();
     if (selection.rangeCount > 0) {
@@ -479,8 +483,216 @@ export default function MessageView({
   };
 
   // ============================================================
+  // 🔥 NEW: FETCH ACCOUNTS AND TEMPLATES
+  // ============================================================
+
+  const fetchAccounts = async () => {
+    try {
+      const response = await api.get(`${API_BASE_URL}/api/accounts`);
+      if (response.data.success) {
+        setAccounts(response.data.data || []);
+      }
+    } catch (error) {
+      console.error("Error fetching accounts:", error);
+    }
+  };
+
+  const fetchTemplates = async () => {
+    try {
+      const response = await api.get(`${API_BASE_URL}/api/email-templates`);
+      if (response.data.success) {
+        setTemplates(response.data.data || []);
+      }
+    } catch (error) {
+      console.error("Error fetching templates:", error);
+    }
+  };
+
+  // ============================================================
+  // 🔥 NEW: ACCOUNT & TEMPLATE HANDLERS
+  // ============================================================
+
+  // const handleAccountChange = (accountId) => {
+  //   const account = accounts.find((acc) => acc.id === parseInt(accountId));
+  //   setSelectedFromAccount(account);
+
+  //   // Update replyData.from
+  //   if (account) {
+  //     setReplyData((prev) => ({
+  //       ...prev,
+  //       from: account.email,
+  //     }));
+  //   }
+
+  //   // If template is selected, reapply with new account
+  //   if (selectedTemplate) {
+  //     applyTemplateWithAccount(selectedTemplate, account);
+  //   }
+  // };
+
+  // const handleTemplateSelect = (templateId) => {
+  //   if (!templateId) {
+  //     setSelectedTemplate(null);
+  //     return;
+  //   }
+
+  //   const template = templates.find((t) => t.id === parseInt(templateId));
+  //   setSelectedTemplate(template);
+
+  //   if (selectedFromAccount) {
+  //     applyTemplateWithAccount(template, selectedFromAccount);
+  //   }
+  // };
+
+  // ============================================================
+  // FUNCTION 1: applyTemplateWithAccount (FIXED VERSION)
+  // Location: Around line 600-650 in MessageView.jsx
+  // This version preserves quoted text when applying template
+  // ============================================================
+
+  const applyTemplateWithAccount = (template, account) => {
+    if (!template || !account) return;
+
+    const message = messages[0];
+
+    const recipientName = extractRecipientName(
+      message.fromEmail,
+      message.fromName
+    );
+
+    // Replace placeholders
+    let templateBody = replacePlaceholders(template.bodyHtml, {
+      senderName: account.senderName || account.email.split("@")[0],
+      clientName: recipientName,
+      recipientName: recipientName,
+      email: message.fromEmail,
+      company: "",
+    });
+
+    // 🔥 FIX: Strip all background colors using regex
+    templateBody = templateBody.replace(/background-color\s*:\s*[^;]+;?/gi, "");
+    templateBody = templateBody.replace(/background\s*:\s*[^;]+;?/gi, "");
+    templateBody = templateBody.replace(/bgcolor\s*=\s*["'][^"']*["']/gi, "");
+
+    // 🔥 FIX: Deep clean using DOM manipulation
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = templateBody;
+
+    // Remove background from ALL elements
+    const allEls = tempDiv.querySelectorAll("*");
+    allEls.forEach((el) => {
+      el.style.background = "none";
+      el.style.backgroundColor = "transparent";
+      el.removeAttribute("bgcolor");
+    });
+
+    templateBody = tempDiv.innerHTML;
+
+    // Add signature
+    if (account.senderName) {
+      templateBody += buildSignature(account.senderName);
+    }
+
+    // Preserve quoted message
+    const currentContent = editorRef.current?.innerHTML || "";
+    const quotedStart = currentContent.indexOf(
+      '<hr style="border:none;border-top:1px solid #e5e7eb'
+    );
+
+    let quotedText = "";
+    if (quotedStart !== -1) {
+      quotedText = currentContent.substring(quotedStart);
+    }
+
+    const finalContent = `${templateBody}<br/><br/>${quotedText}`;
+
+    // Set in editor
+    if (editorRef.current) {
+      editorRef.current.innerHTML = finalContent;
+
+      // 🔥 FIX: Ensure editor background is transparent
+      editorRef.current.style.background = "transparent";
+      editorRef.current.style.backgroundColor = "transparent";
+
+      editorRef.current.focus();
+      const range = document.createRange();
+      const sel = window.getSelection();
+
+      if (editorRef.current.firstChild) {
+        range.setStart(editorRef.current.firstChild, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+
+    if (template.subject) {
+      setReplyData((prev) => ({
+        ...prev,
+        subject: template.subject,
+      }));
+    }
+  };
+
+  // ============================================================
+  // FUNCTION 2: handleTemplateSelect (IMPROVED VERSION)
+  // Location: Around line 650-680 in MessageView.jsx
+  // Handles clearing template selection properly
+  // ============================================================
+
+  const handleTemplateSelect = (templateId) => {
+    if (!templateId || templateId === "") {
+      // User cleared template selection
+      setSelectedTemplate(null);
+      return;
+    }
+
+    const template = templates.find((t) => t.id === parseInt(templateId));
+    setSelectedTemplate(template);
+
+    // Only apply if account is selected
+    if (selectedFromAccount && template) {
+      applyTemplateWithAccount(template, selectedFromAccount);
+    } else if (!selectedFromAccount) {
+      // Warn user to select account first
+      console.warn("⚠️ Please select a sending account first");
+      alert("Please select a sending account before choosing a template");
+      setSelectedTemplate(null);
+    }
+  };
+
+  // ============================================================
+  // FUNCTION 3: handleAccountChange (IMPROVED VERSION)
+  // Location: Around line 620-640 in MessageView.jsx
+  // Re-applies template when account changes
+  // ============================================================
+
+  const handleAccountChange = (accountId) => {
+    const account = accounts.find((acc) => acc.id === parseInt(accountId));
+    setSelectedFromAccount(account);
+
+    // Update replyData.from
+    if (account) {
+      setReplyData((prev) => ({
+        ...prev,
+        from: account.email,
+      }));
+    }
+
+    // If template is selected, reapply with new account
+    if (selectedTemplate && account) {
+      applyTemplateWithAccount(selectedTemplate, account);
+    }
+  };
+
+  // ============================================================
   // EFFECTS
   // ============================================================
+
+  useEffect(() => {
+    fetchAccounts();
+    fetchTemplates();
+  }, []);
 
   useEffect(() => {
     if (selectedConversation && selectedAccount) {
@@ -578,277 +790,141 @@ export default function MessageView({
   };
 
   // ============================================================
-  // 🔥 UPDATED: REPLY HANDLERS - Editable quoted text
+  // REPLY HANDLERS
   // ============================================================
 
-  // const handleReply = (type, message) => {
-  //   if (!message) return;
+  const handleReply = (type, message) => {
+    if (!message) return;
 
-  //   if (scheduledDraft && scheduledDraft.status === "pending") {
-  //     handleReplyWithScheduledDraft(type, message);
-  //     return;
-  //   }
-
-  //   setReplyingToMessageId(message.id);
-  //   setReplyMode(type);
-
-  //   const prefix = message.subject?.toLowerCase().startsWith("re:")
-  //     ? ""
-  //     : "Re: ";
-  //   const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
-  //   const myEmail = selectedAccount.email.toLowerCase();
-
-  //   let to = "";
-  //   let cc = "";
-
-  //   if (message.direction === "received") {
-  //     to = message.fromEmail;
-  //     if (type === "replyAll") {
-  //       const recipients = [
-  //         ...(message.toEmail ? message.toEmail.split(",") : []),
-  //         ...(message.ccEmail ? message.ccEmail.split(",") : []),
-  //       ]
-  //         .map((e) => e.trim())
-  //         .filter(
-  //           (e) =>
-  //             e.toLowerCase() !== myEmail &&
-  //             e.toLowerCase() !== message.fromEmail.toLowerCase()
-  //         );
-  //       cc = [...new Set(recipients)].join(", ");
-  //     }
-  //   } else if (message.direction === "sent") {
-  //     to = message.toEmail;
-  //     if (type === "replyAll" && message.ccEmail) {
-  //       cc = message.ccEmail
-  //         .split(",")
-  //         .map((e) => e.trim())
-  //         .filter((e) => e.toLowerCase() !== myEmail)
-  //         .join(", ");
-  //     }
-  //   }
-
-  //   // 🔥 Build quoted message (will be editable)
-  //   const quoted = `
-  //   <br/><br/>
-  //   <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
-  //   <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
-  //     <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
-  //     <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
-  //     <b>To:</b> ${message.toEmail}<br/>
-  //     ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
-  //     <b>Subject:</b> ${message.subject || "(No Subject)"}
-  //     <br/><br/>
-  //     ${message.bodyHtml || message.body || ""}
-  //   </div>
-  // `;
-
-  //   setReplyData({
-  //     from: selectedAccount.email,
-  //     to,
-  //     cc,
-  //     subject: newSubject,
-  //     body: "", // Empty - will show in editor
-  //   });
-
-  //   // 🔥 Load FULL content into editor (new message area + quoted text)
-  //   setTimeout(() => {
-  //     if (editorRef.current) {
-  //       editorRef.current.innerHTML = `<div><br/></div>${quoted}`;
-
-  //       // Place cursor at the beginning
-  //       editorRef.current.focus();
-  //       const range = document.createRange();
-  //       const sel = window.getSelection();
-
-  //       // Set cursor at very start
-  //       range.setStart(editorRef.current, 0);
-  //       range.collapse(true);
-  //       sel.removeAllRanges();
-  //       sel.addRange(range);
-  //     }
-  //   }, 100);
-  // };
-const handleReply = (type, message) => {
-  if (!message) return;
-
-  if (scheduledDraft && scheduledDraft.status === "pending") {
-    handleReplyWithScheduledDraft(type, message);
-    return;
-  }
-
-  setReplyingToMessageId(message.id);
-  setReplyMode(type);
-
-  const prefix = message.subject?.toLowerCase().startsWith("re:")
-    ? ""
-    : "Re: ";
-  const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
-  const myEmail = selectedAccount.email.toLowerCase();
-
-  let to = "";
-  let cc = "";
-
-  if (message.direction === "received") {
-    // ✅ FIXED: Correct Reply All Logic
-    
-    // 1️⃣ TO field = ONLY the original sender
-    to = message.fromEmail;
-
-    if (type === "replyAll") {
-      const ccList = [];
-
-      // 2️⃣ Add original TO recipients to CC (excluding me)
-      if (message.toEmail) {
-        const originalTos = message.toEmail.split(",").map((e) => e.trim());
-        originalTos.forEach((email) => {
-          const normalized = email.toLowerCase();
-          if (normalized !== myEmail && normalized !== message.fromEmail.toLowerCase()) {
-            ccList.push(email);
-          }
-        });
-      }
-
-      // 3️⃣ Add original CC recipients to CC (excluding me and sender)
-      if (message.ccEmail) {
-        const originalCcs = message.ccEmail.split(",").map((e) => e.trim());
-        originalCcs.forEach((email) => {
-          const normalized = email.toLowerCase();
-          if (normalized !== myEmail && normalized !== message.fromEmail.toLowerCase()) {
-            ccList.push(email);
-          }
-        });
-      }
-
-      // 4️⃣ Remove duplicates and join
-      cc = [...new Set(ccList)].join(", ");
+    if (scheduledDraft && scheduledDraft.status === "pending") {
+      handleReplyWithScheduledDraft(type, message);
+      return;
     }
-  } else if (message.direction === "sent") {
-    // When replying to a sent message
-    to = message.toEmail;
-    if (type === "replyAll" && message.ccEmail) {
-      cc = message.ccEmail
-        .split(",")
-        .map((e) => e.trim())
-        .filter((e) => e.toLowerCase() !== myEmail)
-        .join(", ");
+
+    setReplyingToMessageId(message.id);
+    setReplyMode(type);
+
+    const prefix = message.subject?.toLowerCase().startsWith("re:")
+      ? ""
+      : "Re: ";
+    const cleanSubject =
+      message.subject?.replace(/^(re:\s*)+/gi, "").trim() || "(No Subject)";
+    const newSubject = `${prefix}${cleanSubject}`;
+    const myEmail = selectedAccount.email.toLowerCase();
+
+    let to = "";
+    let cc = "";
+
+    if (message.direction === "received") {
+      to = message.fromEmail;
+
+      if (type === "replyAll") {
+        const ccList = [];
+
+        if (message.toEmail) {
+          const originalTos = message.toEmail.split(",").map((e) => e.trim());
+          originalTos.forEach((email) => {
+            const normalized = email.toLowerCase();
+            if (
+              normalized !== myEmail &&
+              normalized !== message.fromEmail.toLowerCase()
+            ) {
+              ccList.push(email);
+            }
+          });
+        }
+
+        if (message.ccEmail) {
+          const originalCcs = message.ccEmail.split(",").map((e) => e.trim());
+          originalCcs.forEach((email) => {
+            const normalized = email.toLowerCase();
+            if (
+              normalized !== myEmail &&
+              normalized !== message.fromEmail.toLowerCase()
+            ) {
+              ccList.push(email);
+            }
+          });
+        }
+
+        cc = [...new Set(ccList)].join(", ");
+      }
+    } else if (message.direction === "sent") {
+      to = message.toEmail;
+      if (type === "replyAll" && message.ccEmail) {
+        cc = message.ccEmail
+          .split(",")
+          .map((e) => e.trim())
+          .filter((e) => e.toLowerCase() !== myEmail)
+          .join(", ");
+      }
     }
-  }
 
-  // 🔥 FIX: Strip all existing "Re:" prefixes before adding one
-  const cleanSubject = message.subject?.replace(/^(re:\s*)+/gi, "").trim() || "(No Subject)";
-  const finalSubject = `Re: ${cleanSubject}`;
-
-  // Build quoted message
-  const quoted = `
+    const quoted = `
   <br/><br/>
   <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
   <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-    <b style="font-weight: bold;">From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
-    <b style="font-weight: bold;">Sent:</b> ${formatLongDate(message.sentAt)}<br/>
+    <b style="font-weight: bold;">From:</b> ${formatSender(
+      message.fromName,
+      message.fromEmail
+    )}<br/>
+    <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
+      message.sentAt
+    )}<br/>
     <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
-    ${message.ccEmail ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>` : ""}
-    <b style="font-weight: bold;">Subject:</b> ${message.subject || "(No Subject)"}
+    ${
+      message.ccEmail
+        ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
+        : ""
+    }
+    <b style="font-weight: bold;">Subject:</b> ${
+      message.subject || "(No Subject)"
+    }
     <br/><br/>
     ${message.bodyHtml || message.body || ""}
   </div>
 `;
 
-  setReplyData({
-    from: selectedAccount.email,
-    to,
-    cc,
-    subject: finalSubject,
-    body: "",
-  });
+    // 🔥 Set default account
+    const defaultAccount = accounts.find(
+      (acc) => acc.id === selectedAccount?.id
+    );
+    setSelectedFromAccount(defaultAccount);
 
-  setTimeout(() => {
-    if (editorRef.current) {
-      editorRef.current.innerHTML = `<div><br/></div>${quoted}`;
-      editorRef.current.focus();
+    setReplyData({
+      from: selectedAccount.email,
+      to,
+      cc,
+      subject: newSubject,
+      body: "",
+    });
 
-      const range = document.createRange();
-      const sel = window.getSelection();
-      range.setStart(editorRef.current, 0);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-  }, 100);
-};
+    setTimeout(() => {
+      if (editorRef.current) {
+        editorRef.current.innerHTML = `<div><br/></div>${quoted}`;
+        editorRef.current.focus();
 
-  // const handleReplyWithScheduledDraft = (type, message) => {
-  //   setReplyMode("editScheduled");
-  //   setEditingScheduledId(scheduledDraft.id);
-
-  //   const quoted = `
-  //   <br/><br/>
-  //   <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
-  //   <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
-  //     <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
-  //     <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
-  //     <b>To:</b> ${message.toEmail}<br/>
-  //     ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
-  //     <b>Subject:</b> ${message.subject || "(No Subject)"}
-  //     <br/><br/>
-  //     ${message.bodyHtml || message.body || ""}
-  //   </div>
-  // `;
-
-  //   let to = scheduledDraft.toEmail;
-  //   let cc = scheduledDraft.ccEmail || "";
-
-  //   if (type === "replyAll") {
-  //     const myEmail = selectedAccount.email.toLowerCase();
-  //     const recipients = [
-  //       ...(message.toEmail ? message.toEmail.split(",") : []),
-  //       ...(message.ccEmail ? message.ccEmail.split(",") : []),
-  //     ]
-  //       .map((e) => e.trim())
-  //       .filter(
-  //         (e) =>
-  //           e.toLowerCase() !== myEmail &&
-  //           e.toLowerCase() !== message.fromEmail.toLowerCase()
-  //       );
-  //     cc = [...new Set(recipients)].join(", ");
-  //   }
-
-  //   setReplyData({
-  //     from: selectedAccount.email,
-  //     to,
-  //     cc,
-  //     subject: scheduledDraft.subject || "",
-  //     body: "",
-  //   });
-
-  //   setTimeout(() => {
-  //     if (editorRef.current) {
-  //       const fullContent = `${
-  //         scheduledDraft.bodyHtml || ""
-  //       }<br/><br/>${quoted}`;
-  //       editorRef.current.innerHTML = fullContent;
-  //       editorRef.current.focus();
-
-  //       const range = document.createRange();
-  //       const sel = window.getSelection();
-  //       range.setStart(editorRef.current, 0);
-  //       range.collapse(true);
-  //       sel.removeAllRanges();
-  //       sel.addRange(range);
-  //     }
-  //   }, 100);
-  // };
-const handleReplyWithScheduledDraft = (type, message) => {
-  setReplyMode("editScheduled");
-  setEditingScheduledId(scheduledDraft.id);
-
-  // 🔒 Normalize email (handles: "Name <email>")
-  const normalizeEmail = (value) => {
-    if (!value) return "";
-    const match = value.match(/<(.+?)>/);
-    return match ? match[1].trim() : value.trim();
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.setStart(editorRef.current, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }, 100);
   };
 
-  const quoted = `
+  const handleReplyWithScheduledDraft = (type, message) => {
+    setReplyMode("editScheduled");
+    setEditingScheduledId(scheduledDraft.id);
+
+    const normalizeEmail = (value) => {
+      if (!value) return "";
+      const match = value.match(/<(.+?)>/);
+      return match ? match[1].trim() : value.trim();
+    };
+
+    const quoted = `
     <br/><br/>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
     <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
@@ -862,120 +938,69 @@ const handleReplyWithScheduledDraft = (type, message) => {
     </div>
   `;
 
-  // ✅ ALWAYS use scheduledDraft.toEmail (email only)
-  let to = normalizeEmail(scheduledDraft.toEmail);
-  let cc = scheduledDraft.ccEmail ? normalizeEmail(scheduledDraft.ccEmail) : "";
+    let to = normalizeEmail(scheduledDraft.toEmail);
+    let cc = scheduledDraft.ccEmail
+      ? normalizeEmail(scheduledDraft.ccEmail)
+      : "";
 
-  if (type === "replyAll") {
-    const myEmail = selectedAccount.email.toLowerCase();
-    const ccList = cc ? cc.split(",").map((e) => normalizeEmail(e)) : [];
+    if (type === "replyAll") {
+      const myEmail = selectedAccount.email.toLowerCase();
+      const ccList = cc ? cc.split(",").map((e) => normalizeEmail(e)) : [];
 
-    const pushIfValid = (email) => {
-      const normalized = normalizeEmail(email).toLowerCase();
-      if (
-        normalized &&
-        normalized !== myEmail &&
-        normalized !== message.fromEmail?.toLowerCase()
-      ) {
-        ccList.push(normalized);
+      const pushIfValid = (email) => {
+        const normalized = normalizeEmail(email).toLowerCase();
+        if (
+          normalized &&
+          normalized !== myEmail &&
+          normalized !== message.fromEmail?.toLowerCase()
+        ) {
+          ccList.push(normalized);
+        }
+      };
+
+      if (message.toEmail) {
+        message.toEmail.split(",").forEach(pushIfValid);
       }
-    };
 
-    if (message.toEmail) {
-      message.toEmail.split(",").forEach(pushIfValid);
+      if (message.ccEmail) {
+        message.ccEmail.split(",").forEach(pushIfValid);
+      }
+
+      cc = [...new Set(ccList)].join(", ");
     }
 
-    if (message.ccEmail) {
-      message.ccEmail.split(",").forEach(pushIfValid);
-    }
+    // 🔥 Set default account
+    const defaultAccount = accounts.find(
+      (acc) => acc.id === selectedAccount?.id
+    );
+    setSelectedFromAccount(defaultAccount);
 
-    cc = [...new Set(ccList)].join(", ");
-  }
+    setReplyData({
+      from: selectedAccount.email,
+      to,
+      cc,
+      subject: scheduledDraft.subject || "",
+      body: "",
+    });
 
-  setReplyData({
-    from: selectedAccount.email,
-    to, // ✅ email only
-    cc,
-    subject: scheduledDraft.subject || "",
-    body: "",
-  });
+    setTimeout(() => {
+      if (editorRef.current) {
+        const fullContent = `${
+          scheduledDraft.bodyHtml || ""
+        }<br/><br/>${quoted}`;
+        editorRef.current.innerHTML = fullContent;
+        editorRef.current.focus();
 
-  setTimeout(() => {
-    if (editorRef.current) {
-      const fullContent = `${scheduledDraft.bodyHtml || ""}<br/><br/>${quoted}`;
-      editorRef.current.innerHTML = fullContent;
-      editorRef.current.focus();
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.setStart(editorRef.current, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }, 100);
+  };
 
-      const range = document.createRange();
-      const sel = window.getSelection();
-      range.setStart(editorRef.current, 0);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-  }, 100);
-};
-
-
-  // const handleForward = (type, message) => {
-  //   if (!message) return;
-
-  //   const fromHeader = formatHeaderAddress(message.fromName, message.fromEmail);
-  //   const toHeader = message.toEmail;
-  //   const ccHeader = message.ccEmail
-  //     ? message.ccEmail
-  //         .split(",")
-  //         .map((e) => e.trim())
-  //         .join("; ")
-  //     : "";
-
-  //   const sentDate = formatLongDate(message.sentAt);
-  //   const subjectHeader = message.subject || "(No Subject)";
-
-  //   const forwardHeader = `
-  //     <br/>
-  //     <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-  //       <hr style="border:none; border-top:1px solid #E1E1E1">
-  //       <b>From:</b> ${fromHeader}<br>
-  //       <b>Sent:</b> ${sentDate}<br>
-  //       <b>To:</b> ${toHeader}<br>
-  //       ${ccHeader ? `<b>Cc:</b> ${ccHeader}<br>` : ""}
-  //       <b>Subject:</b> ${subjectHeader}
-  //     </div>
-  //     <br/>
-  //   `;
-
-  //   const forwardedBody = `<div><br/></div>${forwardHeader}<div>${
-  //     message.bodyHtml || message.body
-  //   }</div>`;
-
-  //   setReplyingToMessageId(message.id);
-  //   setReplyMode("forward");
-
-  //   const prefix = message.subject?.startsWith("Fwd:") ? "" : "Fwd: ";
-
-  //   setReplyData({
-  //     from: selectedAccount.email,
-  //     to: "",
-  //     cc: "",
-  //     subject: `${prefix}${message.subject || "(No Subject)"}`,
-  //     body: "",
-  //   });
-
-  //   setTimeout(() => {
-  //     if (editorRef.current) {
-  //       editorRef.current.innerHTML = forwardedBody;
-  //       editorRef.current.focus();
-
-  //       const range = document.createRange();
-  //       const sel = window.getSelection();
-  //       range.setStart(editorRef.current, 0);
-  //       range.collapse(true);
-  //       sel.removeAllRanges();
-  //       sel.addRange(range);
-  //     }
-  //   }, 100);
-  // };
   const handleForward = (type, message) => {
     if (!message) return;
 
@@ -991,7 +1016,6 @@ const handleReplyWithScheduledDraft = (type, message) => {
     const sentDate = formatLongDate(message.sentAt);
     const subjectHeader = message.subject || "(No Subject)";
 
-    // 🔥 FIX: Added style="font-weight: bold;" and aligned HR/Div structure
     const forwardHeader = `
       <br/>
       <hr style="border:none; border-top:1px solid #E1E1E1; margin:12px 0;">
@@ -1017,6 +1041,12 @@ const handleReplyWithScheduledDraft = (type, message) => {
     setReplyMode("forward");
 
     const prefix = message.subject?.startsWith("Fwd:") ? "" : "Fwd: ";
+
+    // 🔥 Set default account
+    const defaultAccount = accounts.find(
+      (acc) => acc.id === selectedAccount?.id
+    );
+    setSelectedFromAccount(defaultAccount);
 
     setReplyData({
       from: selectedAccount.email,
@@ -1070,13 +1100,13 @@ const handleReplyWithScheduledDraft = (type, message) => {
     else endpoint = `${API_BASE_URL}/api/inbox/reply`;
 
     const payload = {
-      emailAccountId: selectedAccount.id,
+      emailAccountId: selectedFromAccount?.id || selectedAccount.id,
       fromEmail: replyData.from,
       from: replyData.from,
       to: replyData.to,
       cc: replyData.cc || null,
       subject: replyData.subject,
-      body: bodyContent, // Entire editor content (new + quoted)
+      body: bodyContent,
       attachments: attachments.map((att) => ({
         filename: att.name,
         url: att.url,
@@ -1113,6 +1143,11 @@ const handleReplyWithScheduledDraft = (type, message) => {
       return;
     }
 
+    if (!selectedFromAccount) {
+      alert("Please select an email account to send from");
+      return;
+    }
+
     setIsSending(true);
 
     try {
@@ -1133,6 +1168,8 @@ const handleReplyWithScheduledDraft = (type, message) => {
     setReplyMode(null);
     setReplyingToMessageId(null);
     setEditingScheduledId(null);
+    setSelectedFromAccount(null);
+    setSelectedTemplate(null);
     setReplyData({
       from: "",
       to: "",
@@ -1174,7 +1211,7 @@ const handleReplyWithScheduledDraft = (type, message) => {
   };
 
   // ============================================================
-  // RENDER - Messages List (KEEP AS IS)
+  // RENDER
   // ============================================================
 
   if (!selectedConversation) {
@@ -1192,7 +1229,7 @@ const handleReplyWithScheduledDraft = (type, message) => {
 
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Header - SAME AS BEFORE */}
+      {/* Header */}
       <div className="border-b border-gray-200 px-6 py-4 bg-gray-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -1283,7 +1320,7 @@ const handleReplyWithScheduledDraft = (type, message) => {
         </div>
       )}
 
-      {/* Messages List - SAME AS BEFORE */}
+      {/* Messages List */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center h-full">
@@ -1509,7 +1546,7 @@ const handleReplyWithScheduledDraft = (type, message) => {
         )}
       </div>
 
-      {/* 🔥 UPDATED REPLY MODAL - Single editable area */}
+      {/* 🔥 REPLY MODAL WITH ACCOUNT & TEMPLATE DROPDOWNS */}
       {replyMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[95vh] overflow-hidden">
@@ -1538,6 +1575,51 @@ const handleReplyWithScheduledDraft = (type, message) => {
 
             <div className="overflow-y-auto max-h-[calc(95vh-140px)]">
               <div className="p-6">
+                {/* 🔥 Account Selection Dropdown */}
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    From Email Account *
+                  </label>
+                  <select
+                    value={selectedFromAccount?.id || ""}
+                    onChange={(e) => handleAccountChange(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select Account</option>
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.email} {acc.senderName && `(${acc.senderName})`}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedFromAccount && !selectedFromAccount.senderName && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      ⚠️ No sender name set for this account. Set it in Account
+                      Settings.
+                    </p>
+                  )}
+                </div>
+
+                {/* 🔥 Template Selection Dropdown */}
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Email Template (Optional)
+                  </label>
+                  <select
+                    value={selectedTemplate?.id || ""}
+                    onChange={(e) => handleTemplateSelect(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Choose a template...</option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}{" "}
+                        {template.leadStatus && `(${template.leadStatus})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="space-y-4 mb-4">
                   <div className="flex items-center gap-2">
                     <label className="text-sm font-medium text-gray-700 w-16">
@@ -1594,7 +1676,7 @@ const handleReplyWithScheduledDraft = (type, message) => {
                 </div>
 
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  {/* 🎨 FULL TOOLBAR */}
+                  {/* Toolbar */}
                   <div className="bg-gradient-to-b from-gray-50 to-gray-100 border-b border-gray-300">
                     <div className="flex items-center gap-2 p-2 flex-wrap">
                       {/* Font Family */}
@@ -1800,7 +1882,7 @@ const handleReplyWithScheduledDraft = (type, message) => {
                     </div>
                   </div>
 
-                  {/* 🔥 SINGLE EDITABLE AREA - New message + quoted text all editable */}
+                  {/* Editor */}
                   <div
                     ref={editorRef}
                     contentEditable

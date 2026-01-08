@@ -56,31 +56,66 @@ export default function InboxMain() {
   }, []);
 
   // // 🔥 FIX: Fetch conversations when account/folder changes
-  // useEffect(() => {
-  //   if (!selectedAccount || !selectedFolder) return;
-  //   if (activeView === "today") return;
 
-  //   fetchConversations();
-  // }, [selectedAccount, selectedFolder, activeView, filters, searchEmail]);
+  // const fetchAccounts = async () => {
+  //   try {
+  //     setLoadingAccounts(true);
+  //     const response = await api.get(`${API_BASE_URL}/api/accounts`);
+  //     const accountsData = response.data || [];
 
+  //     // Fetch unread counts for each account
+  //     const accountsWithUnread = await Promise.all(
+  //       accountsData.map(async (account) => {
+  //         try {
+  //           const unreadRes = await api.get(
+  //             `${API_BASE_URL}/api/inbox/accounts/${account.id}/unread`
+  //           );
+  //           return {
+  //             ...account,
+  //             unreadCount: unreadRes.data?.data?.inboxUnread || 0,
+  //           };
+  //         } catch (error) {
+  //           return { ...account, unreadCount: 0 };
+  //         }
+  //       })
+  //     );
+
+  //     setAccounts(accountsWithUnread);
+
+  //     // Auto-select first account if none selected
+  //     if (!selectedAccount && accountsWithUnread.length > 0) {
+  //       setSelectedAccount(accountsWithUnread[0]);
+  //     }
+  //   } catch (error) {
+  //     console.error("Error fetching accounts:", error);
+  //     setAccounts([]);
+  //   } finally {
+  //     setLoadingAccounts(false);
+  //   }
+  // };
   const fetchAccounts = async () => {
     try {
       setLoadingAccounts(true);
-      const response = await api.get(`${API_BASE_URL}/api/accounts`);
-      const accountsData = response.data || [];
 
-      // Fetch unread counts for each account
+      const response = await api.get(`${API_BASE_URL}/api/accounts`);
+
+      // ✅ FIX: normalize response
+      const accountsData = Array.isArray(response.data?.data)
+        ? response.data.data
+        : [];
+
       const accountsWithUnread = await Promise.all(
         accountsData.map(async (account) => {
           try {
             const unreadRes = await api.get(
               `${API_BASE_URL}/api/inbox/accounts/${account.id}/unread`
             );
+
             return {
               ...account,
               unreadCount: unreadRes.data?.data?.inboxUnread || 0,
             };
-          } catch (error) {
+          } catch {
             return { ...account, unreadCount: 0 };
           }
         })
@@ -88,7 +123,6 @@ export default function InboxMain() {
 
       setAccounts(accountsWithUnread);
 
-      // Auto-select first account if none selected
       if (!selectedAccount && accountsWithUnread.length > 0) {
         setSelectedAccount(accountsWithUnread[0]);
       }
@@ -359,51 +393,51 @@ export default function InboxMain() {
   //     setLoading(false);
   //   }
   // };
-const fetchTodayFollowUps = async () => {
-  try {
-    setLoading(true);
+  const fetchTodayFollowUps = async () => {
+    try {
+      setLoading(true);
 
-    const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
+      const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
 
-    // ✅ Format for conversation list
-    const formatted = res.data.map((msg) => {
-      // 🔥 FIX: Extract actual email if stored as "Name <email@example.com>"
-      let actualEmail = msg.toEmail;
+      // ✅ Format for conversation list
+      const formatted = res.data.map((msg) => {
+        // 🔥 FIX: Extract actual email if stored as "Name <email@example.com>"
+        let actualEmail = msg.toEmail;
 
-      if (msg.toEmail.includes("<") && msg.toEmail.includes(">")) {
-        // Format: "John Doe <john@example.com>" → extract "john@example.com"
-        const match = msg.toEmail.match(/<(.+?)>/);
-        if (match && match[1]) {
-          actualEmail = match[1];
+        if (msg.toEmail.includes("<") && msg.toEmail.includes(">")) {
+          // Format: "John Doe <john@example.com>" → extract "john@example.com"
+          const match = msg.toEmail.match(/<(.+?)>/);
+          if (match && match[1]) {
+            actualEmail = match[1];
+          }
         }
-      }
 
-      return {
-        conversationId: msg.conversationId,
-        subject: msg.subject || "(No subject)",
+        return {
+          conversationId: msg.conversationId,
+          subject: msg.subject || "(No subject)",
 
-        // ✅ Use extracted email, not the full string with name
-        displayName: actualEmail,
-        displayEmail: actualEmail,
+          // ✅ Use extracted email, not the full string with name
+          displayName: actualEmail,
+          displayEmail: actualEmail,
 
-        primaryRecipient: actualEmail,
-        lastDate: msg.sendAt,
-        lastBody: "(Scheduled follow-up)",
-        unreadCount: 0,
-        isScheduled: true,
-        scheduledMessageId: msg.id,
-        scheduledMessageData: msg,
-      };
-    });
+          primaryRecipient: actualEmail,
+          lastDate: msg.sendAt,
+          lastBody: "(Scheduled follow-up)",
+          unreadCount: 0,
+          isScheduled: true,
+          scheduledMessageId: msg.id,
+          scheduledMessageData: msg,
+        };
+      });
 
-    setConversations(formatted);
-  } catch (err) {
-    console.error("❌ Failed to fetch today follow-ups", err);
-    setConversations([]);
-  } finally {
-    setLoading(false);
-  }
-};
+      setConversations(formatted);
+    } catch (err) {
+      console.error("❌ Failed to fetch today follow-ups", err);
+      setConversations([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSchedule = () => {
     setIsScheduleMode(true);

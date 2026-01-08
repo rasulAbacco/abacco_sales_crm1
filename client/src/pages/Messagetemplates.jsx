@@ -14,10 +14,22 @@ import {
   List,
   Link as LinkIcon,
   Loader2,
+  Info,
+  Lightbulb,
 } from "lucide-react";
 import { api } from "../pages/api.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// 🔥 PLACEHOLDER GUIDE
+const PLACEHOLDER_GUIDE = [
+  { key: "{sender_name}", desc: "Your name (set in account settings)" },
+  { key: "{client_name}", desc: "Recipient's name" },
+  { key: "{company}", desc: "Company name" },
+  { key: "{email}", desc: "Recipient's email" },
+  { key: "{date}", desc: "Current date" },
+  { key: "{time}", desc: "Current time" },
+];
 
 export default function MessageTemplates() {
   const [templates, setTemplates] = useState([]);
@@ -27,6 +39,7 @@ export default function MessageTemplates() {
   const [filterStatus, setFilterStatus] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState(null);
+  const [showPlaceholderGuide, setShowPlaceholderGuide] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -37,7 +50,6 @@ export default function MessageTemplates() {
 
   const editorRef = useRef(null);
 
-  // Default lead statuses
   const defaultStatuses = [
     "Invoice Pending",
     "Invoice Cancel",
@@ -213,6 +225,14 @@ export default function MessageTemplates() {
     editorRef.current?.focus();
   };
 
+  // 🔥 NEW: Insert placeholder at cursor
+  const insertPlaceholder = (placeholder) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      document.execCommand("insertHTML", false, placeholder);
+    }
+  };
+
   const filteredTemplates = templates.filter((template) => {
     const matchesSearch =
       template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -227,7 +247,6 @@ export default function MessageTemplates() {
     return matchesSearch && matchesStatus;
   });
 
-  // Group templates by lead status
   const groupedTemplates = filteredTemplates.reduce((acc, template) => {
     const status = template.leadStatus || "No Status";
     if (!acc[status]) {
@@ -247,8 +266,8 @@ export default function MessageTemplates() {
               Message Templates
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Create and manage reusable email templates for different lead
-              statuses
+              Create and manage reusable email templates with dynamic
+              placeholders
             </p>
           </div>
           <button
@@ -260,7 +279,6 @@ export default function MessageTemplates() {
           </button>
         </div>
 
-        {/* Search and Filter */}
         <div className="flex gap-3">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -325,7 +343,6 @@ export default function MessageTemplates() {
                       key={template.id}
                       className="bg-white rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
                     >
-                      {/* Template Header */}
                       <div className="px-4 py-3 border-b border-gray-100 flex items-start justify-between">
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-gray-900 truncate">
@@ -362,7 +379,6 @@ export default function MessageTemplates() {
                         </div>
                       </div>
 
-                      {/* Template Body Preview */}
                       <div className="px-4 py-3">
                         <div
                           className="text-sm text-gray-600 line-clamp-3 prose prose-sm max-w-none"
@@ -372,7 +388,6 @@ export default function MessageTemplates() {
                         />
                       </div>
 
-                      {/* Template Footer */}
                       <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
                         <span>
                           Used {template.useCount || 0} time
@@ -395,7 +410,6 @@ export default function MessageTemplates() {
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white w-full max-w-4xl rounded-xl shadow-xl max-h-[90vh] overflow-hidden flex flex-col">
-            {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
               <h2 className="text-lg font-semibold text-white">
                 {editingTemplate ? "Edit Template" : "Create New Template"}
@@ -408,9 +422,47 @@ export default function MessageTemplates() {
               </button>
             </div>
 
-            {/* Modal Body */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {/* Template Name */}
+              {/* 🔥 PLACEHOLDER GUIDE BANNER */}
+              <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <Lightbulb className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-gray-900 text-sm mb-2">
+                      💡 Dynamic Placeholders Available
+                    </h3>
+                    <button
+                      onClick={() =>
+                        setShowPlaceholderGuide(!showPlaceholderGuide)
+                      }
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      {showPlaceholderGuide ? "Hide" : "Show"} Available
+                      Placeholders
+                    </button>
+
+                    {showPlaceholderGuide && (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {PLACEHOLDER_GUIDE.map((p) => (
+                          <button
+                            key={p.key}
+                            onClick={() => insertPlaceholder(p.key)}
+                            className="text-left p-2 bg-white border border-amber-200 rounded hover:bg-amber-50 transition-colors group"
+                          >
+                            <code className="text-xs font-mono text-blue-600">
+                              {p.key}
+                            </code>
+                            <p className="text-[10px] text-gray-500 mt-0.5">
+                              {p.desc}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Template Name *
@@ -426,7 +478,6 @@ export default function MessageTemplates() {
                 />
               </div>
 
-              {/* Lead Status */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Lead Status *
@@ -450,7 +501,6 @@ export default function MessageTemplates() {
                 </div>
               </div>
 
-              {/* Subject Line */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Subject Line
@@ -466,13 +516,11 @@ export default function MessageTemplates() {
                 />
               </div>
 
-              {/* Message Body */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Message Body *
                 </label>
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  {/* Toolbar */}
                   <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-300">
                     <button
                       onClick={() => formatText("bold")}
@@ -517,7 +565,6 @@ export default function MessageTemplates() {
                     </button>
                   </div>
 
-                  {/* Editor */}
                   <div
                     ref={editorRef}
                     contentEditable
@@ -529,14 +576,9 @@ export default function MessageTemplates() {
                     }}
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  💡 Tip: You can use placeholders like {"{client_name}"},{" "}
-                  {"{company}"}, {"{email}"} that will be replaced when sending
-                </p>
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div className="px-6 py-4 border-t bg-gray-50 flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowCreateModal(false)}

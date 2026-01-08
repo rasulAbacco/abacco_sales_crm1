@@ -76,6 +76,8 @@ model EmailAccount {
   // Signature
   signature String?
 
+  senderName String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

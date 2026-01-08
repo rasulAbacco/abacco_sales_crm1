@@ -17,6 +17,7 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
     smtpUser: "",
     encryptedPass: "",
     authType: "password",
+    senderName: "", // 🔥 NEW: Sender Name Field
   });
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -28,6 +29,10 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
   const [suggestion, setSuggestion] = useState(null);
   const [help, setHelp] = useState(null);
 
+  // 🔥 NEW: State for editing sender name
+  const [editingSenderName, setEditingSenderName] = useState(null);
+  const [tempSenderName, setTempSenderName] = useState("");
+
   useEffect(() => {
     fetchAccounts();
   }, []);
@@ -36,7 +41,10 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
     setLoadingAccounts(true);
     try {
       const res = await api.get(`/api/accounts`);
-      setAccounts(res.data || []);
+      const accountsData = Array.isArray(res.data?.data)
+        ? res.data.data
+        : res.data || [];
+      setAccounts(accountsData);
     } catch (err) {
       console.error("Failed to load accounts:", err);
       setAccounts([]);
@@ -69,6 +77,7 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
         smtpUser: "",
         encryptedPass: "",
         authType: "password",
+        senderName: "",
       });
 
       if (onAccountAdded) onAccountAdded(newAcc);
@@ -84,6 +93,32 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
     }
   };
 
+  // 🔥 NEW: Update sender name for existing account
+  const updateSenderName = async (accountId, newName) => {
+    try {
+      const res = await api.patch(
+        `${API_BASE_URL}/api/accounts/${accountId}/sender-name`,
+        {
+          senderName: newName.trim(),
+        }
+      );
+
+      if (res.data.success) {
+        // Update local state
+        setAccounts((prev) =>
+          prev.map((acc) =>
+            acc.id === accountId ? { ...acc, senderName: newName.trim() } : acc
+          )
+        );
+        setShowSuccessMessage("✅ Sender name updated!");
+        setTimeout(() => setShowSuccessMessage(""), 2000);
+      }
+    } catch (err) {
+      console.error("Failed to update sender name:", err);
+      setError("Failed to update sender name");
+    }
+  };
+
   const confirmLogout = (id) => {
     setAccountToLogout(id);
     setShowLogoutConfirm(true);
@@ -96,7 +131,6 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
     try {
       const token = localStorage.getItem("token");
 
-      // 🗑️ 1️⃣ Cleanup EVERYTHING (DB + R2)
       await api.post(
         `${API_BASE_URL}/api/cleanup-account/clear`,
         {
@@ -107,12 +141,10 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
         }
       );
 
-      // 🗑️ 2️⃣ Delete account
       await api.delete(`${API_BASE_URL}/api/accounts/${accountToLogout}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      // 🧹 3️⃣ Update UI instantly
       const updatedAccounts = accounts.filter((a) => a.id !== accountToLogout);
       setAccounts(updatedAccounts);
 
@@ -127,11 +159,8 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
 
       setShowLogoutConfirm(false);
       setAccountToLogout(null);
-
-      // 🎉 Success UI message
       setShowSuccessMessage("✅ Account deleted successfully!");
 
-      // 🔄 Refresh accounts
       setTimeout(async () => {
         await fetchAccounts();
         setShowSuccessMessage("");
@@ -263,7 +292,7 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
             </div>
           )}
 
-          {/* List accounts */}
+          {/* 🔥 NEW: List accounts with editable sender name */}
           <div className="mb-6">
             <h3 className="text-lg font-bold mb-2">Your Accounts</h3>
             {accounts.length === 0 ? (
@@ -280,10 +309,66 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
                   }`}
                 >
                   <div className="flex justify-between items-center">
-                    <div>
-                      <div>{acc.email}</div>
+                    <div className="flex-1">
+                      <div className="font-medium">{acc.email}</div>
                       <div className="text-sm text-gray-500">
                         {acc.provider} · {acc.imapHost}:{acc.imapPort}
+                      </div>
+
+                      {/* 🔥 NEW: Sender Name Display/Edit */}
+                      <div className="mt-2">
+                        {editingSenderName === acc.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={tempSenderName}
+                              onChange={(e) =>
+                                setTempSenderName(e.target.value)
+                              }
+                              placeholder="Enter your name"
+                              className="flex-1 px-2 py-1 border border-blue-300 rounded text-sm"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateSenderName(acc.id, tempSenderName);
+                                setEditingSenderName(null);
+                              }}
+                              className="px-3 py-1 bg-green-600 text-white rounded text-sm"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingSenderName(null);
+                              }}
+                              className="px-3 py-1 bg-gray-400 text-white rounded text-sm"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-600">
+                              📝 Sender Name:{" "}
+                              <span className="font-semibold text-blue-600">
+                                {acc.senderName || "Not set"}
+                              </span>
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingSenderName(acc.id);
+                                setTempSenderName(acc.senderName || "");
+                              }}
+                              className="text-xs text-blue-600 hover:underline"
+                            >
+                              {acc.senderName ? "Edit" : "Set Name"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <button
@@ -342,6 +427,25 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
                 className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                 required
               />
+            </div>
+
+            {/* 🔥 NEW: Sender Name Field in Creation Form */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Sender Name (Optional)
+              </label>
+              <input
+                type="text"
+                value={form.senderName}
+                onChange={(e) =>
+                  setForm({ ...form, senderName: e.target.value })
+                }
+                placeholder="e.g., Pramod Bijakal"
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                This name will appear in email templates and signatures
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

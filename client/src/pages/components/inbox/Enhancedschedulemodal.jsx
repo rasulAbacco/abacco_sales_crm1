@@ -1,458 +1,328 @@
-import React, { useState, useEffect, useRef } from "react";
-import {
-  X,
-  Calendar,
-  Clock,
-  Mail,
-  Send,
-  Loader2,
-  FileText,
-  ChevronDown,
-  Bold,
-  Italic,
-  Underline,
-  List,
-  Link as LinkIcon,
-} from "lucide-react";
-import { api } from "../../../pages/api.js";
+// Example: How to integrate placeholder replacement into EnhancedScheduleModal.jsx
+
+import React, { useState, useEffect } from "react";
+import { replacePlaceholders } from "../../../utils/templateReplacer";
+import { api } from "../../api";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-export default function EnhancedScheduleModal({
-  isOpen,
-  onClose,
-  selectedConversations,
-  selectedAccount,
-  onScheduleSuccess,
-}) {
-  const [sendAt, setSendAt] = useState("");
-  const [sendTime, setSendTime] = useState("");
-  const [customStatuses, setCustomStatuses] = useState([]);
+export default function EnhancedScheduleModalExample() {
+  const [accounts, setAccounts] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState(null);
   const [templates, setTemplates] = useState([]);
-  const [selectedLeadStatus, setSelectedLeadStatus] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState("");
-  const [subject, setSubject] = useState("");
-  const [bodyHtml, setBodyHtml] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [messageBody, setMessageBody] = useState("");
+  const [messageSubject, setMessageSubject] = useState("");
+  const [selectedConversations, setSelectedConversations] = useState([]);
 
-  const editorRef = useRef(null);
-
-  // Hardcoded default lead statuses
-  const defaultStatuses = [
-    "Invoice Pending",
-    "Invoice Cancel",
-    "Deal",
-    "Active Client",
-    "No Response",
-    "1 Reply",
-    "1 Follow Up",
-    "2 Follow Up",
-    "3 Follow Up",
-    "Call",
-    "Sample Pending",
-  ];
-
-  // Combined status options
-  const allStatuses = [
-    ...defaultStatuses,
-    ...customStatuses.map((s) => s.name),
-  ];
-
+  // 🔥 STEP 1: Fetch accounts with sender names
   useEffect(() => {
-    if (isOpen) {
-      fetchCustomStatuses();
-      // 🔥 REMOVED: Default date setting
-    }
-  }, [isOpen]);
+    fetchAccounts();
+    fetchTemplates();
+  }, []);
 
-  useEffect(() => {
-    if (selectedLeadStatus) {
-      fetchTemplatesByStatus(selectedLeadStatus);
-    } else {
-      setTemplates([]);
-      setSelectedTemplate("");
-    }
-  }, [selectedLeadStatus]);
-
-  useEffect(() => {
-    if (selectedTemplate) {
-      const template = templates.find(
-        (t) => t.id === parseInt(selectedTemplate)
-      );
-      if (template) {
-        setSubject(template.subject || "");
-        setBodyHtml(template.bodyHtml);
-        if (editorRef.current) {
-          editorRef.current.innerHTML = template.bodyHtml;
-        }
-      }
-    }
-  }, [selectedTemplate, templates]);
-
-  const fetchCustomStatuses = async () => {
+  const fetchAccounts = async () => {
     try {
-      const response = await api.get(`${API_BASE_URL}/api/customStatus`);
+      const response = await api.get(`${API_BASE_URL}/api/accounts`);
       if (response.data.success) {
-        setCustomStatuses(response.data.data || []);
+        setAccounts(response.data.data || []);
       }
     } catch (error) {
-      console.error("Error fetching custom statuses:", error);
+      console.error("Error fetching accounts:", error);
     }
   };
 
-  const fetchTemplatesByStatus = async (status) => {
+  const fetchTemplates = async () => {
     try {
-      const response = await api.get(
-        `${API_BASE_URL}/api/email-templates/by-status/${encodeURIComponent(
-          status
-        )}`
-      );
+      const response = await api.get(`${API_BASE_URL}/api/email-templates`);
       if (response.data.success) {
         setTemplates(response.data.data || []);
       }
     } catch (error) {
       console.error("Error fetching templates:", error);
-      setTemplates([]);
     }
   };
 
-  const formatText = (command) => {
-    document.execCommand(command, false, null);
-    editorRef.current?.focus();
-  };
+  // 🔥 STEP 2: When account changes, update preview
+  const handleAccountChange = (accountId) => {
+    setSelectedAccountId(accountId);
 
-  const insertLink = () => {
-    const url = prompt("Enter URL:");
-    if (url) {
-      document.execCommand("createLink", false, url);
+    // If a template is already selected, re-preview with new account
+    if (selectedTemplate && messageBody) {
+      previewTemplateWithAccount(selectedTemplate, accountId);
     }
-    editorRef.current?.focus();
   };
 
+  // 🔥 STEP 3: When template is selected, replace placeholders
+  const handleTemplateSelect = async (template) => {
+    setSelectedTemplate(template);
+    setMessageSubject(template.subject || "");
+
+    if (selectedAccountId) {
+      previewTemplateWithAccount(template, selectedAccountId);
+    } else {
+      // No account selected yet, show template with placeholders
+      setMessageBody(template.bodyHtml);
+    }
+  };
+
+  // 🔥 STEP 4: Preview template with placeholders replaced
+  const previewTemplateWithAccount = (template, accountId) => {
+    const account = accounts.find((a) => a.id === accountId);
+
+    if (!account) {
+      setMessageBody(template.bodyHtml);
+      return;
+    }
+
+    // Get first conversation details for preview
+    const firstConv = selectedConversations[0];
+    const clientEmail = firstConv?.clientEmail || "";
+    const clientName =
+      firstConv?.clientEmail?.split("@")[0]?.replace(/[._-]/g, " ") || "Client";
+
+    // Replace placeholders
+    const previewBody = replacePlaceholders(template.bodyHtml, {
+      senderName: account.senderName || account.email.split("@")[0],
+      clientName: clientName,
+      company: "", // You can fetch from lead details
+      email: clientEmail,
+    });
+
+    setMessageBody(previewBody);
+  };
+
+  // 🔥 STEP 5: When scheduling, body already has placeholders replaced
   const handleSchedule = async () => {
-    if (!sendAt || !sendTime) {
-      alert("Please select date and time");
+    if (!selectedAccountId) {
+      alert("Please select an email account");
       return;
     }
 
-    if (!selectedLeadStatus) {
-      alert("Please select a lead status");
+    if (!messageBody) {
+      alert("Please enter a message");
       return;
     }
 
-    const bodyContent = editorRef.current?.innerHTML || bodyHtml;
-    if (!bodyContent.trim()) {
-      alert("Please enter message content");
-      return;
-    }
-
-    const dateTimeString = `${sendAt}T${sendTime}:00`;
-
-    setLoading(true);
     try {
-      const messages = selectedConversations.map((conv) => ({
-        conversationId: conv.conversationId || null,
-
-        toEmail: conv.clientEmail || conv.email,
-        subject: subject || conv.subject || "(No Subject)",
-        bodyHtml: bodyContent,
-      }));
-
+      // Schedule messages (placeholders already replaced in messageBody)
       const response = await api.post(
         `${API_BASE_URL}/api/scheduled-messages/bulk`,
         {
-          accountId: selectedAccount.id,
-          sendAt: dateTimeString,
-          messages,
+          accountId: selectedAccountId,
+          sendAt: scheduledTime,
+          messages: selectedConversations.map((conv) => ({
+            conversationId: conv.conversationId,
+            subject: messageSubject,
+            bodyHtml: messageBody, // ✅ Already has placeholders replaced
+          })),
         }
       );
 
       if (response.data.success) {
-        // Increment template use count if template was used
-        if (selectedTemplate) {
-          await api.patch(
-            `${API_BASE_URL}/api/email-templates/${selectedTemplate}/use`
-          );
-        }
-
-        alert(response.data.message || "Emails scheduled successfully!");
-        onScheduleSuccess?.();
-        handleClose();
+        alert("Messages scheduled successfully!");
+        onClose();
       }
     } catch (error) {
-      console.error("❌ Scheduling error:", error);
-      alert("Failed to schedule emails");
-    } finally {
-      setLoading(false);
+      console.error("Error scheduling messages:", error);
+      alert("Failed to schedule messages");
     }
   };
 
-  const handleClose = () => {
-    setSendAt("");
-    setSendTime("10:00");
-    setSelectedLeadStatus("");
-    setSelectedTemplate("");
-    setSubject("");
-    setBodyHtml("");
-    setTemplates([]);
-    if (editorRef.current) {
-      editorRef.current.innerHTML = "";
-    }
-    onClose();
+  // 🔥 STEP 6: Show sender name in account dropdown
+  const renderAccountOption = (account) => {
+    return (
+      <div className="flex items-center justify-between">
+        <span>{account.email}</span>
+        {account.senderName && (
+          <span className="text-xs text-gray-500 ml-2">
+            ({account.senderName})
+          </span>
+        )}
+      </div>
+    );
   };
 
-  if (!isOpen) return null;
+  // 🔥 STEP 7: Show placeholder info in UI
+  const renderPlaceholderInfo = () => {
+    const account = accounts.find((a) => a.id === selectedAccountId);
+
+    if (!account?.senderName) {
+      return (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm">
+          <p className="text-yellow-800">
+            💡 <strong>Tip:</strong> Set a sender name in Account Settings to
+            use{" "}
+            <code className="bg-yellow-100 px-1 rounded">
+              {"{sender_name}"}
+            </code>{" "}
+            placeholder
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+        <p className="text-blue-800">✅ Placeholders will be replaced:</p>
+        <ul className="mt-2 space-y-1 text-blue-700">
+          <li>
+            <code className="bg-blue-100 px-1 rounded">{"{sender_name}"}</code>{" "}
+            → <strong>{account.senderName}</strong>
+          </li>
+          <li>
+            <code className="bg-blue-100 px-1 rounded">{"{date}"}</code> →{" "}
+            {new Date().toLocaleDateString()}
+          </li>
+          <li>
+            <code className="bg-blue-100 px-1 rounded">{"{time}"}</code> →{" "}
+            {new Date().toLocaleTimeString()}
+          </li>
+        </ul>
+      </div>
+    );
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="border-b border-gray-200 px-6 py-4 bg-gray-50 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-sm">
-              <Calendar className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                Schedule Follow-up Emails
-              </h3>
-              <p className="text-sm text-gray-500">
-                {selectedConversations.length} conversation(s) selected
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={handleClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-600" />
-          </button>
+        <div className="px-6 py-4 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
+          <h2 className="text-lg font-bold text-white">Schedule Follow-ups</h2>
         </div>
 
-        {/* Content */}
-        <div className="overflow-y-auto max-h-[calc(90vh-200px)] p-6">
-          <div className="space-y-6">
-            {/* Date and Time */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Send Date *
-                </label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="date"
-                    value={sendAt}
-                    onChange={(e) => setSendAt(e.target.value)}
-                    min={new Date().toISOString().split("T")[0]}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Send Time *
-                </label>
-                <div className="relative">
-                  <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="time"
-                    value={sendTime}
-                    onChange={(e) => setSendTime(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Lead Status Selection */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Lead Status *
-              </label>
-              <div className="relative">
-                <select
-                  value={selectedLeadStatus}
-                  onChange={(e) => setSelectedLeadStatus(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
-                >
-                  <option value="">Select Lead Status</option>
-                  {allStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Template Selection (appears after lead status is selected) */}
-            {selectedLeadStatus && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Template (Optional)
-                </label>
-                <div className="relative">
-                  <FileText className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <select
-                    value={selectedTemplate}
-                    onChange={(e) => setSelectedTemplate(e.target.value)}
-                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
-                  >
-                    <option value="">
-                      {templates.length > 0
-                        ? "Select a template or write custom message"
-                        : "No templates found for this status"}
-                    </option>
-                    {templates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.name}
-                        {template.useCount > 0 &&
-                          ` (used ${template.useCount}x)`}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-                </div>
-                {templates.length === 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    You can create templates in the Message Templates tab
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Subject Line */}
-            {selectedLeadStatus && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Subject Line
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="Enter email subject"
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Message Body Editor */}
-            {selectedLeadStatus && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Message Body *
-                </label>
-                <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-300">
-                    <button
-                      onClick={() => formatText("bold")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Bold"
-                    >
-                      <Bold className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("italic")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Italic"
-                    >
-                      <Italic className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("underline")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Underline"
-                    >
-                      <Underline className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
-                    <button
-                      onClick={() => formatText("insertUnorderedList")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Bullet List"
-                    >
-                      <List className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={insertLink}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Insert Link"
-                    >
-                      <LinkIcon className="w-4 h-4 text-gray-600" />
-                    </button>
-                  </div>
-
-                  <div
-                    ref={editorRef}
-                    contentEditable
-                    className="min-h-[300px] max-h-[400px] overflow-y-auto p-4 focus:outline-none"
-                    style={{
-                      fontFamily: "Calibri, sans-serif",
-                      fontSize: "11pt",
-                      lineHeight: "1.35",
-                    }}
-                    placeholder="Type your message here..."
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Preview Section */}
-            {selectedLeadStatus && selectedConversations.length > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-blue-900 mb-2">
-                  📧 Will send to:
-                </h4>
-                <div className="space-y-1">
-                  {selectedConversations.slice(0, 5).map((conv, idx) => (
-                    <p key={idx} className="text-sm text-blue-700">
-                      • {conv.clientEmail || conv.email}
-                    </p>
-                  ))}
-                  {selectedConversations.length > 5 && (
-                    <p className="text-sm text-blue-600 font-medium">
-                      ... and {selectedConversations.length - 5} more
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {/* Account Selection */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              From Email Account *
+            </label>
+            <select
+              value={selectedAccountId || ""}
+              onChange={(e) => handleAccountChange(Number(e.target.value))}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select Email Account</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.email}
+                  {account.senderName ? ` (${account.senderName})` : ""}
+                </option>
+              ))}
+            </select>
           </div>
+
+          {/* Template Selection */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Template (Optional)
+            </label>
+            <select
+              value={selectedTemplate?.id || ""}
+              onChange={(e) => {
+                const template = templates.find(
+                  (t) => t.id === Number(e.target.value)
+                );
+                handleTemplateSelect(template);
+              }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select a template...</option>
+              {templates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Placeholder Info */}
+          {renderPlaceholderInfo()}
+
+          {/* Subject */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Subject
+            </label>
+            <input
+              type="text"
+              value={messageSubject}
+              onChange={(e) => setMessageSubject(e.target.value)}
+              placeholder="Email subject"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Message Body */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Message *
+            </label>
+            <textarea
+              value={messageBody}
+              onChange={(e) => setMessageBody(e.target.value)}
+              rows={10}
+              placeholder="Type your message here..."
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Preview with placeholders replaced for{" "}
+              {accounts.find((a) => a.id === selectedAccountId)?.senderName ||
+                "your account"}
+            </p>
+          </div>
+
+          {/* Date/Time Selection */}
+          {/* ... your existing date/time picker ... */}
         </div>
 
-        {/* Footer Actions */}
-        <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex items-center justify-end gap-3">
+        {/* Footer */}
+        <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
           <button
-            onClick={handleClose}
-            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
           >
             Cancel
           </button>
           <button
             onClick={handleSchedule}
-            disabled={loading || !selectedLeadStatus}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Scheduling...
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4" />
-                Schedule Emails
-              </>
-            )}
+            Schedule Messages
           </button>
         </div>
       </div>
     </div>
   );
 }
+
+/* ============================================================
+   💡 KEY POINTS FOR INTEGRATION:
+   ============================================================
+
+   1. FETCH ACCOUNTS WITH SENDER NAMES:
+      - Use GET /api/accounts to get senderName field
+      - Show sender name in dropdown for clarity
+
+   2. TEMPLATE PREVIEW:
+      - When template selected + account selected → replace placeholders
+      - Show preview immediately in UI
+      - User sees final result before scheduling
+
+   3. PLACEHOLDER REPLACEMENT HAPPENS IN FRONTEND:
+      - Replace placeholders in preview
+      - Schedule with already-replaced text
+      - Backend just sends what it receives
+
+   4. ALTERNATIVE: BACKEND REPLACEMENT:
+      - Store template with placeholders in database
+      - Replace placeholders in backend when sending
+      - Use emailSender.js service
+
+   5. UI INDICATORS:
+      - Show which placeholders are available
+      - Show what they'll be replaced with
+      - Warn if sender name not set
+
+   ============================================================ */
