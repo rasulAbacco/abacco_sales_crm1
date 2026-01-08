@@ -1,4 +1,4 @@
-// FIXED: ConversationList.jsx - Simplified version
+// src/pages/components/inbox/ConversationList.jsx
 import React, { useState } from "react";
 import { Mail, ChevronDown, ChevronUp, Users, Globe } from "lucide-react";
 import { api } from "../../../pages/api.js";
@@ -21,9 +21,6 @@ export default function ConversationList({
 }) {
   const [sortBy, setSortBy] = useState("date");
   const [sortOrder, setSortOrder] = useState("desc");
-
-  // 🔥 REMOVED: useEffect that was fetching conversations
-  // Parent component (InboxMain) now handles this
 
   const handleSort = (field) => {
     if (sortBy === field) {
@@ -71,17 +68,22 @@ export default function ConversationList({
     setConversations(sorted);
   };
 
-  const toggleSelectConversation = (conversation) => {
-    setSelectedConversations((prev) => {
-      const exists = prev.some(
-        (c) => c.conversationId === conversation.conversationId
-      );
+const toggleSelectConversation = (conversation) => {
+  setSelectedConversations((prev) => {
+    const exists = prev.some(
+      (c) => c.conversationId === conversation.conversationId
+    );
 
-      return exists
-        ? prev.filter((c) => c.conversationId !== conversation.conversationId)
-        : [...prev, conversation];
-    });
-  };
+    if (exists) {
+      return prev.filter(
+        (c) => c.conversationId !== conversation.conversationId
+      );
+    }
+
+    return [...prev, conversation];
+  });
+};
+
 
   const formatDate = (date) => {
     const now = new Date();
@@ -106,38 +108,26 @@ export default function ConversationList({
     }
   };
 
-  // Helper to strip HTML, CSS, and Entities for clean preview
   const truncateText = (html, maxLength = 80) => {
     if (!html) return "";
-
-    // 1. Remove <style> and <script> tags AND their content completely
-    // This fixes the "v:* {behavior..." and other hidden code issues
     let cleanHtml = html.replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, "");
-
-    // 2. Use Browser DOM to strip remaining tags & decode entities (like &nbsp;)
     const tmp = document.createElement("DIV");
     tmp.innerHTML = cleanHtml;
     let cleanText = tmp.textContent || tmp.innerText || "";
-
-    // 3. Collapse multiple spaces/newlines into a single space
     cleanText = cleanText.replace(/\s+/g, " ").trim();
-
     return cleanText.length > maxLength
       ? cleanText.substring(0, maxLength) + "..."
       : cleanText;
   };
-  const handleConversationSelect = async (conversation) => {
-    // 1. Immediately show the MessageView
-    onConversationSelect(conversation);
 
+  const handleConversationSelect = async (conversation) => {
+    onConversationSelect(conversation);
     try {
-      // 2. Tell the Backend to update DB
       await api.post(`${API_BASE_URL}/api/inbox/mark-read-conversation`, {
         conversationId: conversation.conversationId,
         accountId: selectedAccount.id,
       });
 
-      // 3. Update the LOCAL LIST so the badge disappears NOW
       setConversations((prevConversations) =>
         prevConversations.map((conv) =>
           conv.conversationId === conversation.conversationId
@@ -219,13 +209,6 @@ export default function ConversationList({
             const isSelected =
               selectedConversation?.conversationId === conversationId;
 
-            // const clientEmail =
-            //   conversation.senderEmail ||
-            //   conversation.primaryRecipient ||
-            //   conversation.lastSender ||
-            //   conversation.initiatorEmail ||
-            //   "Unknown";
-            // 🔥 UPDATE: Use the Name if available, otherwise Email
             const clientEmail =
               conversation.displayName ||
               conversation.displayEmail ||
@@ -262,12 +245,8 @@ export default function ConversationList({
                       )}
                       onChange={(e) => {
                         e.stopPropagation();
-                        toggleSelectConversation({
-                          conversationId:
-                            conversation.conversationId || conversation.id,
-                          clientEmail,
-                          subject: conversation.subject,
-                        });
+                        // 🔥 CRITICAL: Pass the FULL conversation object
+                        toggleSelectConversation(conversation);
                       }}
                       className="mt-2"
                     />

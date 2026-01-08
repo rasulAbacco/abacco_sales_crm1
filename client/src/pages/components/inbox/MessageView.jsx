@@ -47,7 +47,8 @@ import {
 } from "../../../utils/templateReplacer";
 
 // ✅ Import the existing Edit Modal
-import FollowUpEditModal from "../../components/FollowUpEditModal.jsx";const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+import FollowUpEditModal from "../../components/FollowUpEditModal.jsx";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 // 🎨 Outlook-style default fonts
 const FONT_FAMILIES = [
@@ -166,6 +167,7 @@ export default function MessageView({
   selectedConversation,
   selectedFolder,
   onBack,
+  onMessageSent,
 }) {
   // 🔥 NEW: Account and Template state
   const [accounts, setAccounts] = useState([]);
@@ -823,12 +825,14 @@ export default function MessageView({
       setCountry(null);
       setScheduledDraft(null);
 
+      // If it's a scheduled message
       if (
         selectedConversation.isScheduled &&
         selectedConversation.scheduledMessageId
       ) {
         fetchScheduledConversation(selectedConversation.scheduledMessageId);
       } else {
+        // Normal conversation
         fetchMessages();
         markConversationAsRead();
       }
@@ -837,6 +841,26 @@ export default function MessageView({
       fetchAccountUserName();
     }
   }, [selectedConversation, selectedAccount, selectedFolder]);
+
+  // 🔥 NEW: When scheduled draft loads, set the From Account in the state
+  useEffect(() => {
+    if (scheduledDraft) {
+      // If the draft HAS an account ID, pre-select it
+      if (scheduledDraft.accountId) {
+        const linkedAccount = accounts.find(
+          (a) => a.id === scheduledDraft.accountId
+        );
+        if (linkedAccount) {
+          setSelectedFromAccount(linkedAccount);
+          setReplyData((prev) => ({ ...prev, from: linkedAccount.email }));
+        }
+      } else {
+        // If NO account ID (decide later), force null so dropdown is empty
+        setSelectedFromAccount(null);
+        setReplyData((prev) => ({ ...prev, from: "" }));
+      }
+    }
+  }, [scheduledDraft, accounts]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -1219,19 +1243,57 @@ export default function MessageView({
     }
   };
 
-  const sendNormalReply = async (bodyContent) => {
-    // ... (Existing Implementation)
-    let endpoint;
-    if (replyMode === "replyAll")
-      endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
-    else if (replyMode === "forward")
-      endpoint = `${API_BASE_URL}/api/inbox/forward`;
-    else endpoint = `${API_BASE_URL}/api/inbox/reply`;
+  // const sendNormalReply = async (bodyContent) => {
+  //   // ... (Existing Implementation)
+  //   let endpoint;
+  //   if (replyMode === "replyAll")
+  //     endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
+  //   else if (replyMode === "forward")
+  //     endpoint = `${API_BASE_URL}/api/inbox/forward`;
+  //   else endpoint = `${API_BASE_URL}/api/inbox/reply`;
+
+  //   const payload = {
+  //     emailAccountId: selectedFromAccount?.id || selectedAccount.id,
+  //     fromEmail: replyData.from,
+  //     from: replyData.from,
+  //     to: replyData.to,
+  //     cc: replyData.cc || null,
+  //     subject: replyData.subject,
+  //     body: bodyContent,
+  //     attachments: attachments.map((att) => ({
+  //       filename: att.name,
+  //       url: att.url,
+  //       type: att.type,
+  //       size: att.size,
+  //     })),
+  //   };
+
+  //   if (replyingToMessageId) {
+  //     payload.replyToMessageId = replyingToMessageId;
+  //     payload.replyToId = replyingToMessageId;
+  //     payload.forwardMessageId = replyingToMessageId;
+  //   }
+
+  //   const response = await api.post(endpoint, payload);
+
+  //   if (response.data.success) {
+  //     await fetchMessages();
+  //     closeReplyModal();
+  //     alert("Message sent successfully!");
+  //   }
+  // };
+const sendNormalReply = async (bodyContent) => {
+    // ... endpoint logic ...
+    let endpoint = `${API_BASE_URL}/api/inbox/reply`;
+    if (replyMode === "replyAll") endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
+    if (replyMode === "forward") endpoint = `${API_BASE_URL}/api/inbox/forward`;
 
     const payload = {
-      emailAccountId: selectedFromAccount?.id || selectedAccount.id,
-      fromEmail: replyData.from,
-      from: replyData.from,
+      // Use the explicitly selected account, NOT the default selectedAccount prop
+      emailAccountId: selectedFromAccount.id, 
+      
+      fromEmail: selectedFromAccount.email, // Use explicitly selected email
+      from: selectedFromAccount.email,
       to: replyData.to,
       cc: replyData.cc || null,
       subject: replyData.subject,
@@ -1242,57 +1304,95 @@ export default function MessageView({
         type: att.type,
         size: att.size,
       })),
+      // Pass the scheduled ID so backend deletes/updates it
+      scheduledMessageId: editingScheduledId || null 
     };
 
     if (replyingToMessageId) {
       payload.replyToMessageId = replyingToMessageId;
-      payload.replyToId = replyingToMessageId;
-      payload.forwardMessageId = replyingToMessageId;
     }
 
     const response = await api.post(endpoint, payload);
 
     if (response.data.success) {
-      await fetchMessages();
+      // Notify parent to remove from list
+      if (onMessageSent) {
+        onMessageSent(selectedConversation?.conversationId);
+      }
       closeReplyModal();
       alert("Message sent successfully!");
     }
   };
 
-  const handleSendReply = async () => {
-    const bodyContent = editorRef.current?.innerHTML || "";
+  
+  // const handleSendReply = async () => {
+  //   const bodyContent = editorRef.current?.innerHTML || "";
 
-    if (!bodyContent.trim() || !selectedAccount) {
-      alert("Please enter message content");
-      return;
+  //   if (!bodyContent.trim() || !selectedAccount) {
+  //     alert("Please enter message content");
+  //     return;
+  //   }
+
+  //   if (!replyData.to.trim()) {
+  //     alert("Please enter a recipient email address");
+  //     return;
+  //   }
+
+  //   if (!selectedFromAccount) {
+  //     alert("Please select an email account to send from");
+  //     return;
+  //   }
+
+  //   setIsSending(true);
+
+  //   try {
+  //     if (replyMode === "editScheduled" && editingScheduledId) {
+  //       await updateScheduledMessage(bodyContent);
+  //     } else {
+  //       await sendNormalReply(bodyContent);
+  //     }
+  //   } catch (error) {
+  //     console.error("Error sending message:", error);
+  //     alert("Failed to send message. Please try again.");
+  //   } finally {
+  //     setIsSending(false);
+  //   }
+  // };
+const handleSendReply = async () => {
+  const bodyContent = editorRef.current?.innerHTML || "";
+
+  if (!bodyContent.trim()) {
+    alert("Please enter message content");
+    return;
+  }
+
+  if (!replyData.to.trim()) {
+    alert("Please enter a recipient email address");
+    return;
+  }
+
+  // 🔥 CRITICAL VALIDATION: Ensure account is selected
+  if (!selectedFromAccount) {
+    alert("⚠️ Please select a 'From' email account before sending.");
+    return;
+  }
+
+  setIsSending(true);
+
+  try {
+    if (replyMode === "editScheduled" && editingScheduledId) {
+      // Even if editing a schedule, we are SENDING it now via SMTP
+      await sendNormalReply(bodyContent);
+    } else {
+      await sendNormalReply(bodyContent);
     }
-
-    if (!replyData.to.trim()) {
-      alert("Please enter a recipient email address");
-      return;
-    }
-
-    if (!selectedFromAccount) {
-      alert("Please select an email account to send from");
-      return;
-    }
-
-    setIsSending(true);
-
-    try {
-      if (replyMode === "editScheduled" && editingScheduledId) {
-        await updateScheduledMessage(bodyContent);
-      } else {
-        await sendNormalReply(bodyContent);
-      }
-    } catch (error) {
-      console.error("Error sending message:", error);
-      alert("Failed to send message. Please try again.");
-    } finally {
-      setIsSending(false);
-    }
-  };
-
+  } catch (error) {
+    console.error("Error sending message:", error);
+    alert("Failed to send message. Please try again.");
+  } finally {
+    setIsSending(false);
+  }
+};
   const closeReplyModal = () => {
     setReplyMode(null);
     setReplyingToMessageId(null);
