@@ -21,16 +21,6 @@ import { api } from "../pages/api.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-// 🔥 PLACEHOLDER GUIDE
-const PLACEHOLDER_GUIDE = [
-  { key: "{sender_name}", desc: "Your name (set in account settings)" },
-  { key: "{client_name}", desc: "Recipient's name" },
-  { key: "{company}", desc: "Company name" },
-  { key: "{email}", desc: "Recipient's email" },
-  { key: "{date}", desc: "Current date" },
-  { key: "{time}", desc: "Current time" },
-];
-
 export default function MessageTemplates() {
   const [templates, setTemplates] = useState([]);
   const [customStatuses, setCustomStatuses] = useState([]);
@@ -39,7 +29,7 @@ export default function MessageTemplates() {
   const [filterStatus, setFilterStatus] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState(null);
-  const [showPlaceholderGuide, setShowPlaceholderGuide] = useState(false);
+  // const [showPlaceholderGuide, setShowPlaceholderGuide] = useState(false); // Optional
 
   const [formData, setFormData] = useState({
     name: "",
@@ -74,6 +64,14 @@ export default function MessageTemplates() {
     fetchCustomStatuses();
   }, []);
 
+  // 🔥 FIX: This useEffect ensures the editor is populated AFTER the modal renders
+  useEffect(() => {
+    if (showCreateModal && editorRef.current) {
+      // If we have content (Edit Mode), inject it. If not (Create Mode), clear it.
+      editorRef.current.innerHTML = formData.bodyHtml || "";
+    }
+  }, [showCreateModal]); // Only runs when the modal opens/closes
+
   const fetchTemplates = async () => {
     try {
       setLoading(true);
@@ -104,12 +102,10 @@ export default function MessageTemplates() {
     setFormData({
       name: "",
       subject: "",
-      bodyHtml: "",
+      bodyHtml: "", // Empty for new template
       leadStatus: "",
     });
-    if (editorRef.current) {
-      editorRef.current.innerHTML = "";
-    }
+    // Removed direct editor manipulation here. The useEffect handles clearing.
     setShowCreateModal(true);
   };
 
@@ -118,12 +114,10 @@ export default function MessageTemplates() {
     setFormData({
       name: template.name,
       subject: template.subject || "",
-      bodyHtml: template.bodyHtml,
+      bodyHtml: template.bodyHtml, // Set state first
       leadStatus: template.leadStatus || "",
     });
-    if (editorRef.current) {
-      editorRef.current.innerHTML = template.bodyHtml;
-    }
+    // Removed direct editor manipulation here. The useEffect handles populating.
     setShowCreateModal(true);
   };
 
@@ -167,6 +161,7 @@ export default function MessageTemplates() {
   };
 
   const handleSave = async () => {
+    // We grab the LATEST content directly from the editor div
     const bodyContent = editorRef.current?.innerHTML || "";
 
     if (!formData.name.trim()) {
@@ -225,7 +220,6 @@ export default function MessageTemplates() {
     editorRef.current?.focus();
   };
 
-  // 🔥 NEW: Insert placeholder at cursor
   const insertPlaceholder = (placeholder) => {
     if (editorRef.current) {
       editorRef.current.focus();
@@ -423,46 +417,6 @@ export default function MessageTemplates() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {/* 🔥 PLACEHOLDER GUIDE BANNER */}
-              <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <Lightbulb className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 text-sm mb-2">
-                      💡 Dynamic Placeholders Available
-                    </h3>
-                    <button
-                      onClick={() =>
-                        setShowPlaceholderGuide(!showPlaceholderGuide)
-                      }
-                      className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-                    >
-                      {showPlaceholderGuide ? "Hide" : "Show"} Available
-                      Placeholders
-                    </button>
-
-                    {showPlaceholderGuide && (
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        {PLACEHOLDER_GUIDE.map((p) => (
-                          <button
-                            key={p.key}
-                            onClick={() => insertPlaceholder(p.key)}
-                            className="text-left p-2 bg-white border border-amber-200 rounded hover:bg-amber-50 transition-colors group"
-                          >
-                            <code className="text-xs font-mono text-blue-600">
-                              {p.key}
-                            </code>
-                            <p className="text-[10px] text-gray-500 mt-0.5">
-                              {p.desc}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Template Name *
@@ -565,6 +519,9 @@ export default function MessageTemplates() {
                     </button>
                   </div>
 
+                  {/* This div is where the magic happens. 
+                    The useEffect ensures content is loaded here correctly.
+                  */}
                   <div
                     ref={editorRef}
                     contentEditable
