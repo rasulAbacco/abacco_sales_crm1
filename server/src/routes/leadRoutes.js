@@ -228,6 +228,48 @@ router.get("/followups", async (req, res) => {
 /* ==========================================================
    ✳️ NEW: Get Single Lead by Email (for Edit Modal)
    ========================================================== */
+// router.get("/by-email/:email", async (req, res) => {
+//   try {
+//     const { email } = req.params;
+
+//     if (!email || !email.trim()) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email parameter is required.",
+//       });
+//     }
+
+//     const normalizedEmail = email.trim().toLowerCase();
+
+//     const lead = await prisma.leadDetails.findFirst({
+//       where: { email: normalizedEmail },
+//       orderBy: { date: "desc" },
+//     });
+
+//     if (!lead) {
+//       return res.status(404).json({
+//         success: false,
+//         message: `No lead found for ${normalizedEmail}`,
+//       });
+//     }
+
+//     res.json({
+//       success: true,
+//       message: "Lead fetched successfully.",
+//       data: lead,
+//     });
+//   } catch (error) {
+//     console.error("❌ Error fetching lead by email:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while fetching lead by email.",
+//       error: error.message,
+//     });
+//   }
+// });
+/* ==========================================================
+   ✳️ 6️⃣ NEW: Get Single Lead by Email (Used by Edit Modal)
+   ========================================================== */
 router.get("/by-email/:email", async (req, res) => {
   try {
     const { email } = req.params;
@@ -239,17 +281,27 @@ router.get("/by-email/:email", async (req, res) => {
       });
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
+    const emailStr = email.trim();
+    console.log(`🔎 Searching for lead with email: ${emailStr}`);
 
+    // 🔥 CRITICAL FIX:
+    // We search in the 'client' column first because that is where the Lead's email is stored.
+    // We also search 'email' column as a backup.
     const lead = await prisma.leadDetails.findFirst({
-      where: { email: normalizedEmail },
+      where: {
+        OR: [
+          { client: { equals: emailStr, mode: "insensitive" } }, // ✅ Correct column
+          { email: { equals: emailStr, mode: "insensitive" } }, // ⚠️ Fallback
+        ],
+      },
       orderBy: { date: "desc" },
     });
 
     if (!lead) {
+      console.warn(`⚠️ Lead not found for: ${emailStr}`);
       return res.status(404).json({
         success: false,
-        message: `No lead found for ${normalizedEmail}`,
+        message: `No lead found for ${emailStr}`,
       });
     }
 
@@ -267,7 +319,6 @@ router.get("/by-email/:email", async (req, res) => {
     });
   }
 });
-
 /* ==========================================================
    ✳️ NEW: Update Lead by ID (used in Edit Modal)
    ========================================================== */

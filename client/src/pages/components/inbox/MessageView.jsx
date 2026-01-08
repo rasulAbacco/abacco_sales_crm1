@@ -1,4 +1,4 @@
-// 🔥 FULLY UPDATED: MessageView.jsx - With Account Dropdown + Template Selection + All Original Features
+// 🔥 FULLY UPDATED: MessageView.jsx - With Lead Edit Pencil + Account Dropdown + Templates
 
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -36,6 +36,7 @@ import {
   Minus,
   Quote,
   ArrowUpDown,
+  Pencil, // ✅ Added Pencil Icon
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { api } from "../../../pages/api.js";
@@ -45,7 +46,8 @@ import {
   extractRecipientName,
 } from "../../../utils/templateReplacer";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+// ✅ Import the existing Edit Modal
+import FollowUpEditModal from "../../components/FollowUpEditModal.jsx";const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 // 🎨 Outlook-style default fonts
 const FONT_FAMILIES = [
@@ -148,6 +150,7 @@ const COLORS = [
   "#20124D",
   "#4C1130",
 ];
+
 // 📏 NEW: Line Spacing Options
 const LINE_HEIGHTS = [
   { value: "1.0", label: "Single" },
@@ -157,6 +160,7 @@ const LINE_HEIGHTS = [
   { value: "2.5", label: "2.5" },
   { value: "3.0", label: "3.0" },
 ];
+
 export default function MessageView({
   selectedAccount,
   selectedConversation,
@@ -188,6 +192,11 @@ export default function MessageView({
   const [attachments, setAttachments] = useState([]);
   const [country, setCountry] = useState(null);
   const [accountUserName, setAccountUserName] = useState("");
+
+  // ✅ NEW: Lead Edit Modal State
+  const [showLeadEditModal, setShowLeadEditModal] = useState(false);
+  const [leadEditForm, setLeadEditForm] = useState({});
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const editorRef = useRef(null);
@@ -352,89 +361,176 @@ export default function MessageView({
   };
 
   // ============================================================
-  // 🎨 FORMATTING FUNCTIONS
+  // ✅ NEW: LEAD MANAGEMENT LOGIC (EDIT LEAD)
   // ============================================================
-  // 🔥 NEW: Logic to apply line spacing to selected blocks
-const applyLineHeight = (value) => {
-  const selection = window.getSelection();
-  if (!selection.rangeCount) return;
 
-  const range = selection.getRangeAt(0);
+  const handleOpenEditLead = async () => {
+    if (!selectedConversation) return;
 
-  // 🔍 Function to find the block-level parent
-  const findBlock = (node) => {
-    const blockTags = [
-      "P",
-      "DIV",
-      "H1",
-      "H2",
-      "H3",
-      "H4",
-      "H5",
-      "H6",
-      "LI",
-      "BLOCKQUOTE",
-    ];
-    let current = node;
+    // 1. Determine the Client's Email
+    // If I sent the last email, I want to edit the Recipient.
+    // If I received the last email, I want to edit the Sender.
+    let targetEmail = "";
 
-    while (current && current !== editorRef.current) {
-      if (current.nodeType === 1 && blockTags.includes(current.tagName)) {
-        return current;
+    // First try the conversation metadata
+    if (
+      selectedConversation.displayEmail &&
+      selectedConversation.displayEmail !== "Unknown"
+    ) {
+      targetEmail = selectedConversation.displayEmail;
+    } else {
+      // Fallback to latest message logic
+      const msg = messages[0];
+      if (msg) {
+        if (msg.direction === "received") {
+          targetEmail = msg.fromEmail;
+        } else {
+          // For sent items, grab the first 'To' address
+          targetEmail = msg.toEmail ? msg.toEmail.split(",")[0].trim() : "";
+        }
       }
-      current = current.parentNode;
     }
-    return null;
+
+    // Clean the email (remove Name <email> format if present)
+    const emailMatch = targetEmail.match(/<(.+?)>/);
+    const cleanEmail = emailMatch ? emailMatch[1] : targetEmail;
+
+    if (!cleanEmail) {
+      alert("Could not determine client email to edit.");
+      return;
+    }
+
+    try {
+      // 2. Fetch Lead Data
+      // Using the route from leadRoutes.js: router.get("/by-email/:email", ...)
+      const res = await api.get(
+        `${API_BASE_URL}/api/leads/by-email/${cleanEmail}`
+      );
+
+      if (res.data.success && res.data.data) {
+        setLeadEditForm(res.data.data);
+        setShowLeadEditModal(true);
+      } else {
+        alert(
+          "No existing lead profile found for this email. Please create one in the Leads section first."
+        );
+      }
+    } catch (error) {
+      console.error("Error fetching lead for edit:", error);
+      if (error.response && error.response.status === 404) {
+        alert(
+          "No existing lead profile found for this email. Please create one in the Leads section first."
+        );
+      } else {
+        alert("Failed to fetch lead details.");
+      }
+    }
   };
 
-  // 📍 Get start and end blocks of selection
-  const startBlock = findBlock(range.startContainer);
-  const endBlock = findBlock(range.endContainer);
+  const handleLeadFormChange = (field, value) => {
+    setLeadEditForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
 
-  // 🔧 If no blocks found, wrap content in div first
-  if (!startBlock && !endBlock) {
-    document.execCommand("formatBlock", false, "div");
-    const newBlock = findBlock(
-      window.getSelection().getRangeAt(0).startContainer
-    );
-    if (newBlock) newBlock.style.lineHeight = value;
-    setShowLineHeightPicker(false);
-    editorRef.current?.focus();
-    return;
-  }
+  const handleSaveLead = async () => {
+    if (!leadEditForm.id) return;
 
-  // 📦 Collect all blocks to style (using Set to avoid duplicates)
-  const blocksToStyle = new Set();
+    try {
+      // Using route from leadRoutes.js: router.put("/update/:id", ...)
+      const res = await api.put(
+        `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
+        leadEditForm
+      );
 
-  if (startBlock) blocksToStyle.add(startBlock);
-  if (endBlock) blocksToStyle.add(endBlock);
+      if (res.data.success) {
+        alert("Lead updated successfully!");
+        setShowLeadEditModal(false);
+        // Refresh country if changed
+        if (leadEditForm.country !== country) {
+          setCountry(leadEditForm.country);
+        }
+      }
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      alert("Failed to update lead details.");
+    }
+  };
 
-  // 🔄 If start and end are different, get all blocks between them
-  if (startBlock && endBlock && startBlock !== endBlock) {
-    let current = startBlock;
+  // ============================================================
+  // 🎨 FORMATTING FUNCTIONS
+  // ============================================================
 
-    // Walk through all following siblings and their children
-    while (current && current !== endBlock) {
-      if (current.nextSibling) {
-        current = current.nextSibling;
-        const block = findBlock(current);
-        if (block) blocksToStyle.add(block);
-      } else {
-        // Move up to parent and try its next sibling
+  const applyLineHeight = (value) => {
+    // ... (Existing implementation kept exactly the same)
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+
+    const range = selection.getRangeAt(0);
+
+    const findBlock = (node) => {
+      const blockTags = [
+        "P",
+        "DIV",
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+        "LI",
+        "BLOCKQUOTE",
+      ];
+      let current = node;
+      while (current && current !== editorRef.current) {
+        if (current.nodeType === 1 && blockTags.includes(current.tagName)) {
+          return current;
+        }
         current = current.parentNode;
-        if (current === editorRef.current || !current) break;
+      }
+      return null;
+    };
+
+    const startBlock = findBlock(range.startContainer);
+    const endBlock = findBlock(range.endContainer);
+
+    if (!startBlock && !endBlock) {
+      document.execCommand("formatBlock", false, "div");
+      const newBlock = findBlock(
+        window.getSelection().getRangeAt(0).startContainer
+      );
+      if (newBlock) newBlock.style.lineHeight = value;
+      setShowLineHeightPicker(false);
+      editorRef.current?.focus();
+      return;
+    }
+
+    const blocksToStyle = new Set();
+    if (startBlock) blocksToStyle.add(startBlock);
+    if (endBlock) blocksToStyle.add(endBlock);
+
+    if (startBlock && endBlock && startBlock !== endBlock) {
+      let current = startBlock;
+      while (current && current !== endBlock) {
+        if (current.nextSibling) {
+          current = current.nextSibling;
+          const block = findBlock(current);
+          if (block) blocksToStyle.add(block);
+        } else {
+          current = current.parentNode;
+          if (current === editorRef.current || !current) break;
+        }
       }
     }
-  }
 
-  // ✅ Apply line-height to all collected blocks
-  blocksToStyle.forEach((block) => {
-    block.style.lineHeight = value;
-  });
+    blocksToStyle.forEach((block) => {
+      block.style.lineHeight = value;
+    });
 
-  // 🎯 Close dropdown and refocus editor
-  setShowLineHeightPicker(false);
-  editorRef.current?.focus();
-};
+    setShowLineHeightPicker(false);
+    editorRef.current?.focus();
+  };
 
   const formatText = (command, value = null) => {
     document.execCommand(command, false, value);
@@ -488,11 +584,9 @@ const applyLineHeight = (value) => {
   // 🔥 FORMAT-PRESERVING PASTE
   const handlePaste = (e) => {
     e.preventDefault();
-
     const clipboardData = e.clipboardData || window.clipboardData;
     const pastedHTML = clipboardData.getData("text/html");
     const pastedText = clipboardData.getData("text/plain");
-
     const contentToInsert = pastedHTML || pastedText.replace(/\n/g, "<br>");
 
     const cleanHTML = DOMPurify.sanitize(contentToInsert, {
@@ -566,7 +660,6 @@ const applyLineHeight = (value) => {
       const clonedSelection = range.cloneContents();
       const div = document.createElement("div");
       div.appendChild(clonedSelection);
-
       e.clipboardData.setData("text/html", div.innerHTML);
       e.clipboardData.setData("text/plain", selection.toString());
       e.preventDefault();
@@ -598,49 +691,6 @@ const applyLineHeight = (value) => {
       console.error("Error fetching templates:", error);
     }
   };
-
-  // ============================================================
-  // 🔥 NEW: ACCOUNT & TEMPLATE HANDLERS
-  // ============================================================
-
-  // const handleAccountChange = (accountId) => {
-  //   const account = accounts.find((acc) => acc.id === parseInt(accountId));
-  //   setSelectedFromAccount(account);
-
-  //   // Update replyData.from
-  //   if (account) {
-  //     setReplyData((prev) => ({
-  //       ...prev,
-  //       from: account.email,
-  //     }));
-  //   }
-
-  //   // If template is selected, reapply with new account
-  //   if (selectedTemplate) {
-  //     applyTemplateWithAccount(selectedTemplate, account);
-  //   }
-  // };
-
-  // const handleTemplateSelect = (templateId) => {
-  //   if (!templateId) {
-  //     setSelectedTemplate(null);
-  //     return;
-  //   }
-
-  //   const template = templates.find((t) => t.id === parseInt(templateId));
-  //   setSelectedTemplate(template);
-
-  //   if (selectedFromAccount) {
-  //     applyTemplateWithAccount(template, selectedFromAccount);
-  //   }
-  // };
-
-  // ============================================================
-  // FUNCTION 1: applyTemplateWithAccount (FIXED VERSION)
-  // Location: Around line 600-650 in MessageView.jsx
-  // This version preserves quoted text when applying template
-  // ============================================================
-
 
   const applyTemplateWithAccount = (template, account) => {
     if (!template || !account) return;
@@ -681,10 +731,10 @@ const applyLineHeight = (value) => {
     templateBody = tempDiv.innerHTML;
 
     // Add signature
-   if (account.senderName) {
-     // 🔥 FIX: Remove extra line break to eliminate gap after template content
-     templateBody += `<br>Best regards,<br><b>${account.senderName}</b>`;
-   }
+    if (account.senderName) {
+      templateBody += `<br>Best regards,<br><b>${account.senderName}</b>`;
+    }
+
     // Preserve quoted message
     const currentContent = editorRef.current?.innerHTML || "";
     const quotedStart = currentContent.indexOf(
@@ -701,15 +751,11 @@ const applyLineHeight = (value) => {
     // Set in editor
     if (editorRef.current) {
       editorRef.current.innerHTML = finalContent;
-
-      // 🔥 FIX: Ensure editor background is transparent
       editorRef.current.style.background = "transparent";
       editorRef.current.style.backgroundColor = "transparent";
-
       editorRef.current.focus();
       const range = document.createRange();
       const sel = window.getSelection();
-
       if (editorRef.current.firstChild) {
         range.setStart(editorRef.current.firstChild, 0);
         range.collapse(true);
@@ -726,15 +772,8 @@ const applyLineHeight = (value) => {
     }
   };
 
-  // ============================================================
-  // FUNCTION 2: handleTemplateSelect (IMPROVED VERSION)
-  // Location: Around line 650-680 in MessageView.jsx
-  // Handles clearing template selection properly
-  // ============================================================
-
   const handleTemplateSelect = (templateId) => {
     if (!templateId || templateId === "") {
-      // User cleared template selection
       setSelectedTemplate(null);
       return;
     }
@@ -746,18 +785,11 @@ const applyLineHeight = (value) => {
     if (selectedFromAccount && template) {
       applyTemplateWithAccount(template, selectedFromAccount);
     } else if (!selectedFromAccount) {
-      // Warn user to select account first
       console.warn("⚠️ Please select a sending account first");
       alert("Please select a sending account before choosing a template");
       setSelectedTemplate(null);
     }
   };
-
-  // ============================================================
-  // FUNCTION 3: handleAccountChange (IMPROVED VERSION)
-  // Location: Around line 620-640 in MessageView.jsx
-  // Re-applies template when account changes
-  // ============================================================
 
   const handleAccountChange = (accountId) => {
     const account = accounts.find((acc) => acc.id === parseInt(accountId));
@@ -886,6 +918,7 @@ const applyLineHeight = (value) => {
   // ============================================================
 
   const handleReply = (type, message) => {
+    // ... (Existing Implementation)
     if (!message) return;
 
     if (scheduledDraft && scheduledDraft.status === "pending") {
@@ -1007,6 +1040,7 @@ const applyLineHeight = (value) => {
   };
 
   const handleReplyWithScheduledDraft = (type, message) => {
+    // ... (Existing Implementation)
     setReplyMode("editScheduled");
     setEditingScheduledId(scheduledDraft.id);
 
@@ -1094,6 +1128,7 @@ const applyLineHeight = (value) => {
   };
 
   const handleForward = (type, message) => {
+    // ... (Existing Implementation)
     if (!message) return;
 
     const fromHeader = formatHeaderAddress(message.fromName, message.fromEmail);
@@ -1164,6 +1199,7 @@ const applyLineHeight = (value) => {
   };
 
   const updateScheduledMessage = async (bodyContent) => {
+    // ... (Existing Implementation)
     const payload = {
       subject: replyData.subject,
       bodyHtml: bodyContent,
@@ -1184,6 +1220,7 @@ const applyLineHeight = (value) => {
   };
 
   const sendNormalReply = async (bodyContent) => {
+    // ... (Existing Implementation)
     let endpoint;
     if (replyMode === "replyAll")
       endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
@@ -1360,6 +1397,15 @@ const applyLineHeight = (value) => {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* 🔥 ADDED: Pencil Button for Editing Leads */}
+            <button
+              onClick={handleOpenEditLead}
+              className="p-2 hover:bg-indigo-50 rounded-lg transition-colors group"
+              title="Edit Lead Info"
+            >
+              <Pencil className="w-4 h-4 text-gray-600 group-hover:text-indigo-600" />
+            </button>
+
             {selectedFolder === "trash" ? (
               <>
                 <button
@@ -1414,6 +1460,7 @@ const applyLineHeight = (value) => {
 
       {/* Messages List */}
       <div className="flex-1 overflow-y-auto">
+        {/* ... (Existing Message List Implementation) */}
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
@@ -1642,6 +1689,7 @@ const applyLineHeight = (value) => {
       {replyMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[95vh] overflow-hidden">
+            {/* ... (Existing Reply Modal Content) */}
             <div className="border-b border-gray-200 px-6 py-4 bg-gray-50 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <button
@@ -2015,7 +2063,7 @@ const applyLineHeight = (value) => {
                     }}
                     placeholder="Type your message here..."
                   />
-
+                  {/* ... (Attachments and Send button) */}
                   {attachments.length > 0 && (
                     <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
                       <div className="flex flex-wrap gap-2">
@@ -2077,6 +2125,16 @@ const applyLineHeight = (value) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ✅ ADDED: Render Edit Modal */}
+      {showLeadEditModal && (
+        <FollowUpEditModal // 👈 WAS FloatingEditWindow
+          editForm={leadEditForm}
+          onChange={handleLeadFormChange}
+          onSave={handleSaveLead}
+          onClose={() => setShowLeadEditModal(false)}
+        />
       )}
 
       <div ref={messagesEndRef} />
