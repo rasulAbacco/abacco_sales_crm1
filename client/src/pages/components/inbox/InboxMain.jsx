@@ -28,14 +28,21 @@ export default function InboxMain() {
     return localStorage.getItem("activeView") || "inbox";
   });
 
-  // Filter state
+  // 🔥 CALCULATE DEFAULT DATE (3 MONTHS AGO)
+  const getDefaultDateFrom = () => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    return d.toISOString().split("T")[0];
+  };
+
+  // Filter state (With Default 3 Months)
   const [filters, setFilters] = useState({
     leadStatus: "",
     sender: "",
     recipient: "",
     subject: "",
     tags: [],
-    dateFrom: "",
+    dateFrom: getDefaultDateFrom(), // ✅ DEFAULT: 3 Months
     dateTo: "",
     hasAttachment: false,
     isUnread: false,
@@ -344,6 +351,8 @@ export default function InboxMain() {
           onTodayFollowUpClick={handleTodayFollowUp}
           onScheduleClick={handleSchedule}
           activeView={activeView}
+          // 🔥 PASS ACTIVE FILTERS TO HEADER
+          activeFilters={filters}
         />
 
         {isScheduleMode && (
