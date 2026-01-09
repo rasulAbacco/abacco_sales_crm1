@@ -10,6 +10,7 @@ import {
   Mail,
   Search,
   Globe,
+  RefreshCcw,
 } from "lucide-react";
 import { api } from "../../../pages/api.js";
 import CustomStatusManager from "../../../components/Customstatusmanager.jsx";
@@ -23,6 +24,7 @@ export default function InboxHeader({
   onTodayFollowUpClick,
   onScheduleClick,
   onSearchEmail,
+  activeFilters, // 🔥 NEW: Receive current filters from parent
 }) {
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [searchEmail, setSearchEmail] = useState("");
@@ -30,9 +32,9 @@ export default function InboxHeader({
   const [customStatuses, setCustomStatuses] = useState([]);
   const [showStatusManager, setShowStatusManager] = useState(false);
 
-  // 🔥 FIX: Use leadStatus instead of status
+  // 🔥 Initialize Local State
   const [filters, setFilters] = useState({
-    leadStatus: "", // 🔥 CHANGED from 'status'
+    leadStatus: "",
     sender: "",
     recipient: "",
     subject: "",
@@ -45,10 +47,36 @@ export default function InboxHeader({
     country: "",
   });
 
+  // 🔥 NEW: Time Range State
+  const [timeRange, setTimeRange] = useState("3m"); // Default to 3m
+
+  // Sync state with activeFilters prop on mount/change
+  useEffect(() => {
+    if (activeFilters) {
+      setFilters(activeFilters);
+
+      // Attempt to auto-detect time range from dateFrom
+      if (!activeFilters.dateFrom) {
+        setTimeRange("all");
+      } else {
+        const d = new Date(activeFilters.dateFrom);
+        const now = new Date();
+        // Rough estimation for UI feedback
+        const diffMonth =
+          (now.getFullYear() - d.getFullYear()) * 12 +
+          (now.getMonth() - d.getMonth());
+
+        if (diffMonth >= 11) setTimeRange("1y");
+        else if (diffMonth >= 5) setTimeRange("6m");
+        else if (diffMonth >= 2) setTimeRange("3m");
+        else setTimeRange("custom");
+      }
+    }
+  }, [activeFilters]);
+
   const dropdownRef = useRef(null);
   const searchTimeoutRef = useRef(null);
 
-  // 🔥 FIX: Proper status options (no transformation needed)
   const statusOptions = [
     { label: "All Statuses", value: "" },
 
@@ -71,27 +99,8 @@ export default function InboxHeader({
     typeof status === "string" ? { label: status, value: status } : status
   );
 
-  // Fetch countries on mount
   useEffect(() => {
     fetchCountries();
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setShowFilterDropdown(false);
-      }
-    };
-
-    if (showFilterDropdown) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [showFilterDropdown]);
-  useEffect(() => {
     const fetchCustomStatuses = async () => {
       try {
         const res = await api.get(`${API_BASE_URL}/api/customStatus`);
@@ -102,9 +111,22 @@ export default function InboxHeader({
         console.error("Failed to load custom statuses", err);
       }
     };
-
     fetchCustomStatuses();
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowFilterDropdown(false);
+      }
+    };
+    if (showFilterDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showFilterDropdown]);
 
   const fetchCountries = async () => {
     try {
@@ -117,44 +139,70 @@ export default function InboxHeader({
     }
   };
 
+  // 🔥 NEW: Handle Time Range Dropdown Logic
+  const handleTimeRangeChange = (range) => {
+    setTimeRange(range);
+
+    if (range === "all") {
+      setFilters((prev) => ({ ...prev, dateFrom: "", dateTo: "" }));
+      return;
+    }
+
+    if (range === "custom") {
+      // Don't change dates, let user pick
+      return;
+    }
+
+    const d = new Date();
+    if (range === "3m") d.setMonth(d.getMonth() - 3);
+    else if (range === "6m") d.setMonth(d.getMonth() - 6);
+    else if (range === "1y") d.setFullYear(d.getFullYear() - 1);
+
+    const dateStr = d.toISOString().split("T")[0];
+    setFilters((prev) => ({ ...prev, dateFrom: dateStr, dateTo: "" }));
+  };
+
   const handleSearchChange = (e) => {
     const value = e.target.value;
     setSearchEmail(value);
 
-    // Debounce search
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
-
     searchTimeoutRef.current = setTimeout(() => {
-      if (onSearchEmail) {
-        onSearchEmail(value);
-      }
+      if (onSearchEmail) onSearchEmail(value);
     }, 500);
   };
 
   const handleApplyFilter = () => {
-    console.log("🔍 Filters being applied:", filters);
+    console.log("🔥 Filters being applied:", filters);
     if (onFilterApply) {
       onFilterApply(filters);
     }
     setShowFilterDropdown(false);
   };
 
+  // 🔥 UPDATED: Reset now defaults to 3 months
   const handleResetFilter = () => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    const defaultDate = d.toISOString().split("T")[0];
+
     const resetFilters = {
-      leadStatus: "", // 🔥 CHANGED
+      leadStatus: "",
       sender: "",
       recipient: "",
       subject: "",
       tags: [],
-      dateFrom: "",
+      dateFrom: defaultDate, // ✅ Reset to 3m
       dateTo: "",
       hasAttachment: false,
       isUnread: false,
       isStarred: false,
       country: "",
     };
+
+    setTimeRange("3m"); // UI update
     setFilters(resetFilters);
     if (onFilterApply) {
       onFilterApply(resetFilters);
@@ -170,7 +218,7 @@ export default function InboxHeader({
   return (
     <div className="bg-white border-b border-gray-200 px-6 py-3">
       <div className="flex items-center justify-between mb-3">
-        {/* Left Side - Account & Folder Info */}
+        {/* Left Side */}
         <div className="flex items-center gap-4">
           <div>
             <h1 className="text-lg font-semibold text-gray-900">
@@ -185,9 +233,8 @@ export default function InboxHeader({
           </div>
         </div>
 
-        {/* Right Side - Action Buttons */}
+        {/* Right Side */}
         <div className="flex items-center gap-2">
-          {/* Today Follow-up Button */}
           <button
             onClick={onTodayFollowUpClick}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
@@ -196,7 +243,6 @@ export default function InboxHeader({
             Today Follow-up
           </button>
 
-          {/* Schedule Button */}
           <button
             onClick={onScheduleClick}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
@@ -205,7 +251,6 @@ export default function InboxHeader({
             Schedule
           </button>
 
-          {/* Filter Button */}
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setShowFilterDropdown(!showFilterDropdown)}
@@ -245,7 +290,53 @@ export default function InboxHeader({
                 </div>
 
                 <div className="p-4 space-y-4">
-                  {/* 🔥 FIX: Lead Status Filter */}
+                  {/* 🔥 NEW: Time Range Selector */}
+                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                    <label className="block text-xs font-bold text-blue-800 uppercase mb-2">
+                      Fetching Range (Default: 3 Months)
+                    </label>
+                    <select
+                      value={timeRange}
+                      onChange={(e) => handleTimeRangeChange(e.target.value)}
+                      className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="3m">Last 3 Months</option>
+                      <option value="6m">Last 6 Months</option>
+                      <option value="1y">Last 1 Year</option>
+                      <option value="all">All Time (Slow)</option>
+                      <option value="custom">Custom Range</option>
+                    </select>
+                  </div>
+
+                  {/* Date Range Inputs */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      Specific Dates
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        value={filters.dateFrom}
+                        onChange={(e) => {
+                          setFilters({ ...filters, dateFrom: e.target.value });
+                          setTimeRange("custom"); // Switch dropdown to custom if manually edited
+                        }}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                      <input
+                        type="date"
+                        value={filters.dateTo}
+                        onChange={(e) => {
+                          setFilters({ ...filters, dateTo: e.target.value });
+                          setTimeRange("custom");
+                        }}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Lead Status */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="block text-sm font-medium text-gray-700">
@@ -259,7 +350,6 @@ export default function InboxHeader({
                         + Manage Status
                       </button>
                     </div>
-
                     <select
                       value={filters.leadStatus}
                       onChange={(e) =>
@@ -275,7 +365,7 @@ export default function InboxHeader({
                     </select>
                   </div>
 
-                  {/* Country Filter */}
+                  {/* Country */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                       <Globe className="w-4 h-4" />
@@ -297,7 +387,7 @@ export default function InboxHeader({
                     </select>
                   </div>
 
-                  {/* Sender Filter */}
+                  {/* Sender */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                       <User className="w-4 h-4" />
@@ -314,7 +404,7 @@ export default function InboxHeader({
                     />
                   </div>
 
-                  {/* Recipient Filter */}
+                  {/* Recipient */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                       <Mail className="w-4 h-4" />
@@ -331,7 +421,7 @@ export default function InboxHeader({
                     />
                   </div>
 
-                  {/* Subject Filter */}
+                  {/* Subject */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                       <Search className="w-4 h-4" />
@@ -348,33 +438,7 @@ export default function InboxHeader({
                     />
                   </div>
 
-                  {/* Date Range */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                      <Calendar className="w-4 h-4" />
-                      Date Range
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="date"
-                        value={filters.dateFrom}
-                        onChange={(e) =>
-                          setFilters({ ...filters, dateFrom: e.target.value })
-                        }
-                        className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      />
-                      <input
-                        type="date"
-                        value={filters.dateTo}
-                        onChange={(e) =>
-                          setFilters({ ...filters, dateTo: e.target.value })
-                        }
-                        className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Tags Filter */}
+                  {/* Tags */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                       <Tag className="w-4 h-4" />
@@ -394,7 +458,7 @@ export default function InboxHeader({
                   </div>
 
                   {/* Checkbox Filters */}
-                  <div className="space-y-2">
+                  <div className="space-y-2 pt-2 border-t">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -445,13 +509,13 @@ export default function InboxHeader({
                 <div className="p-4 border-t border-gray-200 flex items-center justify-between gap-2">
                   <button
                     onClick={handleResetFilter}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                    className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                   >
-                    Reset
+                    <RefreshCcw className="w-3.5 h-3.5" /> Reset (Default)
                   </button>
                   <button
                     onClick={handleApplyFilter}
-                    className="px-6 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                    className="px-6 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
                   >
                     Apply Filters
                   </button>
@@ -473,6 +537,7 @@ export default function InboxHeader({
           className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
       </div>
+
       {showStatusManager && (
         <CustomStatusManager
           isOpen={showStatusManager}

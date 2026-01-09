@@ -22,16 +22,27 @@ export default function InboxMain() {
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [selectedFolder, setSelectedFolder] = useState("inbox");
   const [selectedConversation, setSelectedConversation] = useState(null);
-  const [activeView, setActiveView] = useState("inbox");
 
-  // Filter state
+  // 🔥 Initialize activeView from localStorage
+  const [activeView, setActiveView] = useState(() => {
+    return localStorage.getItem("activeView") || "inbox";
+  });
+
+  // 🔥 CALCULATE DEFAULT DATE (3 MONTHS AGO)
+  const getDefaultDateFrom = () => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    return d.toISOString().split("T")[0];
+  };
+
+  // Filter state (With Default 3 Months)
   const [filters, setFilters] = useState({
     leadStatus: "",
     sender: "",
     recipient: "",
     subject: "",
     tags: [],
-    dateFrom: "",
+    dateFrom: getDefaultDateFrom(), // ✅ DEFAULT: 3 Months
     dateTo: "",
     hasAttachment: false,
     isUnread: false,
@@ -55,21 +66,14 @@ export default function InboxMain() {
     fetchAccounts();
   }, []);
 
-  // // 🔥 FIX: Fetch conversations when account/folder changes
-  // useEffect(() => {
-  //   if (!selectedAccount || !selectedFolder) return;
-  //   if (activeView === "today") return;
-
-  //   fetchConversations();
-  // }, [selectedAccount, selectedFolder, activeView, filters, searchEmail]);
-
   const fetchAccounts = async () => {
     try {
       setLoadingAccounts(true);
       const response = await api.get(`${API_BASE_URL}/api/accounts`);
-      const accountsData = response.data || [];
+      const accountsData = Array.isArray(response.data?.data)
+        ? response.data.data
+        : [];
 
-      // Fetch unread counts for each account
       const accountsWithUnread = await Promise.all(
         accountsData.map(async (account) => {
           try {
@@ -80,7 +84,7 @@ export default function InboxMain() {
               ...account,
               unreadCount: unreadRes.data?.data?.inboxUnread || 0,
             };
-          } catch (error) {
+          } catch {
             return { ...account, unreadCount: 0 };
           }
         })
@@ -88,7 +92,6 @@ export default function InboxMain() {
 
       setAccounts(accountsWithUnread);
 
-      // Auto-select first account if none selected
       if (!selectedAccount && accountsWithUnread.length > 0) {
         setSelectedAccount(accountsWithUnread[0]);
       }
@@ -100,85 +103,23 @@ export default function InboxMain() {
     }
   };
 
-  // 🔥 FIX: Proper conversation fetching function
-  // const fetchConversations = async (customFilters = null) => {
-  //   if (!selectedAccount || activeView === "today") return;
-
-  //   try {
-  //     setLoading(true);
-
-  //     const appliedFilters = customFilters || filters;
-
-  //     // 🔥 Only include non-empty filters
-  //     const params = {
-  //       folder: selectedFolder,
-  //     };
-
-  //     // Add search if present
-  //     if (searchEmail) {
-  //       params.search = searchEmail;
-  //     }
-
-  //     // 🔥 Only add filters that have values
-  //     if (appliedFilters.leadStatus)
-  //       params.leadStatus = appliedFilters.leadStatus;
-  //     if (appliedFilters.country) params.country = appliedFilters.country;
-  //     if (appliedFilters.sender) params.sender = appliedFilters.sender;
-  //     if (appliedFilters.recipient) params.recipient = appliedFilters.recipient;
-  //     if (appliedFilters.subject) params.subject = appliedFilters.subject;
-  //     if (appliedFilters.dateFrom) params.dateFrom = appliedFilters.dateFrom;
-  //     if (appliedFilters.dateTo) params.dateTo = appliedFilters.dateTo;
-  //     if (appliedFilters.hasAttachment)
-  //       params.hasAttachment = appliedFilters.hasAttachment;
-  //     if (appliedFilters.isUnread) params.isUnread = appliedFilters.isUnread;
-  //     if (appliedFilters.isStarred) params.isStarred = appliedFilters.isStarred;
-
-  //     console.log("📥 Fetching conversations with params:", params);
-
-  //     const res = await api.get(
-  //       `${API_BASE_URL}/api/inbox/conversations/${selectedAccount.id}`,
-  //       { params }
-  //     );
-
-  //     setConversations(res.data?.data || []);
-  //   } catch (error) {
-  //     console.error("Failed to fetch conversations:", error);
-  //     setConversations([]);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-  // =========================================================================
-  // 1️⃣ NEW: Dedicated Function for Search Bar
-  // Uses your specific backend route: /api/inbox/search
-  // =========================================================================
   const fetchSearchResults = async () => {
-    // If search is empty or we haven't selected an account, stop.
     if (!searchEmail || searchEmail.trim() === "" || !selectedAccount) return;
 
     try {
       setLoading(true);
-      console.log("🔍 Executing Search Bar Logic for:", searchEmail);
-
-      // 🔥 FIX: Pass accountId to backend
       const res = await api.get(`${API_BASE_URL}/api/inbox/search`, {
         params: {
           query: searchEmail,
-          accountId: selectedAccount.id, // 🔥 ADD THIS
+          accountId: selectedAccount.id,
         },
       });
 
       const rawMessages = res.data?.data || [];
-
-      // 🧠 TRANSFORMATION: Group messages by Conversation ID
       const uniqueConversations = new Map();
 
       rawMessages.forEach((msg) => {
-        // 🔥 NO LONGER NEEDED - backend filters by account now
-        // if (msg.emailAccountId !== selectedAccount.id) return;
-
         const convId = msg.conversationId;
-
         if (
           !uniqueConversations.has(convId) ||
           new Date(msg.sentAt) >
@@ -188,7 +129,6 @@ export default function InboxMain() {
         }
       });
 
-      // Format the data so ConversationList.jsx can read it
       const formattedResults = Array.from(uniqueConversations.values()).map(
         (msg) => ({
           conversationId: msg.conversationId,
@@ -218,21 +158,13 @@ export default function InboxMain() {
     }
   };
 
-  // =========================================================================
-  // 2️⃣ EXISTING: Function for Filter Section
-  // This logic is completely UNTOUCHED as requested.
-  // =========================================================================
   const fetchConversations = async () => {
     if (!selectedAccount || activeView === "today") return;
 
     try {
       setLoading(true);
+      const params = { folder: selectedFolder };
 
-      const params = {
-        folder: selectedFolder,
-      };
-
-      // Existing Filter Logic (Only runs when search bar is empty)
       if (filters.leadStatus) params.leadStatus = filters.leadStatus;
       if (filters.country) params.country = filters.country;
       if (filters.sender) params.sender = filters.sender;
@@ -243,8 +175,6 @@ export default function InboxMain() {
       if (filters.hasAttachment) params.hasAttachment = true;
       if (filters.isUnread) params.isUnread = true;
       if (filters.isStarred) params.isStarred = true;
-
-      console.log("📥 Fetching Standard Filters with params:", params);
 
       const res = await api.get(
         `${API_BASE_URL}/api/inbox/conversations/${selectedAccount.id}`,
@@ -260,16 +190,53 @@ export default function InboxMain() {
     }
   };
 
-  // =========================================================================
-  // 3️⃣ UPDATED: useEffect to switch between Search Mode and Normal Mode
-  // =========================================================================
-  useEffect(() => {
-    if (!selectedAccount || !selectedFolder) return;
-    if (activeView === "today") return;
+  const fetchTodayFollowUps = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
 
-    // 🔥 DECISION LOGIC:
-    // If there is text in the search bar -> Use fetchSearchResults (Filter 1)
-    // If the search bar is empty       -> Use fetchConversations (Filter 2)
+      const formatted = res.data.map((msg) => {
+        let actualEmail = msg.toEmail;
+        if (msg.toEmail.includes("<") && msg.toEmail.includes(">")) {
+          const match = msg.toEmail.match(/<(.+?)>/);
+          if (match && match[1]) {
+            actualEmail = match[1];
+          }
+        }
+
+        return {
+          conversationId: msg.conversationId,
+          subject: msg.subject || "(No subject)",
+          displayName: actualEmail,
+          displayEmail: actualEmail,
+          primaryRecipient: actualEmail,
+          lastDate: msg.sendAt,
+          lastBody: "(Scheduled follow-up)",
+          unreadCount: 0,
+          isScheduled: true,
+          scheduledMessageId: msg.id,
+          scheduledMessageData: msg,
+        };
+      });
+
+      setConversations(formatted);
+    } catch (err) {
+      console.error("❌ Failed to fetch today follow-ups", err);
+      setConversations([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-load based on activeView
+  useEffect(() => {
+    if (!selectedAccount) return;
+
+    if (activeView === "today") {
+      fetchTodayFollowUps();
+      return;
+    }
+
     if (searchEmail && searchEmail.trim() !== "") {
       fetchSearchResults();
     } else {
@@ -277,31 +244,37 @@ export default function InboxMain() {
     }
   }, [selectedAccount, selectedFolder, activeView, filters, searchEmail]);
 
+  // Helper to update view and persist it
+  const changeView = (view) => {
+    setActiveView(view);
+    localStorage.setItem("activeView", view);
+  };
+
   const handleAccountSelect = (account) => {
     setSelectedAccount(account);
     setSelectedConversation(null);
     setShowMobileConversations(true);
+    changeView("inbox");
   };
 
   const handleFolderSelect = (folder) => {
     setSelectedFolder(folder);
     setSelectedConversation(null);
     setShowMobileConversations(true);
+    changeView("inbox");
   };
 
   const handleConversationSelect = (conversation) => {
     setSelectedConversation(conversation);
   };
 
-  // 🔥 FIX: Proper filter application
   const handleFilterApply = (newFilters) => {
-    console.log("📌 Applying filters:", newFilters);
-    setActiveView("inbox"); // Force inbox view
-    setFilters(newFilters); // Update state
+    changeView("inbox");
+    setFilters(newFilters);
   };
 
   const handleSearchEmail = (email) => {
-    setSearchEmail(email); // useEffect will handle fetch
+    setSearchEmail(email);
   };
 
   const handleAddAccount = () => {
@@ -309,7 +282,7 @@ export default function InboxMain() {
   };
 
   const handleTodayFollowUp = async () => {
-    setActiveView("today");
+    changeView("today");
     setFilters({
       leadStatus: "",
       sender: "",
@@ -322,79 +295,42 @@ export default function InboxMain() {
       isUnread: false,
       isStarred: false,
       country: "",
-    }); // Clear filters
-    await fetchTodayFollowUps();
+    });
   };
-  // const fetchTodayFollowUps = async () => {
-  //   try {
-  //     setLoading(true);
 
-  //     const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
-
-  //     const formatted = res.data.map((msg) => ({
-  //       conversationId: msg.conversationId || `scheduled-${msg.id}`, // ✅ Use unique ID
-  //       subject: msg.subject || "(No subject)",
-  //       senderName: msg.toEmail?.split("@")[0] || "Follow-up",
-  //       senderEmail: msg.toEmail,
-  //       email: msg.toEmail,
-  //       primaryRecipient: msg.toEmail,
-  //       lastDate: msg.sendAt,
-  //       lastBody: msg.bodyHtml,
-  //       unreadCount: 0,
-  //       isScheduled: true,
-  //       // ✅ ADD: Pass the full scheduled message data
-  //       scheduledMessageData: msg,
-  //     }));
-
-  //     setConversations(formatted);
-  //   } catch (err) {
-  //     console.error("❌ Failed to fetch today follow-ups", err);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-const fetchTodayFollowUps = async () => {
-  try {
-    setLoading(true);
-
-    const res = await api.get(`${API_BASE_URL}/api/scheduled-messages/today`);
-
-    // ✅ Format for conversation list (NOT preview body)
-    const formatted = res.data.map((msg) => ({
-      conversationId: msg.conversationId,
-      subject: msg.subject || "(No subject)",
-      senderName: msg.toEmail?.split("@")[0] || "Follow-up",
-      senderEmail: msg.toEmail,
-      email: msg.toEmail,
-      primaryRecipient: msg.toEmail,
-      lastDate: msg.sendAt,
-
-      // 🔥 KEY CHANGE: Don't use scheduled body as preview
-      lastBody: "(Scheduled follow-up)", // Generic text
-
-      unreadCount: 0,
-      isScheduled: true,
-
-      // ✅ Pass FULL scheduled data for later use
-      scheduledMessageId: msg.id,
-      scheduledMessageData: msg,
-    }));
-
-    setConversations(formatted);
-  } catch (err) {
-    console.error("❌ Failed to fetch today follow-ups", err);
-  } finally {
-    setLoading(false);
-  }
-};
   const handleSchedule = () => {
     setIsScheduleMode(true);
+    // Do NOT clear selectedConversations here, or the modal will receive an empty array
+  };
+
+  // 🔥 Callback when a message is successfully sent
+  const handleMessageSent = (conversationId) => {
+    if (activeView === "today") {
+      setConversations((prev) =>
+        prev.filter((c) => c.conversationId !== conversationId)
+      );
+      if (selectedConversation?.conversationId === conversationId) {
+        setSelectedConversation(null);
+      }
+    } else {
+      fetchConversations();
+    }
+  };
+
+  // 🔥 NEW: Handle when schedule modal closes successfully
+  const handleScheduleSuccess = () => {
+    setShowScheduleModal(false);
+    setIsScheduleMode(false);
     setSelectedConversations([]);
+
+    // If we're in "today" view, refresh the list
+    if (activeView === "today") {
+      fetchTodayFollowUps();
+    }
   };
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Left Sidebar - Accounts & Folders */}
       <ModernSidebar
         accounts={accounts}
         selectedAccount={selectedAccount}
@@ -406,9 +342,7 @@ const fetchTodayFollowUps = async () => {
         onToggleCollapse={setSidebarCollapsed}
       />
 
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Header */}
         <InboxHeader
           selectedAccount={selectedAccount}
           selectedFolder={selectedFolder}
@@ -417,6 +351,8 @@ const fetchTodayFollowUps = async () => {
           onTodayFollowUpClick={handleTodayFollowUp}
           onScheduleClick={handleSchedule}
           activeView={activeView}
+          // 🔥 PASS ACTIVE FILTERS TO HEADER
+          activeFilters={filters}
         />
 
         {isScheduleMode && (
@@ -424,7 +360,6 @@ const fetchTodayFollowUps = async () => {
             <span className="text-sm text-gray-700">
               {selectedConversations.length} selected
             </span>
-
             <div className="flex gap-2">
               <button
                 disabled={selectedConversations.length === 0}
@@ -433,7 +368,6 @@ const fetchTodayFollowUps = async () => {
               >
                 Schedule
               </button>
-
               <button
                 onClick={() => {
                   setIsScheduleMode(false);
@@ -447,9 +381,7 @@ const fetchTodayFollowUps = async () => {
           </div>
         )}
 
-        {/* Content Area - Conversations + Message View */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Middle Panel - Conversation List */}
           <div
             className={`${
               selectedConversation ? "hidden lg:flex" : "flex"
@@ -471,7 +403,6 @@ const fetchTodayFollowUps = async () => {
             />
           </div>
 
-          {/* Right Panel - Message View */}
           <div
             className={`${
               selectedConversation ? "flex" : "hidden lg:flex"
@@ -482,12 +413,12 @@ const fetchTodayFollowUps = async () => {
               selectedConversation={selectedConversation}
               selectedFolder={selectedFolder}
               onBack={() => setSelectedConversation(null)}
+              onMessageSent={handleMessageSent}
             />
           </div>
         </div>
       </div>
 
-      {/* Add Account Modal */}
       {showAddAccountModal && (
         <AddAccountManager
           onClose={() => {
@@ -498,27 +429,13 @@ const fetchTodayFollowUps = async () => {
         />
       )}
 
-      {/* {showScheduleModal && (
-        <ScheduleModal
-          onClose={() => {
-            setShowScheduleModal(false);
-            setIsScheduleMode(false);
-            setSelectedConversations([]);
-          }}
-          account={selectedAccount}
-          selectedConversations={selectedConversations}
-        />
-      )} */}
+      {/* 🔥 FIXED: Pass isOpen prop and use handleScheduleSuccess */}
       {showScheduleModal && (
         <ScheduleModal
           isOpen={showScheduleModal}
           selectedAccount={selectedAccount}
           selectedConversations={selectedConversations}
-          onClose={() => {
-            setShowScheduleModal(false);
-            setIsScheduleMode(false);
-            setSelectedConversations([]);
-          }}
+          onClose={handleScheduleSuccess}
         />
       )}
     </div>

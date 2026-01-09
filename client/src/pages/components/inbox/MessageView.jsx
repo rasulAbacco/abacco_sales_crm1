@@ -1,4 +1,4 @@
-// 🔥 FIXED: MessageView.jsx - Complete with all functionality
+// 🔥 FULLY UPDATED: MessageView.jsx - With Lead Edit Pencil + Account Dropdown + Templates
 
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -20,27 +20,165 @@ import {
   Italic,
   Underline,
   List,
+  ListOrdered,
   Link as LinkIcon,
   ChevronDown,
   ChevronUp,
   Clock,
   Edit,
   RotateCw,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Type,
+  Strikethrough,
+  Minus,
+  Quote,
+  ArrowUpDown,
+  Pencil, // ✅ Added Pencil Icon
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { api } from "../../../pages/api.js";
+import {
+  replacePlaceholders,
+  buildSignature,
+  extractRecipientName,
+} from "../../../utils/templateReplacer";
 
+// ✅ Import the existing Edit Modal
+import FollowUpEditModal from "../../components/FollowUpEditModal.jsx";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// 🎨 Outlook-style default fonts
+const FONT_FAMILIES = [
+  { value: "Calibri, sans-serif", label: "Calibri" },
+  { value: "Arial, sans-serif", label: "Arial" },
+  { value: "'Times New Roman', serif", label: "Times New Roman" },
+  { value: "'Courier New', monospace", label: "Courier New" },
+  { value: "Georgia, serif", label: "Georgia" },
+  { value: "Verdana, sans-serif", label: "Verdana" },
+  { value: "Tahoma, sans-serif", label: "Tahoma" },
+  { value: "'Comic Sans MS', cursive", label: "Comic Sans MS" },
+  { value: "'Trebuchet MS', sans-serif", label: "Trebuchet MS" },
+  { value: "Impact, sans-serif", label: "Impact" },
+];
+
+// 📏 Font sizes like Outlook
+const FONT_SIZES = [
+  { value: "8pt", label: "8" },
+  { value: "9pt", label: "9" },
+  { value: "10pt", label: "10" },
+  { value: "11pt", label: "11" },
+  { value: "12pt", label: "12" },
+  { value: "14pt", label: "14" },
+  { value: "16pt", label: "16" },
+  { value: "18pt", label: "18" },
+  { value: "20pt", label: "20" },
+  { value: "22pt", label: "22" },
+  { value: "24pt", label: "24" },
+  { value: "26pt", label: "26" },
+  { value: "28pt", label: "28" },
+  { value: "36pt", label: "36" },
+  { value: "48pt", label: "48" },
+  { value: "72pt", label: "72" },
+];
+
+// 🎨 Common colors like Outlook
+const COLORS = [
+  "#000000",
+  "#444444",
+  "#666666",
+  "#999999",
+  "#CCCCCC",
+  "#EEEEEE",
+  "#F3F3F3",
+  "#FFFFFF",
+  "#FF0000",
+  "#FF9900",
+  "#FFFF00",
+  "#00FF00",
+  "#00FFFF",
+  "#0000FF",
+  "#9900FF",
+  "#FF00FF",
+  "#F4CCCC",
+  "#FCE5CD",
+  "#FFF2CC",
+  "#D9EAD3",
+  "#D0E0E3",
+  "#C9DAF8",
+  "#D9D2E9",
+  "#EAD1DC",
+  "#EA9999",
+  "#F9CB9C",
+  "#FFE599",
+  "#B6D7A8",
+  "#A2C4C9",
+  "#A4C2F4",
+  "#B4A7D6",
+  "#D5A6BD",
+  "#E06666",
+  "#F6B26B",
+  "#FFD966",
+  "#93C47D",
+  "#76A5AF",
+  "#6D9EEB",
+  "#8E7CC3",
+  "#C27BA0",
+  "#CC0000",
+  "#E69138",
+  "#F1C232",
+  "#6AA84F",
+  "#45818E",
+  "#3C78D8",
+  "#674EA7",
+  "#A64D79",
+  "#990000",
+  "#B45F06",
+  "#BF9000",
+  "#38761D",
+  "#134F5C",
+  "#1155CC",
+  "#351C75",
+  "#741B47",
+  "#660000",
+  "#783F04",
+  "#7F6000",
+  "#274E13",
+  "#0C343D",
+  "#1C4587",
+  "#20124D",
+  "#4C1130",
+];
+
+// 📏 NEW: Line Spacing Options
+const LINE_HEIGHTS = [
+  { value: "1.0", label: "Single" },
+  { value: "1.15", label: "1.15" },
+  { value: "1.5", label: "1.5" },
+  { value: "2.0", label: "Double" },
+  { value: "2.5", label: "2.5" },
+  { value: "3.0", label: "3.0" },
+];
 
 export default function MessageView({
   selectedAccount,
   selectedConversation,
   selectedFolder,
   onBack,
+  onMessageSent,
 }) {
+  // 🔥 NEW: Account and Template state
+  const [accounts, setAccounts] = useState([]);
+  const [selectedFromAccount, setSelectedFromAccount] = useState(null);
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedMessages, setExpandedMessages] = useState({});
+  const [showLineHeightPicker, setShowLineHeightPicker] = useState(false);
   const [replyMode, setReplyMode] = useState(null);
   const [replyingToMessageId, setReplyingToMessageId] = useState(null);
   const [editingScheduledId, setEditingScheduledId] = useState(null);
@@ -56,10 +194,21 @@ export default function MessageView({
   const [attachments, setAttachments] = useState([]);
   const [country, setCountry] = useState(null);
   const [accountUserName, setAccountUserName] = useState("");
+
+  // ✅ NEW: Lead Edit Modal State
+  const [showLeadEditModal, setShowLeadEditModal] = useState(false);
+  const [leadEditForm, setLeadEditForm] = useState({});
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const editorRef = useRef(null);
-  const [showQuotedText, setShowQuotedText] = useState(false);
+
+  // 🎨 Editor state for formatting
+  const [currentFont, setCurrentFont] = useState("Calibri, sans-serif");
+  const [currentSize, setCurrentSize] = useState("11pt");
+  const [currentColor, setCurrentColor] = useState("#000000");
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const colorPickerRef = useRef(null);
 
   // ============================================================
   // HELPER FUNCTIONS
@@ -72,24 +221,12 @@ export default function MessageView({
   const fetchScheduledConversation = async (scheduledMessageId) => {
     try {
       setLoading(true);
-
       const response = await api.get(
         `${API_BASE_URL}/api/scheduled-messages/${scheduledMessageId}/conversation`
       );
-
       if (response.data.success) {
         setMessages(response.data.conversationMessages);
         setScheduledDraft(response.data.scheduledMessage);
-
-        console.log(
-          "✅ Loaded conversation:",
-          response.data.conversationMessages.length,
-          "messages"
-        );
-        console.log(
-          "✅ Stored scheduled draft:",
-          response.data.scheduledMessage.subject
-        );
       }
     } catch (error) {
       console.error("❌ Error fetching scheduled conversation:", error);
@@ -100,7 +237,6 @@ export default function MessageView({
 
   const fetchMessages = async () => {
     if (!selectedConversation || !selectedAccount) return;
-
     setLoading(true);
     try {
       const response = await api.get(
@@ -113,7 +249,6 @@ export default function MessageView({
           },
         }
       );
-
       if (response.data.success) {
         const updatedMessages = (response.data.data || []).map((msg) => ({
           ...msg,
@@ -138,24 +273,35 @@ export default function MessageView({
       console.error("❌ Failed to mark conversation as read:", error);
     }
   };
+  const handleMoveToInbox = async () => {
+    if (!selectedConversation || !selectedAccount) return;
+
+    try {
+      await api.post("/api/inbox/move-to-inbox", {
+        conversationIds: [selectedConversation.conversationId],
+        accountId: selectedAccount.id,
+      });
+
+      alert("Moved to Inbox");
+
+      // Go back to conversation list (Spam view)
+      if (onBack) onBack();
+    } catch (err) {
+      console.error("Move to inbox failed", err);
+      alert("Failed to move message to inbox");
+    }
+  };
 
   const fetchCountry = async () => {
     if (!selectedConversation) return;
-
     const email =
       selectedConversation.primaryRecipient || selectedConversation.email;
     if (!email) return;
-
     try {
       const response = await api.get(
         `${API_BASE_URL}/api/inbox/conversation/${email}/country`,
-        {
-          params: {
-            emailAccountId: selectedAccount.id,
-          },
-        }
+        { params: { emailAccountId: selectedAccount.id } }
       );
-
       if (response.data.success && response.data.country) {
         setCountry(response.data.country);
       }
@@ -166,12 +312,10 @@ export default function MessageView({
 
   const fetchAccountUserName = async () => {
     if (!selectedAccount?.id) return;
-
     try {
       const response = await api.get(
         `${API_BASE_URL}/api/inbox/accounts/${selectedAccount.id}/user`
       );
-
       if (response.data.success && response.data.userName) {
         setAccountUserName(response.data.userName);
       }
@@ -191,6 +335,30 @@ export default function MessageView({
     const tmp = document.createElement("DIV");
     tmp.innerHTML = html;
     return tmp.textContent || tmp.innerText || "";
+  };
+
+  const getCollapsedPreview = (html, maxLength = 300) => {
+    if (!html) return "";
+
+    // 1️⃣ Remove images completely
+    const withoutImages = html.replace(/<img[^>]*>/gi, "");
+
+    // 2️⃣ Remove style & script blocks
+    const cleaned = withoutImages.replace(
+      /<(style|script)[^>]*>[\s\S]*?<\/\1>/gi,
+      ""
+    );
+
+    // 3️⃣ Convert HTML → text
+    const tmp = document.createElement("div");
+    tmp.innerHTML = cleaned;
+
+    let text = tmp.textContent || tmp.innerText || "";
+
+    text = text.replace(/\s+/g, " ").trim();
+
+    // 4️⃣ Truncate
+    return text.length > maxLength ? text.slice(0, maxLength) + "…" : text;
   };
 
   const formatSender = (name, email) => {
@@ -236,17 +404,453 @@ export default function MessageView({
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   };
 
-  const formatText = (command) => {
-    document.execCommand(command, false, null);
+  // ============================================================
+  // ✅ NEW: LEAD MANAGEMENT LOGIC (EDIT LEAD)
+  // ============================================================
+
+  const handleOpenEditLead = async () => {
+    if (!selectedConversation) return;
+
+    // 1. Determine the Client's Email
+    // If I sent the last email, I want to edit the Recipient.
+    // If I received the last email, I want to edit the Sender.
+    let targetEmail = "";
+
+    // First try the conversation metadata
+    if (
+      selectedConversation.displayEmail &&
+      selectedConversation.displayEmail !== "Unknown"
+    ) {
+      targetEmail = selectedConversation.displayEmail;
+    } else {
+      // Fallback to latest message logic
+      const msg = messages[0];
+      if (msg) {
+        if (msg.direction === "received") {
+          targetEmail = msg.fromEmail;
+        } else {
+          // For sent items, grab the first 'To' address
+          targetEmail = msg.toEmail ? msg.toEmail.split(",")[0].trim() : "";
+        }
+      }
+    }
+
+    // Clean the email (remove Name <email> format if present)
+    const emailMatch = targetEmail.match(/<(.+?)>/);
+    const cleanEmail = emailMatch ? emailMatch[1] : targetEmail;
+
+    if (!cleanEmail) {
+      alert("Could not determine client email to edit.");
+      return;
+    }
+
+    try {
+      // 2. Fetch Lead Data
+      // Using the route from leadRoutes.js: router.get("/by-email/:email", ...)
+      const res = await api.get(
+        `${API_BASE_URL}/api/leads/by-email/${cleanEmail}`
+      );
+
+      if (res.data.success && res.data.data) {
+        setLeadEditForm(res.data.data);
+        setShowLeadEditModal(true);
+      } else {
+        alert(
+          "No existing lead profile found for this email. Please create one in the Leads section first."
+        );
+      }
+    } catch (error) {
+      console.error("Error fetching lead for edit:", error);
+      if (error.response && error.response.status === 404) {
+        alert(
+          "No existing lead profile found for this email. Please create one in the Leads section first."
+        );
+      } else {
+        alert("Failed to fetch lead details.");
+      }
+    }
+  };
+
+  const handleLeadFormChange = (field, value) => {
+    setLeadEditForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSaveLead = async () => {
+    if (!leadEditForm.id) return;
+
+    try {
+      // Using route from leadRoutes.js: router.put("/update/:id", ...)
+      const res = await api.put(
+        `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
+        leadEditForm
+      );
+
+      if (res.data.success) {
+        alert("Lead updated successfully!");
+        setShowLeadEditModal(false);
+        // Refresh country if changed
+        if (leadEditForm.country !== country) {
+          setCountry(leadEditForm.country);
+        }
+      }
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      alert("Failed to update lead details.");
+    }
+  };
+
+  // ============================================================
+  // 🎨 FORMATTING FUNCTIONS
+  // ============================================================
+
+  const applyLineHeight = (value) => {
+    // ... (Existing implementation kept exactly the same)
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+
+    const range = selection.getRangeAt(0);
+
+    const findBlock = (node) => {
+      const blockTags = [
+        "P",
+        "DIV",
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+        "LI",
+        "BLOCKQUOTE",
+      ];
+      let current = node;
+      while (current && current !== editorRef.current) {
+        if (current.nodeType === 1 && blockTags.includes(current.tagName)) {
+          return current;
+        }
+        current = current.parentNode;
+      }
+      return null;
+    };
+
+    const startBlock = findBlock(range.startContainer);
+    const endBlock = findBlock(range.endContainer);
+
+    if (!startBlock && !endBlock) {
+      document.execCommand("formatBlock", false, "div");
+      const newBlock = findBlock(
+        window.getSelection().getRangeAt(0).startContainer
+      );
+      if (newBlock) newBlock.style.lineHeight = value;
+      setShowLineHeightPicker(false);
+      editorRef.current?.focus();
+      return;
+    }
+
+    const blocksToStyle = new Set();
+    if (startBlock) blocksToStyle.add(startBlock);
+    if (endBlock) blocksToStyle.add(endBlock);
+
+    if (startBlock && endBlock && startBlock !== endBlock) {
+      let current = startBlock;
+      while (current && current !== endBlock) {
+        if (current.nextSibling) {
+          current = current.nextSibling;
+          const block = findBlock(current);
+          if (block) blocksToStyle.add(block);
+        } else {
+          current = current.parentNode;
+          if (current === editorRef.current || !current) break;
+        }
+      }
+    }
+
+    blocksToStyle.forEach((block) => {
+      block.style.lineHeight = value;
+    });
+
+    setShowLineHeightPicker(false);
     editorRef.current?.focus();
+  };
+
+  const formatText = (command, value = null) => {
+    document.execCommand(command, false, value);
+    editorRef.current?.focus();
+  };
+
+  const applyFontFamily = (font) => {
+    setCurrentFont(font);
+    formatText("fontName", font);
+  };
+
+  const applyFontSize = (size) => {
+    setCurrentSize(size);
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const span = document.createElement("span");
+      span.style.fontSize = size;
+      try {
+        range.surroundContents(span);
+      } catch (e) {
+        const content = range.extractContents();
+        span.appendChild(content);
+        range.insertNode(span);
+      }
+    }
+    editorRef.current?.focus();
+  };
+
+  const applyColor = (color) => {
+    setCurrentColor(color);
+    formatText("foreColor", color);
+    setShowColorPicker(false);
+  };
+
+  const applyHighlight = (color) => {
+    formatText("backColor", color);
   };
 
   const insertLink = () => {
     const url = prompt("Enter URL:");
     if (url) {
-      document.execCommand("createLink", false, url);
+      formatText("createLink", url);
     }
+  };
+
+  const insertHorizontalLine = () => {
+    formatText("insertHorizontalRule");
+  };
+
+  // 🔥 FORMAT-PRESERVING PASTE
+  const handlePaste = (e) => {
+    e.preventDefault();
+    const clipboardData = e.clipboardData || window.clipboardData;
+    const pastedHTML = clipboardData.getData("text/html");
+    const pastedText = clipboardData.getData("text/plain");
+    const contentToInsert = pastedHTML || pastedText.replace(/\n/g, "<br>");
+
+    const cleanHTML = DOMPurify.sanitize(contentToInsert, {
+      ALLOWED_TAGS: [
+        "p",
+        "br",
+        "strong",
+        "b",
+        "em",
+        "i",
+        "u",
+        "s",
+        "strike",
+        "span",
+        "div",
+        "font",
+        "a",
+        "ul",
+        "ol",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "table",
+        "tr",
+        "td",
+        "th",
+        "tbody",
+        "thead",
+        "blockquote",
+        "pre",
+        "code",
+        "hr",
+      ],
+      ALLOWED_ATTR: [
+        "style",
+        "href",
+        "target",
+        "class",
+        "id",
+        "color",
+        "size",
+        "face",
+        "align",
+      ],
+      ALLOWED_STYLES: {
+        "*": {
+          color: [/^#[0-9a-fA-F]{3,6}$/],
+          "background-color": [/^#[0-9a-fA-F]{3,6}$/],
+          "font-size": [/^\d+pt$/, /^\d+px$/],
+          "font-family": [/.*/],
+          "font-weight": [/^(bold|normal|\d+)$/],
+          "font-style": [/^(italic|normal)$/],
+          "text-decoration": [/^(underline|line-through|none)$/],
+          "text-align": [/^(left|right|center|justify)$/],
+        },
+      },
+    });
+
+    document.execCommand("insertHTML", false, cleanHTML);
     editorRef.current?.focus();
+  };
+
+  const handleCopy = (e) => {
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const clonedSelection = range.cloneContents();
+      const div = document.createElement("div");
+      div.appendChild(clonedSelection);
+      e.clipboardData.setData("text/html", div.innerHTML);
+      e.clipboardData.setData("text/plain", selection.toString());
+      e.preventDefault();
+    }
+  };
+
+  // ============================================================
+  // 🔥 NEW: FETCH ACCOUNTS AND TEMPLATES
+  // ============================================================
+
+  const fetchAccounts = async () => {
+    try {
+      const response = await api.get(`${API_BASE_URL}/api/accounts`);
+      if (response.data.success) {
+        setAccounts(response.data.data || []);
+      }
+    } catch (error) {
+      console.error("Error fetching accounts:", error);
+    }
+  };
+
+  const fetchTemplates = async () => {
+    try {
+      const response = await api.get(`${API_BASE_URL}/api/email-templates`);
+      if (response.data.success) {
+        setTemplates(response.data.data || []);
+      }
+    } catch (error) {
+      console.error("Error fetching templates:", error);
+    }
+  };
+
+  const applyTemplateWithAccount = (template, account) => {
+    if (!template || !account) return;
+
+    const message = messages[0];
+
+    const recipientName = extractRecipientName(
+      message.fromEmail,
+      message.fromName
+    );
+
+    // Replace placeholders
+    let templateBody = replacePlaceholders(template.bodyHtml, {
+      senderName: account.senderName || account.email.split("@")[0],
+      clientName: recipientName,
+      recipientName: recipientName,
+      email: message.fromEmail,
+      company: "",
+    });
+
+    // 🔥 FIX: Strip all background colors using regex
+    templateBody = templateBody.replace(/background-color\s*:\s*[^;]+;?/gi, "");
+    templateBody = templateBody.replace(/background\s*:\s*[^;]+;?/gi, "");
+    templateBody = templateBody.replace(/bgcolor\s*=\s*["'][^"']*["']/gi, "");
+
+    // 🔥 FIX: Deep clean using DOM manipulation
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = templateBody;
+
+    // Remove background from ALL elements
+    const allEls = tempDiv.querySelectorAll("*");
+    allEls.forEach((el) => {
+      el.style.background = "none";
+      el.style.backgroundColor = "transparent";
+      el.removeAttribute("bgcolor");
+    });
+
+    templateBody = tempDiv.innerHTML;
+
+    // Add signature
+    if (account.senderName) {
+      templateBody += `<br>Best regards,<br><b>${account.senderName}</b>`;
+    }
+
+    // Preserve quoted message
+    const currentContent = editorRef.current?.innerHTML || "";
+    const quotedStart = currentContent.indexOf(
+      '<hr style="border:none;border-top:1px solid #e5e7eb'
+    );
+
+    let quotedText = "";
+    if (quotedStart !== -1) {
+      quotedText = currentContent.substring(quotedStart);
+    }
+
+    const finalContent = `${templateBody}<br/><br/>${quotedText}`;
+
+    // Set in editor
+    if (editorRef.current) {
+      editorRef.current.innerHTML = finalContent;
+      editorRef.current.style.background = "transparent";
+      editorRef.current.style.backgroundColor = "transparent";
+      editorRef.current.focus();
+      const range = document.createRange();
+      const sel = window.getSelection();
+      if (editorRef.current.firstChild) {
+        range.setStart(editorRef.current.firstChild, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+
+    if (template.subject) {
+      setReplyData((prev) => ({
+        ...prev,
+        subject: template.subject,
+      }));
+    }
+  };
+
+  const handleTemplateSelect = (templateId) => {
+    if (!templateId || templateId === "") {
+      setSelectedTemplate(null);
+      return;
+    }
+
+    const template = templates.find((t) => t.id === parseInt(templateId));
+    setSelectedTemplate(template);
+
+    // Only apply if account is selected
+    if (selectedFromAccount && template) {
+      applyTemplateWithAccount(template, selectedFromAccount);
+    } else if (!selectedFromAccount) {
+      console.warn("⚠️ Please select a sending account first");
+      alert("Please select a sending account before choosing a template");
+      setSelectedTemplate(null);
+    }
+  };
+
+  const handleAccountChange = (accountId) => {
+    const account = accounts.find((acc) => acc.id === parseInt(accountId));
+    setSelectedFromAccount(account);
+
+    // Update replyData.from
+    if (account) {
+      setReplyData((prev) => ({
+        ...prev,
+        from: account.email,
+      }));
+    }
+
+    // If template is selected, reapply with new account
+    if (selectedTemplate && account) {
+      applyTemplateWithAccount(selectedTemplate, account);
+    }
   };
 
   // ============================================================
@@ -254,17 +858,23 @@ export default function MessageView({
   // ============================================================
 
   useEffect(() => {
+    fetchAccounts();
+    fetchTemplates();
+  }, []);
+
+  useEffect(() => {
     if (selectedConversation && selectedAccount) {
       setCountry(null);
       setScheduledDraft(null);
 
+      // If it's a scheduled message
       if (
         selectedConversation.isScheduled &&
         selectedConversation.scheduledMessageId
       ) {
-        console.log("📅 Loading FULL conversation for scheduled message");
         fetchScheduledConversation(selectedConversation.scheduledMessageId);
       } else {
+        // Normal conversation
         fetchMessages();
         markConversationAsRead();
       }
@@ -274,12 +884,45 @@ export default function MessageView({
     }
   }, [selectedConversation, selectedAccount, selectedFolder]);
 
+  // 🔥 NEW: When scheduled draft loads, set the From Account in the state
+  useEffect(() => {
+    if (scheduledDraft) {
+      // If the draft HAS an account ID, pre-select it
+      if (scheduledDraft.accountId) {
+        const linkedAccount = accounts.find(
+          (a) => a.id === scheduledDraft.accountId
+        );
+        if (linkedAccount) {
+          setSelectedFromAccount(linkedAccount);
+          setReplyData((prev) => ({ ...prev, from: linkedAccount.email }));
+        }
+      } else {
+        // If NO account ID (decide later), force null so dropdown is empty
+        setSelectedFromAccount(null);
+        setReplyData((prev) => ({ ...prev, from: "" }));
+      }
+    }
+  }, [scheduledDraft, accounts]);
+
   useEffect(() => {
     if (messages.length > 0) {
       const latestId = messages[0].id;
       setExpandedMessages({ [latestId]: true });
     }
   }, [messages]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        colorPickerRef.current &&
+        !colorPickerRef.current.contains(event.target)
+      ) {
+        setShowColorPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // ============================================================
   // ACTION HANDLERS
@@ -289,9 +932,7 @@ export default function MessageView({
     const confirmed = window.confirm(
       "Are you sure you want to move this conversation to Trash?"
     );
-
     if (!confirmed) return;
-
     try {
       const response = await api.patch(
         `${API_BASE_URL}/api/inbox/hide-inbox-conversation`,
@@ -300,7 +941,6 @@ export default function MessageView({
           accountId: selectedAccount.id,
         }
       );
-
       if (response.data.success) {
         alert("Conversation moved to Trash.");
         onBack();
@@ -344,12 +984,8 @@ export default function MessageView({
   // ============================================================
 
   const handleReply = (type, message) => {
+    // ... (Existing Implementation)
     if (!message) return;
-
-    console.log("🔍 handleReply:", {
-      type,
-      hasScheduledDraft: !!scheduledDraft,
-    });
 
     if (scheduledDraft && scheduledDraft.status === "pending") {
       handleReplyWithScheduledDraft(type, message);
@@ -362,9 +998,9 @@ export default function MessageView({
     const prefix = message.subject?.toLowerCase().startsWith("re:")
       ? ""
       : "Re: ";
-
-    const newSubject = `${prefix}${message.subject || "(No Subject)"}`;
-
+    const cleanSubject =
+      message.subject?.replace(/^(re:\s*)+/gi, "").trim() || "(No Subject)";
+    const newSubject = `${prefix}${cleanSubject}`;
     const myEmail = selectedAccount.email.toLowerCase();
 
     let to = "";
@@ -374,22 +1010,38 @@ export default function MessageView({
       to = message.fromEmail;
 
       if (type === "replyAll") {
-        const recipients = [
-          ...(message.toEmail ? message.toEmail.split(",") : []),
-          ...(message.ccEmail ? message.ccEmail.split(",") : []),
-        ]
-          .map((e) => e.trim())
-          .filter(
-            (e) =>
-              e.toLowerCase() !== myEmail &&
-              e.toLowerCase() !== message.fromEmail.toLowerCase()
-          );
+        const ccList = [];
 
-        cc = [...new Set(recipients)].join(", ");
+        if (message.toEmail) {
+          const originalTos = message.toEmail.split(",").map((e) => e.trim());
+          originalTos.forEach((email) => {
+            const normalized = email.toLowerCase();
+            if (
+              normalized !== myEmail &&
+              normalized !== message.fromEmail.toLowerCase()
+            ) {
+              ccList.push(email);
+            }
+          });
+        }
+
+        if (message.ccEmail) {
+          const originalCcs = message.ccEmail.split(",").map((e) => e.trim());
+          originalCcs.forEach((email) => {
+            const normalized = email.toLowerCase();
+            if (
+              normalized !== myEmail &&
+              normalized !== message.fromEmail.toLowerCase()
+            ) {
+              ccList.push(email);
+            }
+          });
+        }
+
+        cc = [...new Set(ccList)].join(", ");
       }
     } else if (message.direction === "sent") {
       to = message.toEmail;
-
       if (type === "replyAll" && message.ccEmail) {
         cc = message.ccEmail
           .split(",")
@@ -400,44 +1052,74 @@ export default function MessageView({
     }
 
     const quoted = `
-    <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
-    <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
-      <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
-      <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
-      <b>To:</b> ${message.toEmail}<br/>
-      ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
-      <b>Subject:</b> ${message.subject || "(No Subject)"}
-      <br/><br/>
-      ${message.bodyHtml || message.body || ""}
-    </div>
-  `;
+  <br/><br/>
+  <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
+  <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+    <b style="font-weight: bold;">From:</b> ${formatSender(
+      message.fromName,
+      message.fromEmail
+    )}<br/>
+    <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
+      message.sentAt
+    )}<br/>
+    <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
+    ${
+      message.ccEmail
+        ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
+        : ""
+    }
+    <b style="font-weight: bold;">Subject:</b> ${
+      message.subject || "(No Subject)"
+    }
+    <br/><br/>
+    ${message.bodyHtml || message.body || ""}
+  </div>
+`;
+
+    // 🔥 Set default account
+    const defaultAccount = accounts.find(
+      (acc) => acc.id === selectedAccount?.id
+    );
+    setSelectedFromAccount(defaultAccount);
 
     setReplyData({
       from: selectedAccount.email,
       to,
       cc,
       subject: newSubject,
-      body: quoted,
+      body: "",
     });
-
-    setShowQuotedText(true);
 
     setTimeout(() => {
       if (editorRef.current) {
-        editorRef.current.innerHTML = "";
+        editorRef.current.innerHTML = `<div><br/></div>${quoted}`;
         editorRef.current.focus();
+
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.setStart(editorRef.current, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
       }
-    }, 0);
+    }, 100);
   };
 
   const handleReplyWithScheduledDraft = (type, message) => {
+    // ... (Existing Implementation)
     setReplyMode("editScheduled");
     setEditingScheduledId(scheduledDraft.id);
 
-    // Build quoted conversation history (same as normal reply)
+    const normalizeEmail = (value) => {
+      if (!value) return "";
+      const match = value.match(/<(.+?)>/);
+      return match ? match[1].trim() : value.trim();
+    };
+
     const quoted = `
+    <br/><br/>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
-    <div style="font-family: Calibri, sans-serif; font-size: 11pt;">
+    <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
       <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
       <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
       <b>To:</b> ${message.toEmail}<br/>
@@ -448,62 +1130,71 @@ export default function MessageView({
     </div>
   `;
 
-    // Determine To/Cc based on type
-    let to = scheduledDraft.toEmail;
-    let cc = scheduledDraft.ccEmail || "";
+    let to = normalizeEmail(scheduledDraft.toEmail);
+    let cc = scheduledDraft.ccEmail
+      ? normalizeEmail(scheduledDraft.ccEmail)
+      : "";
 
     if (type === "replyAll") {
       const myEmail = selectedAccount.email.toLowerCase();
+      const ccList = cc ? cc.split(",").map((e) => normalizeEmail(e)) : [];
 
-      // Get all recipients
-      const recipients = [
-        ...(message.toEmail ? message.toEmail.split(",") : []),
-        ...(message.ccEmail ? message.ccEmail.split(",") : []),
-      ]
-        .map((e) => e.trim())
-        .filter(
-          (e) =>
-            e.toLowerCase() !== myEmail &&
-            e.toLowerCase() !== message.fromEmail.toLowerCase()
-        );
+      const pushIfValid = (email) => {
+        const normalized = normalizeEmail(email).toLowerCase();
+        if (
+          normalized &&
+          normalized !== myEmail &&
+          normalized !== message.fromEmail?.toLowerCase()
+        ) {
+          ccList.push(normalized);
+        }
+      };
 
-      cc = [...new Set(recipients)].join(", ");
+      if (message.toEmail) {
+        message.toEmail.split(",").forEach(pushIfValid);
+      }
+
+      if (message.ccEmail) {
+        message.ccEmail.split(",").forEach(pushIfValid);
+      }
+
+      cc = [...new Set(ccList)].join(", ");
     }
+
+    // 🔥 Set default account
+    const defaultAccount = accounts.find(
+      (acc) => acc.id === selectedAccount?.id
+    );
+    setSelectedFromAccount(defaultAccount);
 
     setReplyData({
       from: selectedAccount.email,
       to,
       cc,
       subject: scheduledDraft.subject || "",
-      body: quoted, // Store quoted history
+      body: "",
     });
 
-    // Pre-fill editor with SCHEDULED BODY + QUOTED HISTORY
     setTimeout(() => {
       if (editorRef.current) {
-        // Combine scheduled content with quoted history
-        const fullContent = `${scheduledDraft.bodyHtml || ""}${quoted}`;
+        const fullContent = `${
+          scheduledDraft.bodyHtml || ""
+        }<br/><br/>${quoted}`;
         editorRef.current.innerHTML = fullContent;
-
-        // Place cursor at the beginning for easy editing
         editorRef.current.focus();
+
         const range = document.createRange();
         const sel = window.getSelection();
-        if (editorRef.current.childNodes.length > 0) {
-          range.setStart(editorRef.current.childNodes[0], 0);
-        } else {
-          range.setStart(editorRef.current, 0);
-        }
+        range.setStart(editorRef.current, 0);
         range.collapse(true);
         sel.removeAllRanges();
         sel.addRange(range);
       }
     }, 100);
-
-    setShowQuotedText(true); // Enable quoted text section
   };
 
   const handleForward = (type, message) => {
+    // ... (Existing Implementation)
     if (!message) return;
 
     const fromHeader = formatHeaderAddress(message.fromName, message.fromEmail);
@@ -519,19 +1210,23 @@ export default function MessageView({
     const subjectHeader = message.subject || "(No Subject)";
 
     const forwardHeader = `
-      <br>
+      <br/>
+      <hr style="border:none; border-top:1px solid #E1E1E1; margin:12px 0;">
       <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-        <hr style="border:none; border-top:1px solid #E1E1E1">
-        <b>From:</b> ${fromHeader}<br>
-        <b>Sent:</b> ${sentDate}<br>
-        <b>To:</b> ${toHeader}<br>
-        ${ccHeader ? `<b>Cc:</b> ${ccHeader}<br>` : ""}
-        <b>Subject:</b> ${subjectHeader}
+        <b style="font-weight: bold;">From:</b> ${fromHeader}<br>
+        <b style="font-weight: bold;">Sent:</b> ${sentDate}<br>
+        <b style="font-weight: bold;">To:</b> ${toHeader}<br>
+        ${
+          ccHeader
+            ? `<b style="font-weight: bold;">Cc:</b> ${ccHeader}<br>`
+            : ""
+        }
+        <b style="font-weight: bold;">Subject:</b> ${subjectHeader}
       </div>
-      <br>
+      <br/>
     `;
 
-    const forwardedBody = `${forwardHeader}<div>${
+    const forwardedBody = `<div><br/></div>${forwardHeader}<div>${
       message.bodyHtml || message.body
     }</div>`;
 
@@ -540,12 +1235,18 @@ export default function MessageView({
 
     const prefix = message.subject?.startsWith("Fwd:") ? "" : "Fwd: ";
 
+    // 🔥 Set default account
+    const defaultAccount = accounts.find(
+      (acc) => acc.id === selectedAccount?.id
+    );
+    setSelectedFromAccount(defaultAccount);
+
     setReplyData({
       from: selectedAccount.email,
       to: "",
       cc: "",
       subject: `${prefix}${message.subject || "(No Subject)"}`,
-      body: forwardedBody,
+      body: "",
     });
 
     setTimeout(() => {
@@ -560,16 +1261,11 @@ export default function MessageView({
         sel.removeAllRanges();
         sel.addRange(range);
       }
-    }, 0);
+    }, 100);
   };
 
-  // ============================================================
-  // SEND HANDLERS
-  // ============================================================
-
   const updateScheduledMessage = async (bodyContent) => {
-    console.log("🔄 Updating scheduled message:", editingScheduledId);
-
+    // ... (Existing Implementation)
     const payload = {
       subject: replyData.subject,
       bodyHtml: bodyContent,
@@ -577,71 +1273,137 @@ export default function MessageView({
       ccEmail: replyData.cc || null,
     };
 
-    console.log("📤 PATCH payload:", payload);
-
     const response = await api.patch(
       `${API_BASE_URL}/api/scheduled-messages/${editingScheduledId}`,
       payload
     );
 
     if (response.data.success) {
-      console.log("✅ Scheduled message updated successfully");
       alert("Scheduled message updated successfully!");
-
       await fetchScheduledConversation(editingScheduledId);
-
       closeReplyModal();
     }
   };
 
-  const sendNormalReply = async (bodyContent) => {
-    let finalBody = bodyContent;
-    if (showQuotedText && replyData.body) {
-      finalBody = bodyContent + replyData.body;
-    }
+  // const sendNormalReply = async (bodyContent) => {
+  //   // ... (Existing Implementation)
+  //   let endpoint;
+  //   if (replyMode === "replyAll")
+  //     endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
+  //   else if (replyMode === "forward")
+  //     endpoint = `${API_BASE_URL}/api/inbox/forward`;
+  //   else endpoint = `${API_BASE_URL}/api/inbox/reply`;
 
-    let endpoint;
+  //   const payload = {
+  //     emailAccountId: selectedFromAccount?.id || selectedAccount.id,
+  //     fromEmail: replyData.from,
+  //     from: replyData.from,
+  //     to: replyData.to,
+  //     cc: replyData.cc || null,
+  //     subject: replyData.subject,
+  //     body: bodyContent,
+  //     attachments: attachments.map((att) => ({
+  //       filename: att.name,
+  //       url: att.url,
+  //       type: att.type,
+  //       size: att.size,
+  //     })),
+  //   };
+
+  //   if (replyingToMessageId) {
+  //     payload.replyToMessageId = replyingToMessageId;
+  //     payload.replyToId = replyingToMessageId;
+  //     payload.forwardMessageId = replyingToMessageId;
+  //   }
+
+  //   const response = await api.post(endpoint, payload);
+
+  //   if (response.data.success) {
+  //     await fetchMessages();
+  //     closeReplyModal();
+  //     alert("Message sent successfully!");
+  //   }
+  // };
+  const sendNormalReply = async (bodyContent) => {
+    // ... endpoint logic ...
+    let endpoint = `${API_BASE_URL}/api/inbox/reply`;
     if (replyMode === "replyAll")
       endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
-    else if (replyMode === "forward")
-      endpoint = `${API_BASE_URL}/api/inbox/forward`;
-    else endpoint = `${API_BASE_URL}/api/inbox/reply`;
+    if (replyMode === "forward") endpoint = `${API_BASE_URL}/api/inbox/forward`;
 
     const payload = {
-      emailAccountId: selectedAccount.id,
-      fromEmail: replyData.from,
-      from: replyData.from,
+      emailAccountId: selectedFromAccount.id,
+      fromEmail: selectedFromAccount.email,
+      from: selectedFromAccount.email,
       to: replyData.to,
       cc: replyData.cc || null,
       subject: replyData.subject,
-      body: finalBody,
+      body: bodyContent,
       attachments: attachments.map((att) => ({
         filename: att.name,
         url: att.url,
         type: att.type,
         size: att.size,
       })),
+
+      // 🔥 ADD ONLY THIS LINE
+      scheduledMessageId:
+        replyMode === "editScheduled" ? editingScheduledId : null,
     };
 
     if (replyingToMessageId) {
       payload.replyToMessageId = replyingToMessageId;
-      payload.replyToId = replyingToMessageId;
-      payload.forwardMessageId = replyingToMessageId;
     }
 
     const response = await api.post(endpoint, payload);
 
     if (response.data.success) {
-      await fetchMessages();
+      // Notify parent to remove from list
+      if (onMessageSent) {
+        onMessageSent(selectedConversation?.conversationId);
+      }
       closeReplyModal();
       alert("Message sent successfully!");
     }
   };
 
+  // const handleSendReply = async () => {
+  //   const bodyContent = editorRef.current?.innerHTML || "";
+
+  //   if (!bodyContent.trim() || !selectedAccount) {
+  //     alert("Please enter message content");
+  //     return;
+  //   }
+
+  //   if (!replyData.to.trim()) {
+  //     alert("Please enter a recipient email address");
+  //     return;
+  //   }
+
+  //   if (!selectedFromAccount) {
+  //     alert("Please select an email account to send from");
+  //     return;
+  //   }
+
+  //   setIsSending(true);
+
+  //   try {
+  //     if (replyMode === "editScheduled" && editingScheduledId) {
+  //       await updateScheduledMessage(bodyContent);
+  //     } else {
+  //       await sendNormalReply(bodyContent);
+  //     }
+  //   } catch (error) {
+  //     console.error("Error sending message:", error);
+  //     alert("Failed to send message. Please try again.");
+  //   } finally {
+  //     setIsSending(false);
+  //   }
+  // };
   const handleSendReply = async () => {
     const bodyContent = editorRef.current?.innerHTML || "";
 
-    if (!bodyContent.trim() || !selectedAccount) {
+    if (!bodyContent.trim()) {
       alert("Please enter message content");
       return;
     }
@@ -651,11 +1413,18 @@ export default function MessageView({
       return;
     }
 
+    // 🔥 CRITICAL VALIDATION: Ensure account is selected
+    if (!selectedFromAccount) {
+      alert("⚠️ Please select a 'From' email account before sending.");
+      return;
+    }
+
     setIsSending(true);
 
     try {
       if (replyMode === "editScheduled" && editingScheduledId) {
-        await updateScheduledMessage(bodyContent);
+        // Even if editing a schedule, we are SENDING it now via SMTP
+        await sendNormalReply(bodyContent);
       } else {
         await sendNormalReply(bodyContent);
       }
@@ -666,12 +1435,12 @@ export default function MessageView({
       setIsSending(false);
     }
   };
-
   const closeReplyModal = () => {
     setReplyMode(null);
     setReplyingToMessageId(null);
     setEditingScheduledId(null);
-    setShowQuotedText(false);
+    setSelectedFromAccount(null);
+    setSelectedTemplate(null);
     setReplyData({
       from: "",
       to: "",
@@ -684,10 +1453,6 @@ export default function MessageView({
       editorRef.current.innerHTML = "";
     }
   };
-
-  // ============================================================
-  // ATTACHMENT HANDLERS
-  // ============================================================
 
   const handleAttachmentUpload = (e) => {
     const files = Array.from(e.target.files || []);
@@ -774,44 +1539,71 @@ export default function MessageView({
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2">
-              {selectedFolder === "trash" ? (
-                <>
-                  <button
-                    onClick={handleRestore}
-                    className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
-                    title="Restore to Inbox"
-                  >
-                    <RotateCw className="w-4 h-4 text-blue-600 rotate-180" />
-                  </button>
-                  <button
-                    onClick={handlePermanentDelete}
-                    className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
-                    title="Delete Permanently"
-                  >
-                    <Trash2 className="w-4 h-4 text-red-600" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={handleTrashClick}
-                    className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
-                    title="Move to Trash"
-                  >
-                    <Trash2 className="w-4 h-4 text-gray-600 group-hover:text-red-600" />
-                  </button>
-                </>
-              )}
-              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <MoreVertical className="w-4 h-4 text-gray-600" />
+            {/* ✏️ Edit Lead */}
+            <button
+              onClick={handleOpenEditLead}
+              className="p-2 hover:bg-indigo-50 rounded-lg transition-colors group"
+              title="Edit Lead Info"
+            >
+              <Pencil className="w-4 h-4 text-gray-600 group-hover:text-indigo-600" />
+            </button>
+
+            {/* 📥 SPAM → INBOX */}
+            {selectedFolder === "spam" && (
+              <button
+                onClick={handleMoveToInbox}
+                className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
+                title="Move to Inbox"
+              >
+                <Mail className="w-4 h-4 text-blue-600 group-hover:text-blue-700" />
               </button>
-            </div>
+            )}
+
+            {/* 🗑️ TRASH ACTIONS */}
+            {selectedFolder === "trash" ? (
+              <>
+                {/* Restore */}
+                <button
+                  onClick={handleRestore}
+                  className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
+                  title="Restore to Inbox"
+                >
+                  <RotateCw className="w-4 h-4 text-blue-600" />
+                </button>
+
+                {/* Permanent Delete */}
+                <button
+                  onClick={handlePermanentDelete}
+                  className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
+                  title="Delete Permanently"
+                >
+                  <Trash2 className="w-4 h-4 text-red-600" />
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Move to Trash (Inbox / Spam) */}
+                <button
+                  onClick={handleTrashClick}
+                  className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
+                  title="Move to Trash"
+                >
+                  <Trash2 className="w-4 h-4 text-gray-600 group-hover:text-red-600" />
+                </button>
+              </>
+            )}
+
+            {/* More options */}
+            <button
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="More options"
+            >
+              <MoreVertical className="w-4 h-4 text-gray-600" />
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Scheduled message banner */}
       {scheduledDraft && scheduledDraft.status === "pending" && (
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-3">
           <div className="flex items-center justify-between">
@@ -831,6 +1623,7 @@ export default function MessageView({
 
       {/* Messages List */}
       <div className="flex-1 overflow-y-auto">
+        {/* ... (Existing Message List Implementation) */}
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
@@ -839,11 +1632,18 @@ export default function MessageView({
           <div className="max-w-4xl mx-auto py-6 px-6 space-y-4">
             {messages
               .filter((msg) => {
+                // If we are in Sent folder, show only sent items
                 if (selectedFolder === "sent") return msg.direction === "sent";
+
+                // If we are in Trash or Spam, show everything in that conversation
                 if (["spam", "trash"].includes(selectedFolder)) return true;
-                return msg.direction === "received";
+
+                // 📥 FIX FOR INBOX: Show both SENT and RECEIVED messages
+                // This ensures your replies show up in the conversation history
+                return msg.direction === "received" || msg.direction === "sent";
               })
               .reverse()
+              // ... render message
               .map((message) => {
                 const isExpanded = expandedMessages[message.id];
                 const accountDomain = selectedAccount.email.split("@")[1];
@@ -877,8 +1677,7 @@ export default function MessageView({
                                       : "text-orange-700"
                                   }`}
                                 >
-                                  {message.fromName || message.fromEmail}{" "}
-                                  {/* ✅ NEW CODE: Shows Name if available */}
+                                  {message.fromName || message.fromEmail}
                                   {isInternal && (
                                     <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-600 text-[10px] rounded uppercase tracking-wider font-bold">
                                       Internal
@@ -930,11 +1729,7 @@ export default function MessageView({
                         {!isExpanded && (
                           <div className="mt-3 ml-13 p-2 border-l-2 border-gray-200 bg-gray-50/50 rounded-r">
                             <p className="text-xs text-gray-600 line-clamp-1 italic">
-                              {stripHtmlTags(message.body || "").substring(
-                                0,
-                                120
-                              )}
-                              ...
+                              {getCollapsedPreview(message.body, 120)}
                             </p>
                           </div>
                         )}
@@ -1056,11 +1851,11 @@ export default function MessageView({
         )}
       </div>
 
-      {/* Reply Modal */}
+      {/* 🔥 REPLY MODAL WITH ACCOUNT & TEMPLATE DROPDOWNS */}
       {replyMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
-            {/* Header */}
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[95vh] overflow-hidden">
+            {/* ... (Existing Reply Modal Content) */}
             <div className="border-b border-gray-200 px-6 py-4 bg-gray-50 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <button
@@ -1084,9 +1879,53 @@ export default function MessageView({
               </button>
             </div>
 
-            {/* Content */}
-            <div className="overflow-y-auto max-h-[calc(90vh-120px)]">
+            <div className="overflow-y-auto max-h-[calc(95vh-140px)]">
               <div className="p-6">
+                {/* 🔥 Account Selection Dropdown */}
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    From Email Account *
+                  </label>
+                  <select
+                    value={selectedFromAccount?.id || ""}
+                    onChange={(e) => handleAccountChange(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select Account</option>
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.email} {acc.senderName && `(${acc.senderName})`}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedFromAccount && !selectedFromAccount.senderName && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      ⚠️ No sender name set for this account. Set it in Add
+                      Account.
+                    </p>
+                  )}
+                </div>
+
+                {/* 🔥 Template Selection Dropdown */}
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Email Template (Optional)
+                  </label>
+                  <select
+                    value={selectedTemplate?.id || ""}
+                    onChange={(e) => handleTemplateSelect(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Choose a template...</option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}{" "}
+                        {template.leadStatus && `(${template.leadStatus})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="space-y-4 mb-4">
                   <div className="flex items-center gap-2">
                     <label className="text-sm font-medium text-gray-700 w-16">
@@ -1144,114 +1983,260 @@ export default function MessageView({
 
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
                   {/* Toolbar */}
-                  <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-300">
-                    <button
-                      onClick={() => formatText("bold")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Bold"
-                    >
-                      <Bold className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("italic")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Italic"
-                    >
-                      <Italic className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("underline")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Underline"
-                    >
-                      <Underline className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
-                    <button
-                      onClick={() => formatText("insertUnorderedList")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Bullet List"
-                    >
-                      <List className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={insertLink}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Insert Link"
-                    >
-                      <LinkIcon className="w-4 h-4 text-gray-600" />
-                    </button>
+                  <div className="bg-gradient-to-b from-gray-50 to-gray-100 border-b border-gray-300">
+                    <div className="flex items-center gap-2 p-2 flex-wrap">
+                      {/* Font Family */}
+                      <div className="relative">
+                        <select
+                          value={currentFont}
+                          onChange={(e) => applyFontFamily(e.target.value)}
+                          className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none pr-8"
+                          style={{ minWidth: "140px" }}
+                        >
+                          {FONT_FAMILIES.map((font) => (
+                            <option key={font.value} value={font.value}>
+                              {font.label}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      </div>
+
+                      {/* Font Size */}
+                      <div className="relative">
+                        <select
+                          value={currentSize}
+                          onChange={(e) => applyFontSize(e.target.value)}
+                          className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none pr-8"
+                          style={{ minWidth: "70px" }}
+                        >
+                          {FONT_SIZES.map((size) => (
+                            <option key={size.value} value={size.value}>
+                              {size.label}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      </div>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+                      {/* 🔥 NEW: Line Spacing Dropdown */}
+                      <div className="relative">
+                        <button
+                          onClick={() =>
+                            setShowLineHeightPicker(!showLineHeightPicker)
+                          }
+                          className="p-2 hover:bg-white rounded transition-colors flex items-center gap-1"
+                          title="Line Spacing"
+                        >
+                          <ArrowUpDown className="w-4 h-4 text-gray-700" />
+                          <ChevronDown className="w-3 h-3 text-gray-500" />
+                        </button>
+
+                        {showLineHeightPicker && (
+                          <div className="absolute top-full left-0 mt-2 bg-white border border-gray-300 rounded-lg shadow-xl py-1 z-50 w-32">
+                            {LINE_HEIGHTS.map((lh) => (
+                              <button
+                                key={lh.value}
+                                onClick={() => applyLineHeight(lh.value)}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600"
+                                style={{ lineHeight: lh.value }} // Preview the effect in the dropdown
+                              >
+                                {lh.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {/* Text Formatting */}
+                      <button
+                        onClick={() => formatText("bold")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Bold"
+                      >
+                        <Bold className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("italic")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Italic"
+                      >
+                        <Italic className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("underline")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Underline"
+                      >
+                        <Underline className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("strikeThrough")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Strikethrough"
+                      >
+                        <Strikethrough className="w-4 h-4 text-gray-700" />
+                      </button>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+
+                      {/* Font Color */}
+                      <div className="relative" ref={colorPickerRef}>
+                        <button
+                          onClick={() => setShowColorPicker(!showColorPicker)}
+                          className="p-2 hover:bg-white rounded transition-colors relative"
+                          title="Font Color"
+                        >
+                          <Type className="w-4 h-4 text-gray-700" />
+                          <div
+                            className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-4 h-1 rounded"
+                            style={{ backgroundColor: currentColor }}
+                          ></div>
+                        </button>
+
+                        {showColorPicker && (
+                          <div
+                            className="absolute top-full left-0 mt-2 bg-white border border-gray-300 rounded-lg shadow-xl p-3 z-50"
+                            style={{ width: "240px" }}
+                          >
+                            <div className="mb-2 text-xs font-semibold text-gray-600">
+                              Font Color
+                            </div>
+                            <div className="grid grid-cols-8 gap-1 mb-3">
+                              {COLORS.map((color) => (
+                                <button
+                                  key={color}
+                                  onClick={() => applyColor(color)}
+                                  className="w-6 h-6 rounded border-2 hover:scale-110 transition-transform"
+                                  style={{
+                                    backgroundColor: color,
+                                    borderColor:
+                                      color === currentColor
+                                        ? "#3B82F6"
+                                        : "#E5E7EB",
+                                  }}
+                                  title={color}
+                                />
+                              ))}
+                            </div>
+                            <div className="pt-2 border-t border-gray-200">
+                              <div className="text-xs font-semibold text-gray-600 mb-2">
+                                Highlight Color
+                              </div>
+                              <div className="grid grid-cols-8 gap-1">
+                                {COLORS.slice(8, 32).map((color) => (
+                                  <button
+                                    key={color}
+                                    onClick={() => applyHighlight(color)}
+                                    className="w-6 h-6 rounded border-2 border-gray-200 hover:scale-110 transition-transform"
+                                    style={{ backgroundColor: color }}
+                                    title={color}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+
+                      {/* Lists */}
+                      <button
+                        onClick={() => formatText("insertUnorderedList")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Bullet List"
+                      >
+                        <List className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("insertOrderedList")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Numbered List"
+                      >
+                        <ListOrdered className="w-4 h-4 text-gray-700" />
+                      </button>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+
+                      {/* Alignment */}
+                      <button
+                        onClick={() => formatText("justifyLeft")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Align Left"
+                      >
+                        <AlignLeft className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("justifyCenter")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Align Center"
+                      >
+                        <AlignCenter className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("justifyRight")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Align Right"
+                      >
+                        <AlignRight className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("justifyFull")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Justify"
+                      >
+                        <AlignJustify className="w-4 h-4 text-gray-700" />
+                      </button>
+
+                      <div className="w-px h-6 bg-gray-300"></div>
+
+                      <button
+                        onClick={insertLink}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Insert Link"
+                      >
+                        <LinkIcon className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={insertHorizontalLine}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Horizontal Line"
+                      >
+                        <Minus className="w-4 h-4 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => formatText("formatBlock", "blockquote")}
+                        className="p-2 hover:bg-white rounded transition-colors"
+                        title="Quote"
+                      >
+                        <Quote className="w-4 h-4 text-gray-700" />
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Editor */}
                   {/* Editor */}
                   <div
                     ref={editorRef}
                     contentEditable
-                    className="min-h-[200px] max-h-[400px] overflow-y-auto p-4 focus:outline-none"
+                    onPaste={handlePaste}
+                    onCopy={handleCopy}
+                    className="min-h-[400px] max-h-[500px] overflow-y-auto p-4 focus:outline-none transition-all"
                     style={{
                       fontFamily: "Calibri, sans-serif",
                       fontSize: "11pt",
-                      lineHeight: "1.35",
+                      lineHeight: "1.5",
                     }}
                     placeholder="Type your message here..."
                   />
-
-                  {/* Quoted Text Section - ALWAYS VISIBLE for scheduled edits */}
-                  {replyMode === "editScheduled" && (
-                    <div className="border-t border-gray-200 bg-gray-50 px-4 py-2">
-                      <p className="text-xs text-gray-500 italic">
-                        ✏️ Edit your scheduled message above. Previous
-                        conversation is included below.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Normal reply quoted text toggle */}
-                  {replyMode !== "editScheduled" &&
-                    (replyMode === "reply" || replyMode === "replyAll") && (
-                      <div className="border-t border-gray-200">
-                        <button
-                          onClick={() => setShowQuotedText(!showQuotedText)}
-                          className="w-full px-4 py-2 flex items-center justify-center gap-2 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
-                        >
-                          <span className="text-lg leading-none">•••</span>
-                          <span>
-                            {showQuotedText ? "Hide" : "Show"} quoted text
-                          </span>
-                        </button>
-
-                        {showQuotedText && (
-                          <div
-                            className="p-4 bg-gray-50 border-t border-gray-200 max-h-[400px] overflow-y-auto"
-                            contentEditable
-                            suppressContentEditableWarning
-                            dangerouslySetInnerHTML={{
-                              __html: DOMPurify.sanitize(replyData.body || ""),
-                            }}
-                            onBlur={(e) => {
-                              setReplyData({
-                                ...replyData,
-                                body: e.currentTarget.innerHTML,
-                              });
-                            }}
-                            style={{
-                              fontFamily: "Calibri, sans-serif",
-                              fontSize: "11pt",
-                              lineHeight: "1.35",
-                            }}
-                          />
-                        )}
-                      </div>
-                    )}
-
+                  {/* ... (Attachments and Send button) */}
                   {attachments.length > 0 && (
                     <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
                       <div className="flex flex-wrap gap-2">
                         {attachments.map((att, index) => (
                           <div
                             key={index}
-                            className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-gray-300"
+                            className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-gray-300 shadow-sm"
                           >
                             <File className="w-3 h-3 text-gray-500" />
                             <span className="text-xs text-gray-700">
@@ -1269,8 +2254,7 @@ export default function MessageView({
                     </div>
                   )}
 
-                  {/* Footer */}
-                  <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                  <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
                     <div>
                       <input
                         ref={fileInputRef}
@@ -1290,7 +2274,7 @@ export default function MessageView({
                     <button
                       onClick={handleSendReply}
                       disabled={isSending}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-colors text-sm font-medium"
+                      className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-all text-sm font-medium shadow-sm hover:shadow-md"
                     >
                       {isSending ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -1307,6 +2291,16 @@ export default function MessageView({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ✅ ADDED: Render Edit Modal */}
+      {showLeadEditModal && (
+        <FollowUpEditModal // 👈 WAS FloatingEditWindow
+          editForm={leadEditForm}
+          onChange={handleLeadFormChange}
+          onSave={handleSaveLead}
+          onClose={() => setShowLeadEditModal(false)}
+        />
       )}
 
       <div ref={messagesEndRef} />

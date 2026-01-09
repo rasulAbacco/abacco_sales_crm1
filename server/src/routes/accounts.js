@@ -246,217 +246,6 @@ async function suggestHostsForEmail(email) {
 /* ============================================================
    🟢 CREATE NEW EMAIL ACCOUNT — VERIFY IMAP & SMTP
 ============================================================ */
-// router.post("/", protect, async (req, res) => {
-//   try {
-//     const {
-//       email,
-//       provider,
-//       imapHost,
-//       imapPort,
-//       imapUser,
-//       smtpHost,
-//       smtpPort,
-//       smtpUser,
-//       encryptedPass,
-//       oauthClientId,
-//       oauthClientSecret,
-//       refreshToken,
-//       authType,
-//     } = req.body;
-
-//     if (
-//       !email ||
-//       !provider ||
-//       !imapHost ||
-//       !imapPort ||
-//       !imapUser ||
-//       !smtpHost ||
-//       !smtpPort ||
-//       !smtpUser
-//     ) {
-//       return res
-//         .status(400)
-//         .json({ error: "All connection fields are required" });
-//     }
-
-//     const exists = await prisma.emailAccount.findUnique({ where: { email } });
-//     if (exists)
-//       return res.status(400).json({ error: "Account already exists" });
-
-//     /* -------------------------
-//        VERIFY IMAP
-//     -------------------------- */
-//     const imap = new ImapFlow({
-//       host: imapHost,
-//       port: Number(imapPort),
-//       secure: Number(imapPort) === 993,
-//       auth: { user: imapUser || email, pass: encryptedPass },
-//       tls: { rejectUnauthorized: false },
-//     });
-
-//     try {
-//       await imap.connect();
-//       await imap.logout();
-//     } catch (err) {
-//       const suggestions = await suggestHostsForEmail(email);
-
-//       const domain = email.split("@")[1];
-//       const detectedProvider = await detectEmailProvider(domain);
-
-//       let finalSuggestion = null;
-//       let help = null;
-
-//       const isHostError =
-//         err.message.includes("ENOTFOUND") ||
-//         err.message.includes("lookup") ||
-//         err.message.includes("Invalid host") ||
-//         err.message.includes("Can't connect") ||
-//         err.message.includes("ECONN");
-
-//       // If IMAP host is wrong → show suggestions
-//       if (isHostError) {
-//         finalSuggestion = suggestions[0];
-//       }
-
-//       // If authentication failed but host is correct → show only help message
-//       const isAuthError =
-//         err.message.includes("AUTHENTICATIONFAILED") ||
-//         err.message.includes("Invalid credentials") ||
-//         err.message.includes("LOGIN failed") ||
-//         err.message.includes("authentication") ||
-//         err.message.includes("Command failed");
-
-//       if (isAuthError && !isHostError) {
-//         finalSuggestion = null; // hide suggestions block
-
-//         // UNIVERSAL APP PASSWORD HELP (for all providers)
-//         if (["zoho", "zoho_in"].includes(detectedProvider)) {
-//           help = `
-//         <b>Zoho Mail requires an App Password</b><br/>
-//         Normal email password will NOT work.<br/><br/>
-//         <b>How to fix:</b><br/>
-//         1. Log in to Zoho Mail<br/>
-//         2. Go to Settings → Security → App Passwords<br/>
-//         3. Generate a new App Password<br/>
-//         4. Use that password here<br/>
-//       `;
-//         }
-
-//         if (["gmail"].includes(detectedProvider)) {
-//           help = `
-//         <b>Gmail requires an App Password</b><br/>
-//         If 2FA is enabled, normal password will NOT work.<br/><br/>
-//         <b>How to fix:</b><br/>
-//         1. Go to Google Account<br/>
-//         2. Security → App Passwords<br/>
-//         3. Generate new App Password<br/>
-//         4. Use it here<br/>
-//       `;
-//         }
-
-//         if (["titan", "bluehost", "hostinger"].includes(detectedProvider)) {
-//           help = `
-//         <b>Titan/Bluehost/Hostinger email requires proper authentication</b><br/>
-//         Normal password might be blocked.<br/><br/>
-//         <b>Fix:</b><br/>
-//         1. Open your hosting panel<br/>
-//         2. Go to Email Account → Security<br/>
-//         3. Enable IMAP access or generate App Password<br/>
-//         4. Use that here<br/>
-//       `;
-//         }
-
-//         if (["namecheap"].includes(detectedProvider)) {
-//           help = `
-//         <b>Namecheap Private Email may require app password</b><br/>
-//         Make sure IMAP is enabled.<br/><br/>
-//         <b>Fix:</b><br/>
-//         1. Open PrivateEmail dashboard<br/>
-//         2. Ensure IMAP/SMTP enabled<br/>
-//         3. Generate or reset mailbox password<br/>
-//       `;
-//         }
-
-//         if (["office365", "outlook"].includes(detectedProvider)) {
-//           help = `
-//         <b>Office365/Outlook requires App Password if MFA enabled</b><br/>
-//         Normal password may fail.<br/><br/>
-//         <b>Fix:</b><br/>
-//         1. Go to Office365 Security page<br/>
-//         2. Enable App Passwords<br/>
-//         3. Generate an App Password<br/>
-//         4. Use that here<br/>
-//       `;
-//         }
-//       }
-
-//       return res.status(400).json({
-//         success: false,
-//         error: "IMAP Login Failed: " + err.message,
-//         suggestion: finalSuggestion, // Smart suggestion logic
-//         help,
-//       });
-//     }
-
-//     /* -------------------------
-//        VERIFY SMTP
-//     -------------------------- */
-//     const transporter = nodemailer.createTransport({
-//       host: smtpHost,
-//       port: Number(smtpPort),
-//       secure: Number(smtpPort) === 465,
-//       auth: { user: smtpUser || email, pass: encryptedPass },
-//     });
-
-//     try {
-//       await transporter.verify();
-//     } catch (err) {
-//       // const suggestions = await suggestHostsForEmail(email);
-//       const suggestions = await suggestHostsForEmail(email, provider);
-//       return res.status(400).json({
-//         success: false,
-//         error: "SMTP Login Failed: " + err.message,
-//         suggestion: suggestions[0] || null,
-//       });
-//     }
-
-//     /* -------------------------
-//        IF VERIFIED → SAVE ACCOUNT
-//     -------------------------- */
-//     const newAccount = await prisma.emailAccount.create({
-//       data: {
-//         userId: req.user.id,
-//         email,
-//         provider,
-//         imapHost,
-//         imapPort: Number(imapPort),
-//         imapUser,
-//         smtpHost,
-//         smtpPort: Number(smtpPort),
-//         smtpUser,
-//         encryptedPass,
-//         oauthClientId,
-//         oauthClientSecret,
-//         refreshToken,
-//         authType,
-//         verified: true,
-//       },
-//     });
-
-//     // Initial quick sync
-//     runSyncForAccount(prisma, email)
-//       .then(() => console.log(`⚡ Quick sync done for ${email}`))
-//       .catch((e) => console.log("Sync trigger error:", e));
-
-//     res.status(201).json(newAccount);
-//   } catch (err) {
-//     console.error("CREATE ACCOUNT ERROR:", err);
-//     res
-//       .status(500)
-//       .json({ error: "Failed to create account", details: err.message });
-//   }
-// });
-/* server/routes/accounts.js */
 
 router.post("/", protect, async (req, res) => {
   try {
@@ -644,9 +433,6 @@ router.put("/:id", protect, async (req, res) => {
   }
 });
 
-// server/routes/accounts.js
-
-// server/routes/accounts.js
 
 router.delete("/:id", protect, async (req, res) => {
   const id = Number(req.params.id);
@@ -748,32 +534,65 @@ router.delete("/:id", protect, async (req, res) => {
 /* ============================================================
    🟢 GET USER ACCOUNTS
    ============================================================ */
-router.get("/", protect, async (req, res) => {
-  try {
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({
-        error: "Unauthorized: req.user missing",
-      });
-    }
+// router.get("/", protect, async (req, res) => {
+//   try {
+//     if (!req.user || !req.user.id) {
+//       return res.status(401).json({
+//         error: "Unauthorized: req.user missing",
+//       });
+//     }
 
-    const accounts = await prisma.emailAccount.findMany({
-      where: { userId: req.user.id },
-      orderBy: { createdAt: "desc" },
-    });
+//     const accounts = await prisma.emailAccount.findMany({
+//       where: { userId: req.user.id },
+//       orderBy: { createdAt: "desc" },
+//     });
 
-    return res.json(accounts);
-  } catch (err) {
-    console.error("🔥 GET /accounts error:", err);
-    res.status(500).json({
-      error: "Failed to fetch accounts",
-      details: err.message,
-    });
-  }
-});
+//     return res.json(accounts);
+//   } catch (err) {
+//     console.error("🔥 GET /accounts error:", err);
+//     res.status(500).json({
+//       error: "Failed to fetch accounts",
+//       details: err.message,
+//     });
+//   }
+// });
 
 // ======================================================
 // 🔄 IMMEDIATELY SYNC AND RETURN EMAILS
 // ======================================================
+
+/* ============================================================
+   📋 GET /accounts → GET ALL ACCOUNTS (WITH SENDER NAME)
+   ============================================================ */
+router.get("/", protect, async (req, res) => {
+  try {
+    const accounts = await prisma.emailAccount.findMany({
+      where: { userId: req.user.id },
+      select: {
+        id: true,
+        email: true,
+        provider: true,
+        senderName: true,
+        verified: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.json({
+      success: true,
+      data: accounts,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching accounts:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch accounts",
+    });
+  }
+});
+
+
 router.get("/sync/:email", async (req, res) => {
   try {
     const email = req.params.email;
@@ -856,4 +675,58 @@ router.get("/:accountId/unread", protect, async (req, res) => {
   }
 });
 
+/* ============================================================
+   🔧 PATCH /accounts/:id/sender-name → UPDATE SENDER NAME
+   ============================================================ */
+router.patch("/:id/sender-name", protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { senderName } = req.body;
+
+    if (!senderName || !senderName.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Sender name is required",
+      });
+    }
+
+    // Verify account ownership
+    const account = await prisma.emailAccount.findFirst({
+      where: {
+        id: parseInt(id),
+        userId: req.user.id,
+      },
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: "Email account not found",
+      });
+    }
+
+    // Update sender name
+    const updated = await prisma.emailAccount.update({
+      where: { id: parseInt(id) },
+      data: { senderName: senderName.trim() },
+    });
+
+    return res.json({
+      success: true,
+      message: "Sender name updated successfully",
+      data: {
+        id: updated.id,
+        email: updated.email,
+        senderName: updated.senderName,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error updating sender name:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update sender name",
+      error: error.message,
+    });
+  }
+});
 export default router;

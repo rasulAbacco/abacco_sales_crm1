@@ -129,17 +129,53 @@ export default function CustomStatusManager({
     }
   };
 
+  // const handleDeleteStatus = async (id) => {
+  //   if (!confirm("Are you sure you want to delete this status?")) return;
+
+  //   setLoading(true);
+  //   try {
+  //     const res = await fetch(
+  //       `${import.meta.env.VITE_API_BASE_URL}/api/customStatus${id}`,
+  //       {
+  //         method: "DELETE",
+  //       }
+  //     );
+
+  //     const data = await res.json();
+
+  //     if (data.success) {
+  //       onStatusDeleted(id);
+  //       alert("✅ Status deleted successfully!");
+  //     } else {
+  //       alert("❌ " + data.message);
+  //     }
+  //   } catch (error) {
+  //     console.error("Error deleting status:", error);
+  //     alert("❌ Failed to delete status");
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
   const handleDeleteStatus = async (id) => {
     if (!confirm("Are you sure you want to delete this status?")) return;
 
     setLoading(true);
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/api/customStatus${id}`,
+        `${import.meta.env.VITE_API_BASE_URL}/api/customStatus/${id}`,
         {
           method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
         }
       );
+
+      // 🔐 Safety check – avoid HTML → JSON crash
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text);
+      }
 
       const data = await res.json();
 

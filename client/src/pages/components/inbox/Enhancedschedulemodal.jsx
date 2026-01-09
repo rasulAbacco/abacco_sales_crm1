@@ -1,455 +1,577 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
+import { replacePlaceholders } from "../../../utils/templateReplacer";
+import { api } from "../../api";
 import {
   X,
-  Calendar,
   Clock,
-  Mail,
-  Send,
-  Loader2,
-  FileText,
   ChevronDown,
-  Bold,
-  Italic,
-  Underline,
-  List,
-  Link as LinkIcon,
+  Trash2,
+  Tag,
+  CheckCircle2,
+  Star,
 } from "lucide-react";
-import { api } from "../../../pages/api.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// Default Statuses
+const DEFAULT_STATUSES = [
+  "Invoice Pending",
+  "Invoice Cancel",
+  "Deal",
+  "Active Client",
+  "No Response",
+  "1 Reply",
+  "1 Follow Up",
+  "2 Follow Up",
+  "3 Follow Up",
+  "Call",
+  "Sample Pending",
+];
 
 export default function EnhancedScheduleModal({
   isOpen,
   onClose,
-  selectedConversations,
-  selectedAccount,
-  onScheduleSuccess,
+  selectedAccount, // The account currently viewing in inbox
+  selectedConversations = [], // The list of conversations passed from parent
 }) {
-  const [sendAt, setSendAt] = useState("");
-  const [sendTime, setSendTime] = useState("");
-  const [customStatuses, setCustomStatuses] = useState([]);
-  const [templates, setTemplates] = useState([]);
+  // --- Global State ---
+  if (!isOpen) return null;
+
+  const [accounts, setAccounts] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState(
+    selectedAccount?.id || null
+  );
+
+  // --- Status & Templates ---
+  const [allLeadStatuses, setAllLeadStatuses] = useState(DEFAULT_STATUSES);
   const [selectedLeadStatus, setSelectedLeadStatus] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState("");
-  const [subject, setSubject] = useState("");
-  const [bodyHtml, setBodyHtml] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
 
-  const editorRef = useRef(null);
+  // --- Options ---
+  const [includeSignature, setIncludeSignature] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Hardcoded default lead statuses
-  const defaultStatuses = [
-    "Invoice Pending",
-    "Invoice Cancel",
-    "Deal",
-    "Active Client",
-    "No Response",
-    "1 Reply",
-    "1 Follow Up",
-    "2 Follow Up",
-    "3 Follow Up",
-    "Call",
-    "Sample Pending",
-  ];
+  // --- Recipients ---
+  const [recipients, setRecipients] = useState([]);
 
-  // Combined status options
-  const allStatuses = [
-    ...defaultStatuses,
-    ...customStatuses.map((s) => s.name),
-  ];
-
+  /* ============================================================
+     1️⃣ INITIAL DATA FETCH
+  ============================================================ */
   useEffect(() => {
-    if (isOpen) {
-      fetchCustomStatuses();
-      // 🔥 REMOVED: Default date setting
+    fetchAccounts();
+    fetchTemplates();
+    fetchCustomStatuses();
+  }, []);
+
+  /* ============================================================
+     2️⃣ INITIALIZE RECIPIENTS (ROBUST EMAIL FIX)
+  ============================================================ */
+  useEffect(() => {
+    if (!selectedConversations || selectedConversations.length === 0) {
+      setRecipients([]);
+      return;
     }
-  }, [isOpen]);
 
-  useEffect(() => {
-    if (selectedLeadStatus) {
-      fetchTemplatesByStatus(selectedLeadStatus);
-    } else {
-      setTemplates([]);
-      setSelectedTemplate("");
-    }
-  }, [selectedLeadStatus]);
+    const resolved = selectedConversations.map((conv) => {
+      let email = "";
 
-  useEffect(() => {
-    if (selectedTemplate) {
-      const template = templates.find(
-        (t) => t.id === parseInt(selectedTemplate)
-      );
-      if (template) {
-        setSubject(template.subject || "");
-        setBodyHtml(template.bodyHtml);
-        if (editorRef.current) {
-          editorRef.current.innerHTML = template.bodyHtml;
-        }
+      // --- STRATEGY 1: Explicit Email Field ---
+      if (conv.email && conv.email.includes("@")) {
+        email = conv.email.trim();
       }
+
+      // --- STRATEGY 2: Display Email (Clean up "To:" or "Name <email>") ---
+      else if (conv.displayEmail) {
+        let raw = conv.displayEmail.replace("To:", "").trim();
+        const match = raw.match(/<(.+?)>/);
+        email = match ? match[1] : raw;
+      }
+
+      // --- STRATEGY 3: Fallback to primaryRecipient / toEmail / initiator ---
+      else if (conv.toEmail && conv.toEmail.includes("@")) {
+        email = conv.toEmail.split(",")[0].trim();
+      } else if (conv.initiatorEmail && conv.initiatorEmail.includes("@")) {
+        email = conv.initiatorEmail.trim();
+      } else if (conv.lastSenderEmail && conv.lastSenderEmail.includes("@")) {
+        email = conv.lastSenderEmail.trim();
+      }
+
+      // --- Name Resolution ---
+      let name =
+        conv.displayName || conv.senderName || conv.fromName || "Client";
+      if ((!name || name === "Unknown") && email) {
+        name = email.split("@")[0];
+      }
+
+      return {
+        conversationId: conv.conversationId,
+        name: name,
+        email: email,
+        subject: conv.subject || "",
+        body: "",
+        currentStatus: conv.leadStatus || "New",
+      };
+    });
+
+    // Filter valid emails
+    const validRecipients = resolved.filter(
+      (r) => r.email && r.email.includes("@")
+    );
+
+    setRecipients(validRecipients);
+
+    // Set initial status
+    if (validRecipients.length > 0) {
+      setSelectedLeadStatus(validRecipients[0].currentStatus);
     }
-  }, [selectedTemplate, templates]);
+  }, [selectedConversations]);
+
+  /* ============================================================
+     3️⃣ TEMPLATE REPLACEMENT LOGIC (INTEGRATED)
+  ============================================================ */
+
+  // This effect runs when:
+  // 1. A Template is selected
+  // 2. The Account changes (updates {sender_name})
+  // 3. Signature toggle changes
+  useEffect(() => {
+    if (!selectedTemplate) return; // Don't overwrite manual text if no template
+
+    applyContentToAll();
+  }, [selectedTemplate, selectedAccountId, includeSignature]);
+
+  const applyContentToAll = () => {
+    const account = accounts.find((a) => a.id === selectedAccountId);
+    const senderName =
+      account?.senderName || account?.email?.split("@")[0] || "Me";
+
+    const signatureHtml =
+      includeSignature && selectedAccountId
+        ? `<br><br>Best Regards,<br><strong>${senderName}</strong>`
+        : "";
+
+    const updated = recipients.map((r) => {
+      // 1. Get Template Body
+      let newBody = selectedTemplate.bodyHtml || r.body;
+
+      // 2. Replace Placeholders
+      newBody = replacePlaceholders(newBody, {
+        senderName,
+        clientName: r.name,
+        email: r.email,
+        company: "",
+      });
+
+      // 3. Append Signature
+      newBody = newBody + signatureHtml;
+
+      return {
+        ...r,
+        subject: selectedTemplate?.subject || r.subject,
+        body: newBody,
+      };
+    });
+
+    setRecipients(updated);
+  };
+
+  /* ============================================================
+     API HELPERS
+  ============================================================ */
+  const fetchAccounts = async () => {
+    try {
+      const res = await api.get(`${API_BASE_URL}/api/accounts`);
+      if (res.data.success) setAccounts(res.data.data || []);
+    } catch (e) {
+      console.error("Error fetching accounts:", e);
+    }
+  };
+
+  const fetchTemplates = async () => {
+    try {
+      const res = await api.get(`${API_BASE_URL}/api/email-templates`);
+      if (res.data.success) setTemplates(res.data.data || []);
+    } catch (e) {
+      console.error("Error fetching templates:", e);
+    }
+  };
 
   const fetchCustomStatuses = async () => {
     try {
-      const response = await api.get(`${API_BASE_URL}/api/customStatus`);
-      if (response.data.success) {
-        setCustomStatuses(response.data.data || []);
+      const res = await api.get(`${API_BASE_URL}/api/customStatus`);
+      if (res.data.success) {
+        const customNames = res.data.data.map((s) => s.name);
+        setAllLeadStatuses((prev) => [...new Set([...prev, ...customNames])]);
       }
-    } catch (error) {
-      console.error("Error fetching custom statuses:", error);
+    } catch {
+      console.log("Using default statuses");
     }
   };
 
-  const fetchTemplatesByStatus = async (status) => {
+  /* ============================================================
+     HANDLERS
+  ============================================================ */
+
+  const handleRecipientChange = (index, field, value) => {
+    setRecipients((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleRemoveRecipient = (index) => {
+    setRecipients((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async () => {
+    if (!scheduleDate || !scheduleTime) {
+      alert("⚠️ Please select both date and time.");
+      return;
+    }
+    if (recipients.length === 0) {
+      alert("⚠️ No valid recipients.");
+      return;
+    }
+
+    const sendAt = new Date(`${scheduleDate}T${scheduleTime}`);
+    if (sendAt < new Date()) {
+      alert("⚠️ Scheduled time cannot be in the past.");
+      return;
+    }
+
     try {
-      const response = await api.get(
-        `${API_BASE_URL}/api/email-templates/by-status/${encodeURIComponent(
-          status
-        )}`
-      );
-      if (response.data.success) {
-        setTemplates(response.data.data || []);
-      }
-    } catch (error) {
-      console.error("Error fetching templates:", error);
-      setTemplates([]);
-    }
-  };
+      setIsSubmitting(true);
+      const payload = {
+        accountId: selectedAccountId || null,
+        sendAt: sendAt.toISOString(),
+        messages: recipients.map((r) => ({
+          conversationId: r.conversationId,
+          toEmail: r.email,
+          subject: r.subject || "(No Subject)",
+          bodyHtml: r.body || "",
+          leadStatus: selectedLeadStatus || "New",
+        })),
+      };
 
-  const formatText = (command) => {
-    document.execCommand(command, false, null);
-    editorRef.current?.focus();
-  };
-
-  const insertLink = () => {
-    const url = prompt("Enter URL:");
-    if (url) {
-      document.execCommand("createLink", false, url);
-    }
-    editorRef.current?.focus();
-  };
-
-  const handleSchedule = async () => {
-    if (!sendAt || !sendTime) {
-      alert("Please select date and time");
-      return;
-    }
-
-    if (!selectedLeadStatus) {
-      alert("Please select a lead status");
-      return;
-    }
-
-    const bodyContent = editorRef.current?.innerHTML || bodyHtml;
-    if (!bodyContent.trim()) {
-      alert("Please enter message content");
-      return;
-    }
-
-    const dateTimeString = `${sendAt}T${sendTime}:00`;
-
-    setLoading(true);
-    try {
-      const messages = selectedConversations.map((conv) => ({
-        conversationId: conv.conversationId || null,
-
-        toEmail: conv.clientEmail || conv.email,
-        subject: subject || conv.subject || "(No Subject)",
-        bodyHtml: bodyContent,
-      }));
-
-      const response = await api.post(
+      const res = await api.post(
         `${API_BASE_URL}/api/scheduled-messages/bulk`,
-        {
-          accountId: selectedAccount.id,
-          sendAt: dateTimeString,
-          messages,
-        }
+        payload
       );
 
-      if (response.data.success) {
-        // Increment template use count if template was used
-        if (selectedTemplate) {
-          await api.patch(
-            `${API_BASE_URL}/api/email-templates/${selectedTemplate}/use`
-          );
-        }
-
-        alert(response.data.message || "Emails scheduled successfully!");
-        onScheduleSuccess?.();
-        handleClose();
+      if (res.data.success) {
+        alert(`✅ ${res.data.count} follow-up(s) scheduled!`);
+        onClose();
       }
-    } catch (error) {
-      console.error("❌ Scheduling error:", error);
-      alert("Failed to schedule emails");
+    } catch (err) {
+      console.error("❌ Bulk schedule error:", err);
+      alert(
+        "❌ Failed to schedule: " + (err.response?.data?.message || err.message)
+      );
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
-  const handleClose = () => {
-    setSendAt("");
-    setSendTime("10:00");
-    setSelectedLeadStatus("");
-    setSelectedTemplate("");
-    setSubject("");
-    setBodyHtml("");
-    setTemplates([]);
-    if (editorRef.current) {
-      editorRef.current.innerHTML = "";
-    }
-    onClose();
+  /* ============================================================
+     UI HELPERS
+  ============================================================ */
+  const getFilteredTemplates = () => {
+    if (!selectedLeadStatus) return { recommended: [], others: templates };
+
+    const recommended = templates.filter(
+      (t) =>
+        t.leadStatus &&
+        t.leadStatus.toLowerCase() === selectedLeadStatus.toLowerCase()
+    );
+    const others = templates.filter(
+      (t) =>
+        !t.leadStatus ||
+        t.leadStatus.toLowerCase() !== selectedLeadStatus.toLowerCase()
+    );
+    return { recommended, others };
   };
 
-  if (!isOpen) return null;
+  const { recommended, others } = getFilteredTemplates();
 
+  const activeAccount = accounts.find((a) => a.id === selectedAccountId);
+
+  /* ============================================================
+     RENDER
+  ============================================================ */
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="border-b border-gray-200 px-6 py-4 bg-gray-50 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-sm">
-              <Calendar className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                Schedule Follow-up Emails
-              </h3>
-              <p className="text-sm text-gray-500">
-                {selectedConversations.length} conversation(s) selected
-              </p>
-            </div>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200">
+        {/* === Header === */}
+        <div className="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+              <Clock className="w-5 h-5 text-blue-600" /> Bulk Schedule
+            </h2>
+            <p className="text-sm text-gray-500">
+              Preparing for{" "}
+              <span className="font-bold text-gray-900">
+                {recipients.length} recipients
+              </span>
+            </p>
           </div>
           <button
-            onClick={handleClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            onClick={() => onClose && onClose()}
+            className="p-2 hover:bg-gray-200 rounded-full text-gray-500"
           >
-            <X className="w-5 h-5 text-gray-600" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="overflow-y-auto max-h-[calc(90vh-200px)] p-6">
-          <div className="space-y-6">
-            {/* Date and Time */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Send Date *
-                </label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="date"
-                    value={sendAt}
-                    onChange={(e) => setSendAt(e.target.value)}
-                    min={new Date().toISOString().split("T")[0]}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+        <div className="flex-1 flex overflow-hidden">
+          {/* === Sidebar (Settings) === */}
+          <div className="w-80 bg-white border-r border-gray-200 p-5 flex flex-col gap-6 overflow-y-auto">
+            {/* 1. Account */}
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                From Account
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedAccountId || ""}
+                  onChange={(e) =>
+                    setSelectedAccountId(Number(e.target.value) || null)
+                  }
+                  className="w-full pl-3 pr-8 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+                >
+                  <option value="">Decide later (when sending)</option>
+                  <option disabled value="">
+                    ─────────────────────────
+                  </option>
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.email} {acc.senderName ? `(${acc.senderName})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Send Time *
-                </label>
-                <div className="relative">
-                  <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="time"
-                    value={sendTime}
-                    onChange={(e) => setSendTime(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+              {/* 💡 Placeholder Tip */}
+              {selectedAccountId && activeAccount?.senderName && (
+                <div className="mt-2 text-[10px] text-green-700 bg-green-50 p-2 rounded border border-green-100">
+                  {`{sender_name}`} will be replaced with{" "}
+                  <strong>{activeAccount.senderName}</strong>
                 </div>
-              </div>
+              )}
             </div>
 
-            {/* Lead Status Selection */}
+            {/* 2. Lead Status */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Lead Status *
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-2">
+                <Tag className="w-3 h-3" /> Lead Status
               </label>
               <div className="relative">
                 <select
                   value={selectedLeadStatus}
-                  onChange={(e) => setSelectedLeadStatus(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+                  onChange={(e) => {
+                    setSelectedLeadStatus(e.target.value);
+                    setSelectedTemplate(null);
+                  }}
+                  className="w-full pl-3 pr-8 py-2.5 border border-indigo-200 rounded-lg text-sm appearance-none bg-indigo-50/30 text-indigo-900 font-medium focus:ring-2 focus:ring-indigo-500"
                 >
-                  <option value="">Select Lead Status</option>
-                  {allStatuses.map((status) => (
+                  <option value="">-- Select Status --</option>
+                  {allLeadStatuses.map((status) => (
                     <option key={status} value={status}>
                       {status}
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-indigo-400 pointer-events-none" />
               </div>
             </div>
 
-            {/* Template Selection (appears after lead status is selected) */}
-            {selectedLeadStatus && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Template (Optional)
-                </label>
-                <div className="relative">
-                  <FileText className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <select
-                    value={selectedTemplate}
-                    onChange={(e) => setSelectedTemplate(e.target.value)}
-                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
-                  >
-                    <option value="">
-                      {templates.length > 0
-                        ? "Select a template or write custom message"
-                        : "No templates found for this status"}
-                    </option>
-                    {templates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.name}
-                        {template.useCount > 0 &&
-                          ` (used ${template.useCount}x)`}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-                </div>
-                {templates.length === 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    You can create templates in the Message Templates tab
-                  </p>
+            {/* 3. Templates */}
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                Apply Template
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedTemplate?.id || ""}
+                  onChange={(e) => {
+                    const t = templates.find(
+                      (temp) => temp.id === Number(e.target.value)
+                    );
+                    setSelectedTemplate(t);
+                  }}
+                  className="w-full pl-3 pr-8 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+                >
+                  <option value="">Select a template...</option>
+                  {recommended.length > 0 && (
+                    <optgroup
+                      label={`⚡ Recommended for "${selectedLeadStatus}"`}
+                    >
+                      {recommended.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {others.length > 0 && (
+                    <optgroup label="Other Templates">
+                      {others.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
+              {recommended.length > 0 && (
+                <p className="text-[10px] text-green-600 mt-1.5 flex items-center gap-1">
+                  <Star className="w-3 h-3" /> {recommended.length} recommended
+                  templates
+                </p>
+              )}
+            </div>
+
+            {/* 4. Signature Toggle */}
+            <div
+              className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                !selectedAccountId
+                  ? "bg-gray-50 border-gray-200 opacity-60"
+                  : "bg-blue-50 border-blue-200 hover:bg-blue-100"
+              }`}
+              onClick={() =>
+                selectedAccountId && setIncludeSignature(!includeSignature)
+              }
+            >
+              <div
+                className={`w-4 h-4 rounded border flex items-center justify-center ${
+                  includeSignature
+                    ? "bg-blue-600 border-blue-600"
+                    : "bg-white border-gray-300"
+                }`}
+              >
+                {includeSignature && (
+                  <CheckCircle2 className="w-3 h-3 text-white" />
                 )}
               </div>
-            )}
-
-            {/* Subject Line */}
-            {selectedLeadStatus && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Subject Line
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="Enter email subject"
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-700">
+                  Add "Best Regards"
+                </p>
+                <p className="text-[10px] text-gray-500">
+                  {selectedAccountId
+                    ? `As: ${activeAccount?.senderName || "Me"}`
+                    : "(Select account first)"}
+                </p>
               </div>
-            )}
+            </div>
 
-            {/* Message Body Editor */}
-            {selectedLeadStatus && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Message Body *
-                </label>
-                <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-300">
+            {/* 5. Date & Time */}
+            <div className="bg-gray-100 p-4 rounded-xl border border-gray-200 mt-auto">
+              <label className="block text-xs font-bold text-gray-600 uppercase mb-3">
+                Schedule For
+              </label>
+              <div className="space-y-3">
+                <input
+                  type="date"
+                  value={scheduleDate}
+                  onChange={(e) => setScheduleDate(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  min={new Date().toISOString().split("T")[0]}
+                />
+                <input
+                  type="time"
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* === Recipient List === */}
+          <div className="flex-1 bg-gray-50 p-6 overflow-y-auto space-y-4">
+            {recipients.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                <p>No recipients found. Check selection.</p>
+              </div>
+            ) : (
+              recipients.map((r, i) => (
+                <div
+                  key={i}
+                  className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-xl">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs border border-indigo-200">
+                        {r.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-800 text-sm">
+                          {r.name}
+                        </div>
+                        <div className="text-xs text-gray-500">{r.email}</div>
+                      </div>
+                      <div className="ml-3 px-2.5 py-0.5 rounded-full text-[10px] bg-white border border-gray-200 text-gray-600 font-medium flex items-center gap-1 shadow-sm">
+                        <Tag className="w-3 h-3 text-gray-400" />{" "}
+                        {selectedLeadStatus || r.currentStatus || "New"}
+                      </div>
+                    </div>
                     <button
-                      onClick={() => formatText("bold")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Bold"
+                      onClick={() => handleRemoveRecipient(i)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
                     >
-                      <Bold className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("italic")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Italic"
-                    >
-                      <Italic className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("underline")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Underline"
-                    >
-                      <Underline className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
-                    <button
-                      onClick={() => formatText("insertUnorderedList")}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Bullet List"
-                    >
-                      <List className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={insertLink}
-                      className="p-2 hover:bg-gray-200 rounded"
-                      title="Insert Link"
-                    >
-                      <LinkIcon className="w-4 h-4 text-gray-600" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-
-                  <div
-                    ref={editorRef}
-                    contentEditable
-                    className="min-h-[300px] max-h-[400px] overflow-y-auto p-4 focus:outline-none"
-                    style={{
-                      fontFamily: "Calibri, sans-serif",
-                      fontSize: "11pt",
-                      lineHeight: "1.35",
-                    }}
-                    placeholder="Type your message here..."
-                  />
+                  <div className="p-4 space-y-3">
+                    <input
+                      className="w-full border-b border-gray-200 px-0 py-1.5 text-sm font-semibold text-gray-800 focus:border-blue-500 focus:outline-none placeholder-gray-400 bg-transparent"
+                      placeholder="Subject line..."
+                      value={r.subject}
+                      onChange={(e) =>
+                        handleRecipientChange(i, "subject", e.target.value)
+                      }
+                    />
+                    <textarea
+                      className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm h-28 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 focus:outline-none transition-all resize-y placeholder-gray-400"
+                      placeholder="Type message or select a template..."
+                      value={r.body
+                        .replace(/<br>/g, "\n")
+                        .replace(/<[^>]+>/g, "")}
+                      onChange={(e) =>
+                        handleRecipientChange(i, "body", e.target.value)
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {/* Preview Section */}
-            {selectedLeadStatus && selectedConversations.length > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-blue-900 mb-2">
-                  📧 Will send to:
-                </h4>
-                <div className="space-y-1">
-                  {selectedConversations.slice(0, 5).map((conv, idx) => (
-                    <p key={idx} className="text-sm text-blue-700">
-                      • {conv.clientEmail || conv.email}
-                    </p>
-                  ))}
-                  {selectedConversations.length > 5 && (
-                    <p className="text-sm text-blue-600 font-medium">
-                      ... and {selectedConversations.length - 5} more
-                    </p>
-                  )}
-                </div>
-              </div>
+              ))
             )}
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex items-center justify-end gap-3">
+        {/* === Footer === */}
+        <div className="px-6 py-4 border-t bg-white flex justify-end gap-3">
           <button
-            onClick={handleClose}
-            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            onClick={() => onClose && onClose()}
+            className="px-5 py-2.5 border rounded-lg text-sm font-medium hover:bg-gray-50"
           >
             Cancel
           </button>
           <button
-            onClick={handleSchedule}
-            disabled={loading || !selectedLeadStatus}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            onClick={handleSubmit}
+            disabled={isSubmitting || recipients.length === 0}
+            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-sm text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Scheduling...
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4" />
-                Schedule Emails
-              </>
-            )}
+            {isSubmitting
+              ? "Scheduling..."
+              : `Schedule ${recipients.length} Message${
+                  recipients.length !== 1 ? "s" : ""
+                }`}
           </button>
         </div>
       </div>

@@ -14,6 +14,8 @@ import {
   List,
   Link as LinkIcon,
   Loader2,
+  Info,
+  Lightbulb,
 } from "lucide-react";
 import { api } from "../pages/api.js";
 
@@ -27,6 +29,7 @@ export default function MessageTemplates() {
   const [filterStatus, setFilterStatus] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState(null);
+  // const [showPlaceholderGuide, setShowPlaceholderGuide] = useState(false); // Optional
 
   const [formData, setFormData] = useState({
     name: "",
@@ -37,7 +40,6 @@ export default function MessageTemplates() {
 
   const editorRef = useRef(null);
 
-  // Default lead statuses
   const defaultStatuses = [
     "Invoice Pending",
     "Invoice Cancel",
@@ -61,6 +63,14 @@ export default function MessageTemplates() {
     fetchTemplates();
     fetchCustomStatuses();
   }, []);
+
+  // 🔥 FIX: This useEffect ensures the editor is populated AFTER the modal renders
+  useEffect(() => {
+    if (showCreateModal && editorRef.current) {
+      // If we have content (Edit Mode), inject it. If not (Create Mode), clear it.
+      editorRef.current.innerHTML = formData.bodyHtml || "";
+    }
+  }, [showCreateModal]); // Only runs when the modal opens/closes
 
   const fetchTemplates = async () => {
     try {
@@ -92,12 +102,10 @@ export default function MessageTemplates() {
     setFormData({
       name: "",
       subject: "",
-      bodyHtml: "",
+      bodyHtml: "", // Empty for new template
       leadStatus: "",
     });
-    if (editorRef.current) {
-      editorRef.current.innerHTML = "";
-    }
+    // Removed direct editor manipulation here. The useEffect handles clearing.
     setShowCreateModal(true);
   };
 
@@ -106,12 +114,10 @@ export default function MessageTemplates() {
     setFormData({
       name: template.name,
       subject: template.subject || "",
-      bodyHtml: template.bodyHtml,
+      bodyHtml: template.bodyHtml, // Set state first
       leadStatus: template.leadStatus || "",
     });
-    if (editorRef.current) {
-      editorRef.current.innerHTML = template.bodyHtml;
-    }
+    // Removed direct editor manipulation here. The useEffect handles populating.
     setShowCreateModal(true);
   };
 
@@ -155,6 +161,7 @@ export default function MessageTemplates() {
   };
 
   const handleSave = async () => {
+    // We grab the LATEST content directly from the editor div
     const bodyContent = editorRef.current?.innerHTML || "";
 
     if (!formData.name.trim()) {
@@ -213,6 +220,13 @@ export default function MessageTemplates() {
     editorRef.current?.focus();
   };
 
+  const insertPlaceholder = (placeholder) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      document.execCommand("insertHTML", false, placeholder);
+    }
+  };
+
   const filteredTemplates = templates.filter((template) => {
     const matchesSearch =
       template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -227,7 +241,6 @@ export default function MessageTemplates() {
     return matchesSearch && matchesStatus;
   });
 
-  // Group templates by lead status
   const groupedTemplates = filteredTemplates.reduce((acc, template) => {
     const status = template.leadStatus || "No Status";
     if (!acc[status]) {
@@ -247,8 +260,8 @@ export default function MessageTemplates() {
               Message Templates
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Create and manage reusable email templates for different lead
-              statuses
+              Create and manage reusable email templates with dynamic
+              placeholders
             </p>
           </div>
           <button
@@ -260,7 +273,6 @@ export default function MessageTemplates() {
           </button>
         </div>
 
-        {/* Search and Filter */}
         <div className="flex gap-3">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -325,7 +337,6 @@ export default function MessageTemplates() {
                       key={template.id}
                       className="bg-white rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
                     >
-                      {/* Template Header */}
                       <div className="px-4 py-3 border-b border-gray-100 flex items-start justify-between">
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-gray-900 truncate">
@@ -362,7 +373,6 @@ export default function MessageTemplates() {
                         </div>
                       </div>
 
-                      {/* Template Body Preview */}
                       <div className="px-4 py-3">
                         <div
                           className="text-sm text-gray-600 line-clamp-3 prose prose-sm max-w-none"
@@ -372,7 +382,6 @@ export default function MessageTemplates() {
                         />
                       </div>
 
-                      {/* Template Footer */}
                       <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
                         <span>
                           Used {template.useCount || 0} time
@@ -395,7 +404,6 @@ export default function MessageTemplates() {
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white w-full max-w-4xl rounded-xl shadow-xl max-h-[90vh] overflow-hidden flex flex-col">
-            {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
               <h2 className="text-lg font-semibold text-white">
                 {editingTemplate ? "Edit Template" : "Create New Template"}
@@ -408,9 +416,7 @@ export default function MessageTemplates() {
               </button>
             </div>
 
-            {/* Modal Body */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {/* Template Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Template Name *
@@ -426,7 +432,6 @@ export default function MessageTemplates() {
                 />
               </div>
 
-              {/* Lead Status */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Lead Status *
@@ -450,7 +455,6 @@ export default function MessageTemplates() {
                 </div>
               </div>
 
-              {/* Subject Line */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Subject Line
@@ -466,13 +470,11 @@ export default function MessageTemplates() {
                 />
               </div>
 
-              {/* Message Body */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Message Body *
                 </label>
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  {/* Toolbar */}
                   <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-300">
                     <button
                       onClick={() => formatText("bold")}
@@ -517,7 +519,9 @@ export default function MessageTemplates() {
                     </button>
                   </div>
 
-                  {/* Editor */}
+                  {/* This div is where the magic happens. 
+                    The useEffect ensures content is loaded here correctly.
+                  */}
                   <div
                     ref={editorRef}
                     contentEditable
@@ -529,14 +533,9 @@ export default function MessageTemplates() {
                     }}
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  💡 Tip: You can use placeholders like {"{client_name}"},{" "}
-                  {"{company}"}, {"{email}"} that will be replaced when sending
-                </p>
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div className="px-6 py-4 border-t bg-gray-50 flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowCreateModal(false)}

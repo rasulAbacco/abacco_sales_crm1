@@ -1,6 +1,24 @@
 // src/components/FollowUpEditModal.jsx
-import React from "react";
+import React, { useState, useEffect } from "react";
 import FloatingEditWindow from "./FloatingEditWindow";
+import { api } from "../api"; // ✅ Import API to fetch statuses
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// ✅ Default hardcoded statuses
+const DEFAULT_STATUSES = [
+  "Invoice Pending",
+  "Invoice Cancel",
+  "Deal",
+  "Active Client",
+  "No Response",
+  "1 Reply",
+  "1 Follow Up",
+  "2 Follow Up",
+  "3 Follow Up",
+  "Call",
+  "Sample Pending",
+];
 
 export default function FollowUpEditModal({
   editForm,
@@ -8,13 +26,35 @@ export default function FollowUpEditModal({
   onSave,
   onClose,
 }) {
+  // ✅ State to hold merged statuses (Defaults + Custom)
+  const [statusOptions, setStatusOptions] = useState(DEFAULT_STATUSES);
+
+  // ✅ Fetch Custom Statuses on Mount
+  useEffect(() => {
+    const fetchCustomStatuses = async () => {
+      try {
+        const res = await api.get(`${API_BASE_URL}/api/customStatus`);
+        if (res.data.success && Array.isArray(res.data.data)) {
+          const customNames = res.data.data.map((s) => s.name);
+
+          // Merge and remove duplicates
+          setStatusOptions((prev) => [...new Set([...prev, ...customNames])]);
+        }
+      } catch (err) {
+        console.error("Failed to load custom statuses", err);
+      }
+    };
+
+    fetchCustomStatuses();
+  }, []);
+
   return (
     <FloatingEditWindow onClose={onClose}>
       <form
         className="space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
-          onSave(); // ✅ call prop passed from ChatView
+          onSave(); // ✅ call prop passed from parent
         }}
       >
         {/* Contact Info */}
@@ -118,26 +158,17 @@ export default function FollowUpEditModal({
               <label className="block text-sm font-medium text-slate-700 mb-2">
                 Lead Status
               </label>
+              {/* ✅ UPDATED: Map over dynamic statusOptions */}
               <select
                 value={editForm.leadStatus || ""}
                 onChange={(e) => onChange("leadStatus", e.target.value)}
                 className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
               >
                 <option value="">Select Status</option>
-                {[
-                  "Invoice Pending",
-                  "Invoice Cancel",
-                  "Deal",
-                  "Active Client",
-                  "No Response",
-                  "1 Reply",
-                  "1 Follow Up",
-                  "2 Follow Up",
-                  "3 Follow Up",
-                  "Call",
-                  "Sample Pending",
-                ].map((opt) => (
-                  <option key={opt}>{opt}</option>
+                {statusOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
                 ))}
               </select>
             </div>
