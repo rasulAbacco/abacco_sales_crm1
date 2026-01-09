@@ -193,36 +193,29 @@ router.get("/conversation-detail", async (req, res) => {
     };
 
     if (folder === "trash") {
-      // 🗑️ Trash (only non-permanently-deleted)
       detailWhere.isTrash = true;
       detailWhere.hideTrash = false;
     } else if (folder === "spam") {
-      // 🚫 Spam (exclude trash)
       detailWhere.folder = "spam";
       detailWhere.isTrash = false;
       detailWhere.hideTrash = false;
     } else if (folder === "sent") {
-      // 📤 Sent (exclude trash)
       detailWhere.direction = "sent";
       detailWhere.isTrash = false;
       detailWhere.hideInbox = false;
     } else {
-      // 📥 Inbox (show SENT + RECEIVED)
-      detailWhere.folder = "inbox";
+      /* 📥 FIX: THIS IS THE INBOX CASE */
+      // 1. We remove "detailWhere.folder = 'inbox'" because 
+      // some messages in this thread are folder='sent' (your replies).
+      
+      // 2. Instead, we filter by what we WANT to exclude (Spam and Trash).
       detailWhere.isTrash = false;
       detailWhere.isSpam = false;
       detailWhere.hideInbox = false;
-      // ❌ DO NOT FILTER BY direction
+      
+      // 3. (Optional but safer) Explicitly allow both folders
+      detailWhere.folder = { in: ['inbox', 'sent'] };
     }
-
-    //  else {
-    //   // 📥 Inbox
-    //   detailWhere.folder = "inbox";
-    //   detailWhere.direction = "received";
-    //   detailWhere.isTrash = false;
-    //   detailWhere.isSpam = false;
-    //   detailWhere.hideInbox = false;
-    // }
 
     const messages = await prisma.emailMessage.findMany({
       where: detailWhere,
@@ -537,29 +530,33 @@ router.get("/conversations/:accountId", async (req, res) => {
     conditions.push(`em."hideTrash" = false`);
     //AND em.direction = 'received'
     // folder logic (STRICT & MUTUALLY EXCLUSIVE)
-    if (folder === "inbox") {
-      conditions.push(`
-        em.direction IN ('sent','received')
-        AND em."isTrash" = false
-        AND em."isSpam" = false
-        AND em."hideInbox" = false
-      `);
-    } else if (folder === "sent") {
-      conditions.push(`
+if (folder === "inbox") {
+  conditions.push(`
+    (
+      (em.folder = 'inbox' AND em.direction = 'received')  
+      OR 
+      (em.folder = 'sent' AND em.direction = 'sent')
+    )
+    AND em."isTrash" = false
+    AND em."isSpam" = false
+    AND em."hideInbox" = false
+  `);
+} else if (folder === "sent") {
+  conditions.push(`
         em.folder = 'sent'
         AND em.direction = 'sent'
         AND em."isTrash" = false
       `);
-    } else if (folder === "spam") {
-      conditions.push(`
+} else if (folder === "spam") {
+  conditions.push(`
         em.folder = 'spam'
         AND em."isTrash" = false
       `);
-    } else if (folder === "trash") {
-      conditions.push(`
+} else if (folder === "trash") {
+  conditions.push(`
         em."isTrash" = true
       `);
-    }
+}
 
     // sender / recipient / search
     if (sender || recipient || searchEmail) {
@@ -704,7 +701,17 @@ router.get("/conversations/:accountId", async (req, res) => {
           displayName,
           displayEmail,
           lastDate: conv.lastMessageAt,
-          lastBody: m.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+          // lastBody: m.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+          // 🔥 UPDATED lastBody logic to strip style/script content properly
+          lastBody: m.body
+            ? m.body
+                .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, "") // 1. Remove <style> and <script> contents
+                .replace(/<[^>]+>/g, " ") // 2. Remove all remaining HTML tags
+                .replace(/&nbsp;/g, " ") // 3. Replace HTML entities
+                .replace(/\s+/g, " ") // 4. Collapse multiple spaces/newlines
+                .trim()
+                .slice(0, 120)
+            : "",
           unreadCount: conv.unreadCount,
           messageCount: conv.messageCount,
           isStarred: conv.isStarred,

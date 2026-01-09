@@ -273,24 +273,24 @@ export default function MessageView({
       console.error("❌ Failed to mark conversation as read:", error);
     }
   };
-const handleMoveToInbox = async () => {
-  if (!selectedConversation || !selectedAccount) return;
+  const handleMoveToInbox = async () => {
+    if (!selectedConversation || !selectedAccount) return;
 
-  try {
-    await api.post("/api/inbox/move-to-inbox", {
-      conversationIds: [selectedConversation.conversationId],
-      accountId: selectedAccount.id,
-    });
+    try {
+      await api.post("/api/inbox/move-to-inbox", {
+        conversationIds: [selectedConversation.conversationId],
+        accountId: selectedAccount.id,
+      });
 
-    alert("Moved to Inbox");
+      alert("Moved to Inbox");
 
-    // Go back to conversation list (Spam view)
-    if (onBack) onBack();
-  } catch (err) {
-    console.error("Move to inbox failed", err);
-    alert("Failed to move message to inbox");
-  }
-};
+      // Go back to conversation list (Spam view)
+      if (onBack) onBack();
+    } catch (err) {
+      console.error("Move to inbox failed", err);
+      alert("Failed to move message to inbox");
+    }
+  };
 
   const fetchCountry = async () => {
     if (!selectedConversation) return;
@@ -336,6 +336,31 @@ const handleMoveToInbox = async () => {
     tmp.innerHTML = html;
     return tmp.textContent || tmp.innerText || "";
   };
+
+  const getCollapsedPreview = (html, maxLength = 300) => {
+    if (!html) return "";
+
+    // 1️⃣ Remove images completely
+    const withoutImages = html.replace(/<img[^>]*>/gi, "");
+
+    // 2️⃣ Remove style & script blocks
+    const cleaned = withoutImages.replace(
+      /<(style|script)[^>]*>[\s\S]*?<\/\1>/gi,
+      ""
+    );
+
+    // 3️⃣ Convert HTML → text
+    const tmp = document.createElement("div");
+    tmp.innerHTML = cleaned;
+
+    let text = tmp.textContent || tmp.innerText || "";
+
+    text = text.replace(/\s+/g, " ").trim();
+
+    // 4️⃣ Truncate
+    return text.length > maxLength ? text.slice(0, maxLength) + "…" : text;
+  };
+
 
   const formatSender = (name, email) => {
     if (name && name.trim() !== "" && name !== email) {
@@ -1307,25 +1332,25 @@ const handleMoveToInbox = async () => {
       endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
     if (replyMode === "forward") endpoint = `${API_BASE_URL}/api/inbox/forward`;
 
-  const payload = {
-    emailAccountId: selectedFromAccount.id,
-    fromEmail: selectedFromAccount.email,
-    from: selectedFromAccount.email,
-    to: replyData.to,
-    cc: replyData.cc || null,
-    subject: replyData.subject,
-    body: bodyContent,
-    attachments: attachments.map((att) => ({
-      filename: att.name,
-      url: att.url,
-      type: att.type,
-      size: att.size,
-    })),
+    const payload = {
+      emailAccountId: selectedFromAccount.id,
+      fromEmail: selectedFromAccount.email,
+      from: selectedFromAccount.email,
+      to: replyData.to,
+      cc: replyData.cc || null,
+      subject: replyData.subject,
+      body: bodyContent,
+      attachments: attachments.map((att) => ({
+        filename: att.name,
+        url: att.url,
+        type: att.type,
+        size: att.size,
+      })),
 
-    // 🔥 ADD ONLY THIS LINE
-    scheduledMessageId:
-      replyMode === "editScheduled" ? editingScheduledId : null,
-  };
+      // 🔥 ADD ONLY THIS LINE
+      scheduledMessageId:
+        replyMode === "editScheduled" ? editingScheduledId : null,
+    };
 
     if (replyingToMessageId) {
       payload.replyToMessageId = replyingToMessageId;
@@ -1608,11 +1633,18 @@ const handleMoveToInbox = async () => {
           <div className="max-w-4xl mx-auto py-6 px-6 space-y-4">
             {messages
               .filter((msg) => {
+                // If we are in Sent folder, show only sent items
                 if (selectedFolder === "sent") return msg.direction === "sent";
+
+                // If we are in Trash or Spam, show everything in that conversation
                 if (["spam", "trash"].includes(selectedFolder)) return true;
-                return msg.direction === "received";
+
+                // 📥 FIX FOR INBOX: Show both SENT and RECEIVED messages
+                // This ensures your replies show up in the conversation history
+                return msg.direction === "received" || msg.direction === "sent";
               })
               .reverse()
+              // ... render message
               .map((message) => {
                 const isExpanded = expandedMessages[message.id];
                 const accountDomain = selectedAccount.email.split("@")[1];
@@ -1698,11 +1730,7 @@ const handleMoveToInbox = async () => {
                         {!isExpanded && (
                           <div className="mt-3 ml-13 p-2 border-l-2 border-gray-200 bg-gray-50/50 rounded-r">
                             <p className="text-xs text-gray-600 line-clamp-1 italic">
-                              {stripHtmlTags(message.body || "").substring(
-                                0,
-                                120
-                              )}
-                              ...
+                              {getCollapsedPreview(message.body, 120)}
                             </p>
                           </div>
                         )}
