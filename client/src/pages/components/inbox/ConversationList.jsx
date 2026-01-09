@@ -68,22 +68,21 @@ export default function ConversationList({
     setConversations(sorted);
   };
 
-const toggleSelectConversation = (conversation) => {
-  setSelectedConversations((prev) => {
-    const exists = prev.some(
-      (c) => c.conversationId === conversation.conversationId
-    );
-
-    if (exists) {
-      return prev.filter(
-        (c) => c.conversationId !== conversation.conversationId
+  const toggleSelectConversation = (conversation) => {
+    setSelectedConversations((prev) => {
+      const exists = prev.some(
+        (c) => c.conversationId === conversation.conversationId
       );
-    }
 
-    return [...prev, conversation];
-  });
-};
+      if (exists) {
+        return prev.filter(
+          (c) => c.conversationId !== conversation.conversationId
+        );
+      }
 
+      return [...prev, conversation];
+    });
+  };
 
   const formatDate = (date) => {
     const now = new Date();
@@ -118,6 +117,15 @@ const toggleSelectConversation = (conversation) => {
     return cleanText.length > maxLength
       ? cleanText.substring(0, maxLength) + "..."
       : cleanText;
+  };
+
+  // 🔥 NEW: Helper to get a clean avatar letter (ignores quotes/symbols)
+  const getAvatarLetter = (name) => {
+    if (!name) return "?";
+    // Remove any character that is NOT a letter or number from the start
+    // e.g., "'Abacco Tech'" -> "Abacco Tech" -> "A"
+    const cleanName = name.replace(/^[^a-zA-Z0-9]+/, "");
+    return cleanName.charAt(0).toUpperCase() || "?";
   };
 
   const handleConversationSelect = async (conversation) => {
@@ -256,7 +264,8 @@ const toggleSelectConversation = (conversation) => {
                     {hasMultipleParticipants ? (
                       <Users className="w-5 h-5" />
                     ) : (
-                      clientEmail.charAt(0).toUpperCase()
+                      // 🔥 FIX: Use the clean letter generator
+                      getAvatarLetter(clientEmail)
                     )}
                   </div>
 

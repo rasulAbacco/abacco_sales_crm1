@@ -361,7 +361,6 @@ export default function MessageView({
     return text.length > maxLength ? text.slice(0, maxLength) + "…" : text;
   };
 
-
   const formatSender = (name, email) => {
     if (name && name.trim() !== "" && name !== email) {
       return `${name} &lt;${email}&gt;`;
@@ -1901,8 +1900,8 @@ export default function MessageView({
                   </select>
                   {selectedFromAccount && !selectedFromAccount.senderName && (
                     <p className="text-xs text-amber-600 mt-1">
-                      ⚠️ No sender name set for this account. Set it in Account
-                      Settings.
+                      ⚠️ No sender name set for this account. Set it in Add
+                      Account.
                     </p>
                   )}
                 </div>
