@@ -292,7 +292,8 @@ export default function Login() {
                 <label className="text-sm font-semibold text-gray-700 block">
                   Password
                 </label>
-                <div className="relative">
+                {/* Ensure the wrapper is 'relative' and 'w-full' */}
+                <div className="relative w-full">
                   <input
                     type={showPassword ? "text" : "password"}
                     placeholder="Enter your password"
@@ -302,20 +303,25 @@ export default function Login() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-5 h-5" />
-                    ) : (
-                      <Eye className="w-5 h-5" />
-                    )}
-                  </button>
+                  {/* Positioned absolutely inside the wrapper. 
+      'inset-y-0' + 'flex items-center' is the most stable way 
+      to vertically center the icon inside the box.
+    */}
+                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-gray-400 hover:text-purple-600 focus:outline-none transition-colors"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="w-5 h-5" />
+                      ) : (
+                        <Eye className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
-
               <button
                 type="submit"
                 className="w-full text-white py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl mt-6"
