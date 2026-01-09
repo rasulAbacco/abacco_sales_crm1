@@ -122,12 +122,88 @@ router.post("/", protect, async (req, res) => {
   }
 });
 
-/* ============================================================
-    📦 POST /scheduled-messages/bulk → BULK SCHEDULE
-    ============================================================ */
-/* ============================================================
-    📦 POST /scheduled-messages/bulk → BULK SCHEDULE
-    ============================================================ */
+router.post("/send-scheduled-now", protect, async (req, res) => {
+  try {
+    const { scheduledMessageId } = req.body;
+
+    if (!scheduledMessageId) {
+      return res.status(400).json({
+        success: false,
+        message: "scheduledMessageId is required",
+      });
+    }
+
+    // 1️⃣ Fetch scheduled message
+    const scheduled = await prisma.scheduledMessage.findFirst({
+      where: {
+        id: Number(scheduledMessageId),
+        userId: req.user.id,
+        status: "pending",
+      },
+    });
+
+    if (!scheduled) {
+      return res.status(404).json({
+        success: false,
+        message: "Scheduled message not found or already sent",
+      });
+    }
+
+    // 2️⃣ Fetch email account
+    const account = await prisma.emailAccount.findUnique({
+      where: { id: scheduled.accountId },
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: "Email account not found",
+      });
+    }
+
+    // 3️⃣ SMTP transporter
+    const transporter = nodemailer.createTransport({
+      host: account.smtpHost,
+      port: account.smtpPort || 465,
+      secure: (account.smtpPort || 465) === 465,
+      auth: {
+        user: account.smtpUser || account.email,
+        pass: account.encryptedPass,
+      },
+    });
+
+    // 4️⃣ SEND EMAIL (manual)
+    await transporter.sendMail({
+      from: account.smtpUser || account.email,
+      to: scheduled.toEmail,
+      cc: scheduled.ccEmail || undefined,
+      subject: scheduled.subject || "(No Subject)",
+      html: scheduled.bodyHtml || "",
+    });
+
+    // 5️⃣ 🔥 CRITICAL FIX: mark as sent
+    await prisma.scheduledMessage.update({
+      where: { id: scheduled.id },
+      data: {
+        status: "sent",
+        isFollowedUp: true,
+        updatedAt: new Date(),
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Scheduled message sent manually",
+    });
+  } catch (err) {
+    console.error("❌ Manual scheduled send error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send scheduled message",
+    });
+  }
+});
+
 /* ============================================================
     📦 POST /scheduled-messages/bulk
     ============================================================ */

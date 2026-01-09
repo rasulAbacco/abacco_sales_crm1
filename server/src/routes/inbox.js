@@ -179,7 +179,6 @@ router.get("/messages/sent", async (req, res) => {
 });
 
 /* server/routes/inbox.js */
-
 router.get("/conversation-detail", async (req, res) => {
   try {
     const { conversationId, accountId, folder } = req.query;
@@ -188,26 +187,42 @@ router.get("/conversation-detail", async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing IDs" });
     }
 
-    let detailWhere = {
-      conversationId: conversationId,
+    const detailWhere = {
+      conversationId,
       emailAccountId: Number(accountId),
     };
 
-    // 🔥 FIX: Logic for the Trash folder view
     if (folder === "trash") {
+      // 🗑️ Trash (only non-permanently-deleted)
       detailWhere.isTrash = true;
-      detailWhere.hideTrash = false; // Ensure it's not permanently deleted
-    } else if (folder === "sent") {
-      detailWhere.direction = "sent";
+      detailWhere.hideTrash = false;
     } else if (folder === "spam") {
+      // 🚫 Spam (exclude trash)
       detailWhere.folder = "spam";
+      detailWhere.isTrash = false;
+      detailWhere.hideTrash = false;
+    } else if (folder === "sent") {
+      // 📤 Sent (exclude trash)
+      detailWhere.direction = "sent";
+      detailWhere.isTrash = false;
+      detailWhere.hideInbox = false;
     } else {
-      // Default: Inbox
-      detailWhere.direction = "received";
+      // 📥 Inbox (show SENT + RECEIVED)
+      detailWhere.folder = "inbox";
       detailWhere.isTrash = false;
       detailWhere.isSpam = false;
       detailWhere.hideInbox = false;
+      // ❌ DO NOT FILTER BY direction
     }
+
+    //  else {
+    //   // 📥 Inbox
+    //   detailWhere.folder = "inbox";
+    //   detailWhere.direction = "received";
+    //   detailWhere.isTrash = false;
+    //   detailWhere.isSpam = false;
+    //   detailWhere.hideInbox = false;
+    // }
 
     const messages = await prisma.emailMessage.findMany({
       where: detailWhere,
@@ -225,9 +240,6 @@ router.get("/conversation-detail", async (req, res) => {
   }
 });
 
-// ============================================================
-// 📥 GET: Inbox Conversations (FINAL – LeadStatus Fixed)
-// ============================================================
 // router.get("/conversations/:accountId", async (req, res) => {
 //   try {
 //     const accountId = Number(req.params.accountId);
@@ -248,12 +260,12 @@ router.get("/conversation-detail", async (req, res) => {
 //       dateTo,
 //       hasAttachment,
 //       country,
-//       leadStatus, // ✅ handled OUTSIDE SQL
+//       leadStatus,
 //       searchEmail,
 //     } = req.query;
 
 //     /* ==================================================
-//        1️⃣ BUILD SQL CONDITIONS (NO leadStatus here)
+//        1️⃣ BUILD SQL CONDITIONS
 //     ================================================== */
 //     const conditions = [];
 //     const params = [];
@@ -334,7 +346,7 @@ router.get("/conversation-detail", async (req, res) => {
 //       `);
 //     }
 
-//     // 🌍 country (KEEP AS-IS)
+//     // country
 //     if (country) {
 //       conditions.push(`
 //         (
@@ -379,17 +391,20 @@ router.get("/conversation-detail", async (req, res) => {
 //     }
 
 //     /* ==================================================
-//        3️⃣ FETCH CONVERSATIONS (PRISMA)
+//        3️⃣ FETCH CONVERSATIONS (✅ FIXED - NO emailAccountId)
 //     ================================================== */
 //     const conversations = await prisma.conversation.findMany({
 //       where: {
-//         emailAccountId: accountId,
+//         // ✅ REMOVED: emailAccountId filter
 //         messages: {
 //           some: { id: { in: messageIds } },
 //         },
 //       },
 //       include: {
 //         messages: {
+//           where: {
+//             emailAccountId: accountId, // ✅ Filter messages by account here instead
+//           },
 //           orderBy: { sentAt: "desc" },
 //           take: 1,
 //         },
@@ -400,44 +415,40 @@ router.get("/conversation-detail", async (req, res) => {
 //     /* ==================================================
 //        4️⃣ FORMAT RESPONSE
 //     ================================================== */
-//     /* ==================================================
-//        4️⃣ FORMAT RESPONSE
-//     ================================================== */
-//     let result = conversations.map((conv) => {
-//       const m = conv.messages[0];
+//     let result = conversations
+//       .filter((conv) => conv.messages.length > 0) // ✅ Only return conversations with messages for this account
+//       .map((conv) => {
+//         const m = conv.messages[0];
 
-//       // 🔥 LOGIC: Determine Name vs Email to show in list
-//       let displayName = "Unknown";
-//       let displayEmail = "Unknown";
+//         let displayName = "Unknown";
+//         let displayEmail = "Unknown";
 
-//       if (m?.direction === "received") {
-//         // If received, show Sender Name or Email
-//         displayName = m.fromName || m.fromEmail;
-//         displayEmail = m.fromEmail;
-//       } else {
-//         // If sent, show Recipient Name or Email
-//         const firstTo = m?.toEmail?.split(",")[0] || "";
-//         displayName = m?.toName || firstTo;
-//         displayEmail = firstTo;
-//       }
+//         if (m?.direction === "received") {
+//           displayName = m.fromName || m.fromEmail;
+//           displayEmail = m.fromEmail;
+//         } else {
+//           const firstTo = m?.toEmail?.split(",")[0] || "";
+//           displayName = m?.toName || firstTo;
+//           displayEmail = firstTo;
+//         }
 
-//       return {
-//         conversationId: conv.id,
-//         subject: conv.subject || "(No Subject)",
-//         initiatorEmail: conv.initiatorEmail,
-//         lastSenderEmail: m?.fromEmail || null,
-//         displayName, // ✅ Sending Name now
-//         displayEmail, // ✅ Keeping Email for reference
-//         lastDate: conv.lastMessageAt,
-//         lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
-//         unreadCount: conv.unreadCount,
-//         messageCount: conv.messageCount,
-//         isStarred: conv.isStarred,
-//       };
-//     });
+//         return {
+//           conversationId: conv.id,
+//           subject: conv.subject || "(No Subject)",
+//           initiatorEmail: conv.initiatorEmail,
+//           lastSenderEmail: m?.fromEmail || null,
+//           displayName,
+//           displayEmail,
+//           lastDate: conv.lastMessageAt,
+//           lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+//           unreadCount: conv.unreadCount,
+//           messageCount: conv.messageCount,
+//           isStarred: conv.isStarred,
+//         };
+//       });
 
 //     /* ==================================================
-//        5️⃣ 🔥 LEAD STATUS FILTER (ChatSidebar STYLE)
+//        5️⃣ LEAD STATUS FILTER
 //     ================================================== */
 //     if (leadStatus) {
 //       const leads = await prisma.leadDetails.findMany({
@@ -522,11 +533,13 @@ router.get("/conversations/:accountId", async (req, res) => {
     conditions.push(`em."emailAccountId" = $${params.length + 1}`);
     params.push(accountId);
 
-    // folder
+    // 🔥 GLOBAL SAFETY: never show permanently deleted
+    conditions.push(`em."hideTrash" = false`);
+    //AND em.direction = 'received'
+    // folder logic (STRICT & MUTUALLY EXCLUSIVE)
     if (folder === "inbox") {
       conditions.push(`
-        em.folder = 'inbox'
-        AND em.direction = 'received'
+        em.direction IN ('sent','received')
         AND em."isTrash" = false
         AND em."isSpam" = false
         AND em."hideInbox" = false
@@ -538,9 +551,14 @@ router.get("/conversations/:accountId", async (req, res) => {
         AND em."isTrash" = false
       `);
     } else if (folder === "spam") {
-      conditions.push(`em.folder = 'spam'`);
+      conditions.push(`
+        em.folder = 'spam'
+        AND em."isTrash" = false
+      `);
     } else if (folder === "trash") {
-      conditions.push(`em."isTrash" = true`);
+      conditions.push(`
+        em."isTrash" = true
+      `);
     }
 
     // sender / recipient / search
@@ -589,7 +607,7 @@ router.get("/conversations/:accountId", async (req, res) => {
       conditions.push(`
         EXISTS (
           SELECT 1 FROM "Attachment" a
-          WHERE a."emailMessageId" = em.id
+          WHERE a."messageId" = em.id
         )
       `);
     }
@@ -606,7 +624,7 @@ router.get("/conversations/:accountId", async (req, res) => {
     }
 
     /* ==================================================
-       2️⃣ FETCH MESSAGE IDS (RAW SQL)
+       2️⃣ FETCH MESSAGE IDS
     ================================================== */
     const sql = `
       SELECT DISTINCT em.id
@@ -627,7 +645,6 @@ router.get("/conversations/:accountId", async (req, res) => {
         )
 
       WHERE ${conditions.join(" AND ")}
-
       ORDER BY em.id DESC
     `;
 
@@ -639,11 +656,10 @@ router.get("/conversations/:accountId", async (req, res) => {
     }
 
     /* ==================================================
-       3️⃣ FETCH CONVERSATIONS (✅ FIXED - NO emailAccountId)
+       3️⃣ FETCH CONVERSATIONS
     ================================================== */
     const conversations = await prisma.conversation.findMany({
       where: {
-        // ✅ REMOVED: emailAccountId filter
         messages: {
           some: { id: { in: messageIds } },
         },
@@ -651,7 +667,7 @@ router.get("/conversations/:accountId", async (req, res) => {
       include: {
         messages: {
           where: {
-            emailAccountId: accountId, // ✅ Filter messages by account here instead
+            emailAccountId: accountId,
           },
           orderBy: { sentAt: "desc" },
           take: 1,
@@ -664,19 +680,19 @@ router.get("/conversations/:accountId", async (req, res) => {
        4️⃣ FORMAT RESPONSE
     ================================================== */
     let result = conversations
-      .filter((conv) => conv.messages.length > 0) // ✅ Only return conversations with messages for this account
+      .filter((conv) => conv.messages.length > 0)
       .map((conv) => {
         const m = conv.messages[0];
 
-        let displayName = "Unknown";
-        let displayEmail = "Unknown";
+        let displayName;
+        let displayEmail;
 
-        if (m?.direction === "received") {
+        if (m.direction === "received") {
           displayName = m.fromName || m.fromEmail;
           displayEmail = m.fromEmail;
         } else {
-          const firstTo = m?.toEmail?.split(",")[0] || "";
-          displayName = m?.toName || firstTo;
+          const firstTo = m.toEmail?.split(",")[0] || "";
+          displayName = m.toName || firstTo;
           displayEmail = firstTo;
         }
 
@@ -684,11 +700,11 @@ router.get("/conversations/:accountId", async (req, res) => {
           conversationId: conv.id,
           subject: conv.subject || "(No Subject)",
           initiatorEmail: conv.initiatorEmail,
-          lastSenderEmail: m?.fromEmail || null,
+          lastSenderEmail: m.fromEmail,
           displayName,
           displayEmail,
           lastDate: conv.lastMessageAt,
-          lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+          lastBody: m.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
           unreadCount: conv.unreadCount,
           messageCount: conv.messageCount,
           isStarred: conv.isStarred,
@@ -707,7 +723,6 @@ router.get("/conversations/:accountId", async (req, res) => {
       });
 
       const leadEmails = new Set();
-
       leads.forEach((l) => {
         if (l.email) leadEmails.add(l.email.toLowerCase().trim());
         if (l.cc) {
@@ -721,13 +736,12 @@ router.get("/conversations/:accountId", async (req, res) => {
       const normalize = (s) =>
         (s || "").toLowerCase().replace(/<|>|"/g, "").trim();
 
-      result = result.filter((conv) => {
-        return (
-          leadEmails.has(normalize(conv.displayEmail)) ||
-          leadEmails.has(normalize(conv.lastSenderEmail)) ||
-          leadEmails.has(normalize(conv.initiatorEmail))
-        );
-      });
+      result = result.filter(
+        (c) =>
+          leadEmails.has(normalize(c.displayEmail)) ||
+          leadEmails.has(normalize(c.lastSenderEmail)) ||
+          leadEmails.has(normalize(c.initiatorEmail))
+      );
     }
 
     /* ==================================================
@@ -747,6 +761,7 @@ router.get("/conversations/:accountId", async (req, res) => {
     });
   }
 });
+
 router.get("/conversations/:accountId/stats", async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
@@ -1407,6 +1422,19 @@ router.post("/reply", async (req, res) => {
           }
         : {},
     });
+    // 🔥 UPDATE ONLY IF THIS WAS A SCHEDULED MESSAGE
+    if (req.body.scheduledMessageId) {
+      await prisma.scheduledMessage.update({
+        where: {
+          id: Number(req.body.scheduledMessageId),
+        },
+        data: {
+          status: "sent",
+          isFollowedUp: true,
+          updatedAt: new Date(),
+        },
+      });
+    }
 
     // 🔹 6️⃣ Save reply in DB (🔥 FIX HERE)
     const savedReply = await prisma.emailMessage.create({
@@ -1424,7 +1452,8 @@ router.post("/reply", async (req, res) => {
         body,
         direction: "sent",
         sentAt: new Date(),
-        folder: "sent",
+        folder: "inbox", // 🔥 KEY FIX
+        // folder: "sent",
         isRead: true,
         inReplyTo,
         references,
@@ -1580,6 +1609,20 @@ router.post("/reply-all", async (req, res) => {
       })),
     });
 
+    // 🔥 UPDATE ONLY IF THIS WAS A SCHEDULED MESSAGE
+    if (req.body.scheduledMessageId) {
+      await prisma.scheduledMessage.update({
+        where: {
+          id: Number(req.body.scheduledMessageId),
+        },
+        data: {
+          status: "sent",
+          isFollowedUp: true,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
     // 9️⃣ SAVE reply-all in DB
     const savedReplyAll = await prisma.emailMessage.create({
       data: {
@@ -1596,7 +1639,8 @@ router.post("/reply-all", async (req, res) => {
         body: finalBody,
         direction: "sent",
         sentAt: new Date(),
-        folder: "sent",
+        // folder: "sent",
+        folder: "inbox", // 🔥 KEY FIX
         isRead: true,
         inReplyTo: original.messageId,
         references: original.references
@@ -1908,6 +1952,20 @@ router.post("/forward", async (req, res) => {
       })),
     });
 
+    // 🔥 UPDATE ONLY IF THIS WAS A SCHEDULED MESSAGE
+    if (req.body.scheduledMessageId) {
+      await prisma.scheduledMessage.update({
+        where: {
+          id: Number(req.body.scheduledMessageId),
+        },
+        data: {
+          status: "sent",
+          isFollowedUp: true,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
     /* ============================================================
        8️⃣ SAVE FORWARDED EMAIL IN DB (NEW CONVERSATION)
     ============================================================ */
@@ -1926,7 +1984,8 @@ router.post("/forward", async (req, res) => {
         body: forwardedBody,
         direction: "sent",
         sentAt: new Date(),
-        folder: "sent",
+        // folder: "sent",
+        folder: "inbox", // 🔥 KEY FIX
         isRead: true,
 
         attachments:
@@ -2165,6 +2224,83 @@ router.patch("/permanent-delete-conversation", async (req, res) => {
     res.json({ success: true, updatedCount: updated.count });
   } catch (err) {
     res.status(500).json({ success: false });
+  }
+});
+
+router.post("/delete", async (req, res) => {
+  try {
+    const { conversationIds, folder } = req.body;
+
+    if (!conversationIds?.length) {
+      return res.status(400).json({ success: false });
+    }
+
+    if (folder === "trash") {
+      // ✅ PERMANENT DELETE
+      await prisma.emailMessage.updateMany({
+        where: {
+          conversationId: { in: conversationIds },
+          isTrash: true,
+          hideTrash: false,
+        },
+        data: {
+          hideTrash: true,
+        },
+      });
+    } else {
+      // ✅ MOVE TO TRASH
+      await prisma.emailMessage.updateMany({
+        where: {
+          conversationId: { in: conversationIds },
+        },
+        data: {
+          isTrash: true,
+          isSpam: false,
+          hideInbox: true,
+          folder: "trash",
+        },
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+router.post("/move-to-inbox", async (req, res) => {
+  try {
+    const { conversationIds, accountId } = req.body;
+
+    if (!conversationIds?.length || !accountId) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing conversationIds or accountId",
+      });
+    }
+
+    await prisma.emailMessage.updateMany({
+      where: {
+        conversationId: { in: conversationIds },
+        emailAccountId: Number(accountId),
+      },
+      data: {
+        folder: "inbox",
+        isSpam: false,
+        isTrash: false,
+        hideInbox: false,
+        hideTrash: false,
+        // direction: "received", // 🔥 CRITICAL FIX
+      },
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ MOVE TO INBOX ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to move messages to inbox",
+    });
   }
 });
 
