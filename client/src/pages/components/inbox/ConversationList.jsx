@@ -1,6 +1,6 @@
 // src/pages/components/inbox/ConversationList.jsx
 import React, { useState } from "react";
-import { Mail, ChevronDown, ChevronUp, Users, Globe } from "lucide-react";
+import { Mail, ChevronDown, ChevronUp, Users, Globe, Zap } from "lucide-react";
 import { api } from "../../../pages/api.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
@@ -286,6 +286,16 @@ export default function ConversationList({
                             </span>
                           )}
                         </span>
+                        {/* 🔥 NEW: CRM Indicator Badge */}
+                        {conversation.isCrmLead && (
+                          <span
+                            className="flex-shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 uppercase tracking-tighter"
+                            title="This lead exists in your CRM"
+                          >
+                            <Zap className="w-2.5 h-2.5 fill-indigo-700" />
+                            CRM
+                          </span>
+                        )}
                         {conversation.unreadCount > 0 && (
                           <span className="flex-shrink-0 w-2 h-2 bg-blue-600 rounded-full"></span>
                         )}

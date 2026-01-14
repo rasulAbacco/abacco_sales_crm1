@@ -124,6 +124,8 @@ import imapDownload from "./src/routes/imapDownload.js";
 import leadEmailMetaRoutes from "./src/routes/leadEmailMeta.js";
 import customStatusRoutes from "./src/routes/customStatusRoutes.js";
 import emailTemplatesRoutes from "./src/routes/Emailtemplatesroutes.js";
+import adminBackfill from "./src/routes/adminBackfill.js";
+
 
 app.get("/", (req, res) => {
   res.send("🚀 Sales CRM Backend API (IMAP + Real-time Inbox)");
@@ -159,6 +161,7 @@ app.use("/api/empAnalytics", protect, empAnalyticsRoutes);
 app.use("/api/cleanup-account", cleanupAccountRoutes);
 app.use("/api/lead-email-meta", leadEmailMetaRoutes);
 app.use("/api/email-templates", emailTemplatesRoutes);
+app.use("/api/admin", adminBackfill);
 
 /* ==========================================================
    🧪 Manual IMAP Sync Endpoint
