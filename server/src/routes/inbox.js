@@ -205,16 +205,16 @@ router.get("/conversation-detail", async (req, res) => {
       detailWhere.hideInbox = false;
     } else {
       /* 📥 FIX: THIS IS THE INBOX CASE */
-      // 1. We remove "detailWhere.folder = 'inbox'" because 
+      // 1. We remove "detailWhere.folder = 'inbox'" because
       // some messages in this thread are folder='sent' (your replies).
-      
+
       // 2. Instead, we filter by what we WANT to exclude (Spam and Trash).
       detailWhere.isTrash = false;
       detailWhere.isSpam = false;
       detailWhere.hideInbox = false;
-      
+
       // 3. (Optional but safer) Explicitly allow both folders
-      detailWhere.folder = { in: ['inbox', 'sent'] };
+      detailWhere.folder = { in: ["inbox", "sent"] };
     }
 
     const messages = await prisma.emailMessage.findMany({
@@ -530,8 +530,8 @@ router.get("/conversations/:accountId", async (req, res) => {
     conditions.push(`em."hideTrash" = false`);
     //AND em.direction = 'received'
     // folder logic (STRICT & MUTUALLY EXCLUSIVE)
-if (folder === "inbox") {
-  conditions.push(`
+    if (folder === "inbox") {
+      conditions.push(`
     (
       (em.folder = 'inbox' AND em.direction = 'received')  
       OR 
@@ -541,22 +541,22 @@ if (folder === "inbox") {
     AND em."isSpam" = false
     AND em."hideInbox" = false
   `);
-} else if (folder === "sent") {
-  conditions.push(`
+    } else if (folder === "sent") {
+      conditions.push(`
         em.folder = 'sent'
         AND em.direction = 'sent'
         AND em."isTrash" = false
       `);
-} else if (folder === "spam") {
-  conditions.push(`
+    } else if (folder === "spam") {
+      conditions.push(`
         em.folder = 'spam'
         AND em."isTrash" = false
       `);
-} else if (folder === "trash") {
-  conditions.push(`
+    } else if (folder === "trash") {
+      conditions.push(`
         em."isTrash" = true
       `);
-}
+    }
 
     // sender / recipient / search
     if (sender || recipient || searchEmail) {
