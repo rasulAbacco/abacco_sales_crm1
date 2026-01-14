@@ -70,21 +70,34 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
 
     // B) Find by Email
     if (!finalConversationId) {
+      // const existing = await prisma.conversation.findFirst({
+      //   where: {
+      //     AND: [
+      //       { emailAccountId: Number(emailAccountId) },
+      //       { participants: { contains: to } },
+      //     ],
+      //   },
+      // });
       const existing = await prisma.conversation.findFirst({
         where: {
-          AND: [
-            { emailAccountId: Number(emailAccountId) },
-            { participants: { contains: to } },
-          ],
+          OR: [{ toRecipients: to }, { participants: { contains: to } }],
         },
       });
 
       if (existing) {
         finalConversationId = existing.id;
-        await prisma.conversation.update({
-          where: { id: existing.id },
-          data: { lastMessageAt: new Date(), messageCount: { increment: 1 } },
-        });
+        // await prisma.conversation.update({
+        //   where: { id: existing.id },
+        //   data: { lastMessageAt: new Date(), messageCount: { increment: 1 } },
+        // });
+      await prisma.conversation.update({
+        where: { id: existing.id },
+        data: {
+          lastMessageAt: new Date(),
+          messageCount: { increment: 1 },
+        },
+      });
+
       } else {
         // C) Create NEW Conversation (FIXED: Added ID)
         console.log("🆕 Creating new conversation for:", to);
@@ -92,19 +105,33 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
         // 🛡️ GENERATE ID MANUALLY
         const newId = crypto.randomUUID();
 
+        // const newConv = await prisma.conversation.create({
+        //   data: {
+        //     id: newId, // 👈 THE MISSING PIECE!
+        //     emailAccountId: Number(emailAccountId),
+        //     subject: subject || "(No Subject)",
+        //     participants: `${authenticatedEmail}, ${to}`,
+        //     toRecipients: to,
+        //     initiatorEmail: authenticatedEmail,
+        //     lastMessageAt: new Date(),
+        //     messageCount: 1,
+        //     unreadCount: 0,
+        //   },
+        // });
         const newConv = await prisma.conversation.create({
           data: {
-            id: newId, // 👈 THE MISSING PIECE!
-            emailAccountId: Number(emailAccountId),
+            id: newId,
             subject: subject || "(No Subject)",
-            participants: `${authenticatedEmail}, ${to}`,
+            participants: `${authenticatedEmail}, ${to}${cc ? `, ${cc}` : ""}`,
             toRecipients: to,
+            ccRecipients: cc || null,
             initiatorEmail: authenticatedEmail,
             lastMessageAt: new Date(),
             messageCount: 1,
             unreadCount: 0,
           },
         });
+
         finalConversationId = newConv.id;
       }
     }

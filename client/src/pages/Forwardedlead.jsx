@@ -153,17 +153,22 @@ export default function Forwardedlead() {
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
+const result = await res.json();
 
-        const data = await res.json();
+if (
+  !result.success ||
+  !Array.isArray(result.data) ||
+  result.data.length === 0
+) {
+  setAccounts([]);
+  setPopupMessage("No email account found. Please add an email account.");
+  setShowAddAccountPopup(true);
+  return;
+}
 
-        if (!Array.isArray(data) || data.length === 0) {
-          setAccounts([]);
-          setPopupMessage(
-            "No email account found. Please add an email account."
-          );
-          setShowAddAccountPopup(true);
-          return;
-        }
+setAccounts(result.data);
+setShowAddAccountPopup(false);
+
 
         setAccounts(data);
         setShowAddAccountPopup(false);
