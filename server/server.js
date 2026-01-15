@@ -156,28 +156,63 @@ app.get("/api/test-push/:userId", async (req, res) => {
   }
 });
 // server.js
+// app.post("/api/notifications/subscribe", async (req, res) => {
+//   try {
+//     const { userId, subscription } = req.body;
+
+//     // Save or update the subscription for this specific browser/device
+//     await prisma.pushSubscription.upsert({
+//       where: { endpoint: subscription.endpoint },
+//       update: { userId: Number(userId) },
+//       create: {
+//         userId: Number(userId),
+//         endpoint: subscription.endpoint,
+//         p256dh: subscription.keys.p256dh,
+//         auth: subscription.keys.auth,
+//       },
+//     });
+
+//     res.status(201).json({ success: true });
+//   } catch (err) {
+//     console.error("❌ Subscription save failed:", err.message);
+//     res.status(500).json({ error: "Failed to save subscription" });
+//   }
+// });
 app.post("/api/notifications/subscribe", async (req, res) => {
   try {
-    const { userId, subscription } = req.body;
+    const { userId, subscription, endpoint, keys } = req.body;
 
-    // Save or update the subscription for this specific browser/device
+    // ✅ Accept BOTH payload formats
+    const sub = subscription || (endpoint && keys ? { endpoint, keys } : null);
+
+    if (!userId || !sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
+      return res.status(400).json({
+        error: "Invalid push subscription payload",
+      });
+    }
+
     await prisma.pushSubscription.upsert({
-      where: { endpoint: subscription.endpoint },
-      update: { userId: Number(userId) },
+      where: { endpoint: sub.endpoint },
+      update: {
+        userId: Number(userId),
+        p256dh: sub.keys.p256dh,
+        auth: sub.keys.auth,
+      },
       create: {
         userId: Number(userId),
-        endpoint: subscription.endpoint,
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
+        endpoint: sub.endpoint,
+        p256dh: sub.keys.p256dh,
+        auth: sub.keys.auth,
       },
     });
 
     res.status(201).json({ success: true });
   } catch (err) {
-    console.error("❌ Subscription save failed:", err.message);
+    console.error("❌ Subscription save failed:", err);
     res.status(500).json({ error: "Failed to save subscription" });
   }
 });
+
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/leads", leadRoutes);
