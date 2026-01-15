@@ -1,7 +1,8 @@
 // server.js
+import dotenv from "dotenv";
+dotenv.config();
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -27,7 +28,6 @@ import { initSocket } from "./socket.js";
 import { runSync, runSyncForAccount } from "./src/services/imapSync.js";
 import { protect } from "./src/middlewares/authMiddleware.js";
 
-dotenv.config();
 const prisma = new PrismaClient();
 
 const app = express();
@@ -95,6 +95,7 @@ app.use(
    📚 API ROUTES
 ========================================================== */
 import authRoutes from "./src/routes/authRoutes.js";
+import { notifyNewEmail } from "./src/services/notification.service.js";
 import analyticsRoutes from "./src/routes/analyticsRoutes.js";
 import employeeRoutes from "./src/routes/employeeRoutes.js";
 import leadRoutes from "./src/routes/leadRoutes.js";
@@ -126,12 +127,57 @@ import customStatusRoutes from "./src/routes/customStatusRoutes.js";
 import emailTemplatesRoutes from "./src/routes/Emailtemplatesroutes.js";
 import adminBackfill from "./src/routes/adminBackfill.js";
 
-
 app.get("/", (req, res) => {
   res.send("🚀 Sales CRM Backend API (IMAP + Real-time Inbox)");
 });
 
 app.use("/api/auth", authRoutes);
+// 🧪 TEMP TEST ROUTE: Trigger OS Notification manually
+app.get("/api/test-push/:userId", async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    console.log(`🧪 Triggering test push for User: ${userId}`);
+
+    await notifyNewEmail({
+      userId: userId,
+      accountId: 1, // Dummy ID
+      conversationId: "test-conv-123",
+      fromEmail: "test-sender@crm.com",
+      subject: "Verification: OS Notifications are Active!",
+    });
+
+    res.json({
+      success: true,
+      message: "Push triggered. Check your OS notifications!",
+    });
+  } catch (err) {
+    console.error("❌ Test push failed:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+// server.js
+app.post("/api/notifications/subscribe", async (req, res) => {
+  try {
+    const { userId, subscription } = req.body;
+
+    // Save or update the subscription for this specific browser/device
+    await prisma.pushSubscription.upsert({
+      where: { endpoint: subscription.endpoint },
+      update: { userId: Number(userId) },
+      create: {
+        userId: Number(userId),
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      },
+    });
+
+    res.status(201).json({ success: true });
+  } catch (err) {
+    console.error("❌ Subscription save failed:", err.message);
+    res.status(500).json({ error: "Failed to save subscription" });
+  }
+});
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/leads", leadRoutes);
@@ -192,7 +238,33 @@ cron.schedule("*/1 * * * *", async () => {
     // Global guard catches any stray timeouts here
   }
 });
+/* ==========================================================
+   🕒 AUTOMATED NOTIFICATION CLEANUP (Every Hour)
+   Deletes notifications older than 24 hours automatically.
+========================================================== */
+cron.schedule("0 * * * *", async () => {
+  console.log("🧹 Background Process: Checking for expired notifications...");
+  try {
+    // 1. Calculate the time exactly 24 hours ago
+    const twentyFourHoursAgo = new Date();
+    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
 
+    // 2. Delete all records where 'createdAt' is older than that time
+    const result = await prisma.notification.deleteMany({
+      where: {
+        createdAt: {
+          lt: twentyFourHoursAgo, // "lt" stands for "Less Than"
+        },
+      },
+    });
+
+    if (result.count > 0) {
+      console.log(`✅ Automated Cleanup: Successfully deleted ${result.count} expired notifications.`);
+    }
+  } catch (err) {
+    console.error("❌ Background Cleanup Error:", err.message);
+  }
+});
 /* ==========================================================
    🚀 START SERVER
 ========================================================== */

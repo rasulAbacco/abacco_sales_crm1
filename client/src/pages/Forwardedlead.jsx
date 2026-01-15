@@ -140,44 +140,80 @@ export default function Forwardedlead() {
   useEffect(() => {
     if (!user?.empId) return;
 
-    const fetchAccounts = async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/accounts`, {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-          credentials: "include",
-        });
+//     const fetchAccounts = async () => {
+//       try {
+//         const res = await fetch(`${API_BASE_URL}/api/accounts`, {
+//           headers: {
+//             "Content-Type": "application/json",
+//             Authorization: `Bearer ${localStorage.getItem("token")}`,
+//           },
+//           credentials: "include",
+//         });
 
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-const result = await res.json();
+//         if (!res.ok) {
+//           throw new Error(`HTTP error! status: ${res.status}`);
+//         }
+// const result = await res.json();
 
-if (
-  !result.success ||
-  !Array.isArray(result.data) ||
-  result.data.length === 0
-) {
-  setAccounts([]);
-  setPopupMessage("No email account found. Please add an email account.");
-  setShowAddAccountPopup(true);
-  return;
-}
+// if (
+//   !result.success ||
+//   !Array.isArray(result.data) ||
+//   result.data.length === 0
+// ) {
+//   setAccounts([]);
+//   setPopupMessage("No email account found. Please add an email account.");
+//   setShowAddAccountPopup(true);
+//   return;
+// }
 
-setAccounts(result.data);
-setShowAddAccountPopup(false);
+// setAccounts(result.data);
+// setShowAddAccountPopup(false);
 
 
-        setAccounts(data);
-        setShowAddAccountPopup(false);
-      } catch (err) {
-        console.error("❌ Error fetching accounts by empId:", err);
-        setPopupMessage("Unable to load accounts. Please try again.");
-        setShowAddAccountPopup(true);
-      }
-    };
+//         setAccounts(data);
+//         setShowAddAccountPopup(false);
+//       } catch (err) {
+//         console.error("❌ Error fetching accounts by empId:", err);
+//         setPopupMessage("Unable to load accounts. Please try again.");
+//         setShowAddAccountPopup(true);
+//       }
+//     };
+const fetchAccounts = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/accounts`, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+      credentials: "include",
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+
+    const result = await res.json();
+
+    if (
+      !result.success ||
+      !Array.isArray(result.data) ||
+      result.data.length === 0
+    ) {
+      setAccounts([]);
+      setPopupMessage("No email account found. Please add an email account.");
+      setShowAddAccountPopup(true);
+      return;
+    }
+
+    // ✅ THIS IS THE ONLY SET YOU NEED
+    setAccounts(result.data);
+    setShowAddAccountPopup(false);
+  } catch (err) {
+    console.error("❌ Error fetching accounts by empId:", err);
+    setPopupMessage("Unable to load accounts. Please try again.");
+    setShowAddAccountPopup(true);
+  }
+};
 
     fetchAccounts();
   }, [user?.empId]);

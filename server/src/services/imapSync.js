@@ -5,6 +5,7 @@ import pLimit from "p-limit";
 import fs from "fs";
 import path from "path";
 import { uploadToR2WithHash, generateHash } from "./r2.js";
+import { notifyNewEmail } from "../services/notification.service.js";
 
 dotenv.config();
 
@@ -271,17 +272,36 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
       },
     });
 
+    if (direction === "received") {
+      try {
+        await notifyNewEmail({
+          userId: account.userId,
+          accountId: account.id,
+          conversationId,
+          fromEmail,
+          subject: parsed.subject || "(No Subject)",
+        });
+      } catch (err) {
+        console.error(`⚠️ Notification failed (non-blocking): ${err.message}`);
+      }
+    }
+
     // ✅ Update conversation metadata
+    const conversationUpdate = {
+      lastMessageAt: parsed.date || new Date(),
+      messageCount: { increment: 1 },
+    };
+
+    if (direction === "received") {
+      conversationUpdate.unreadCount = { increment: 1 };
+    }
+
     await prisma.conversation
       .update({
         where: { id: conversationId },
-        data: {
-          lastMessageAt: parsed.date || new Date(),
-          messageCount: { increment: 1 },
-        },
+        data: conversationUpdate,
       })
       .catch((e) => {
-        // Conversation might have been updated by another process
         console.warn(`⚠️ Conversation update race condition: ${e.message}`);
       });
   } catch (err) {
