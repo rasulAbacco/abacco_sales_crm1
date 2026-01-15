@@ -31,6 +31,59 @@ export default function EmployeeDashboard() {
   const [leads, setLeads] = useState([]);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user")) || {};
+  // pages/EmployeeDashboard.jsx
+
+  // pages/EmployeeDashboard.jsx
+
+  // pages/EmployeeDashboard.jsx
+  // 1️⃣ DEFINE THE FUNCTION FIRST (Must be above useEffect)
+  const subscribeToPush = async () => {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey:
+            "BGEMLwQZYtvEcMCigqqrLWoYnGUkqnb1ilIDF99aNlWs8N7lXqk85kraOOLg3bO6Fx-1QZIKRfXJdbcnOBJgrcU",
+        });
+      }
+
+      await fetch(`${API_BASE_URL}/api/notifications/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.id,
+          subscription: subscription.toJSON(),
+        }),
+      });
+
+      console.log("✅ Device successfully registered for OS Notifications");
+    } catch (err) {
+      console.error("❌ Push registration failed:", err);
+    }
+  };
+  useEffect(() => {
+    // Only attempt to subscribe if the user is logged in
+    if (user?.id) {
+      const runSubscription = async () => {
+        // 1. Check if permission is already granted
+        if (Notification.permission === "granted") {
+          await subscribeToPush();
+        }
+        // 2. Otherwise ask for permission first
+        else if (Notification.permission !== "denied") {
+          const permission = await Notification.requestPermission();
+          if (permission === "granted") {
+            await subscribeToPush();
+          }
+        }
+      };
+
+      runSubscription();
+    }
+  }, [user.id]); // Runs whenever the user ID is available
 
   useEffect(() => {
     localStorage.setItem("employeeActiveTab", activeTab);

@@ -30,7 +30,8 @@
     "p-limit": "^7.2.0",
     "quoted-printable": "^1.0.1",
     "socket.io": "4.8.1",
-    "socket.io-client": "4.8.1"
+    "socket.io-client": "4.8.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^20",

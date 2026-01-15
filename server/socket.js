@@ -52,6 +52,10 @@ export function getIO() {
     );
   return io;
 }
+export function emitToUser(userId, event, payload) {
+  const io = getIO();
+  io.to(`user:${userId}`).emit(event, payload);
+}
 
 // default export for compatibility with existing imports
 export default { initSocket, getIO };

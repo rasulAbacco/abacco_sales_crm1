@@ -11,22 +11,24 @@ datasource db {
 // USER
 // ============================================================
 model User {
-  id            Int                @id @default(autoincrement())
-  empId         String             @unique
-  name          String
-  email         String             @unique
-  password      String
-  role          String             @default("user")
-  createdAt     DateTime           @default(now())
-  isAlive       Boolean?           @default(true)
-  emailAccounts EmailAccount[]
-  leadDetails   LeadDetails[]
-  salesLeads    SalesLead[]
-  scheduledMsgs ScheduledMessage[]
-  tags          Tag[]
-  emailComments EmailComment[]
-  sequences     EmailSequence[]
-  templates     EmailTemplate[]
+  id                Int                @id @default(autoincrement())
+  empId             String             @unique
+  name              String
+  email             String             @unique
+  password          String
+  role              String             @default("user")
+  createdAt         DateTime           @default(now())
+  isAlive           Boolean?           @default(true)
+  emailAccounts     EmailAccount[]
+  leadDetails       LeadDetails[]
+  salesLeads        SalesLead[]
+  scheduledMsgs     ScheduledMessage[]
+  tags              Tag[]
+  emailComments     EmailComment[]
+  sequences         EmailSequence[]
+  templates         EmailTemplate[]
+  pushSubscriptions PushSubscription[]
+  Notification      Notification[]
 }
 
 // ============================================================
@@ -595,4 +597,37 @@ model CustomLeadStatus {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model Notification {
+  id     Int @id @default(autoincrement())
+  userId Int
+
+  type    String // email_received | email_reply | followup | system
+  title   String
+  message String
+
+  // Deep link support
+  accountId      Int?
+  conversationId String?
+
+  isRead Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+// 1️⃣ Add the PushSubscription model
+model PushSubscription {
+  id       Int    @id @default(autoincrement())
+  userId   Int
+  endpoint String @unique
+  p256dh   String
+  auth     String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
