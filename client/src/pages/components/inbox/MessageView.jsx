@@ -1365,6 +1365,12 @@ export default function MessageView({
       closeReplyModal();
     }
   };
+  const cleanEmails = (value) =>
+    (value || "")
+      .split(",")
+      .map((e) => e.trim())
+      .filter((e) => e.includes("@"))
+      .join(",");
 
   const sendNormalReply = async (bodyContent) => {
     let endpoint = `${API_BASE_URL}/api/inbox/reply`;
@@ -1372,23 +1378,24 @@ export default function MessageView({
       endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
     if (replyMode === "forward") endpoint = `${API_BASE_URL}/api/inbox/forward`;
 
-    const payload = {
-      emailAccountId: selectedFromAccount.id,
-      fromEmail: selectedFromAccount.email,
-      from: selectedFromAccount.email,
-      to: replyData.to,
-      cc: replyData.cc || null,
-      subject: replyData.subject,
-      body: bodyContent,
-      attachments: attachments.map((att) => ({
-        filename: att.name,
-        url: att.url,
-        type: att.type,
-        size: att.size,
-      })),
-      scheduledMessageId:
-        replyMode === "editScheduled" ? editingScheduledId : null,
-    };
+const payload = {
+  conversationId: selectedConversation.conversationId,
+  emailAccountId: selectedFromAccount.id,
+  fromEmail: selectedFromAccount.email,
+  from: selectedFromAccount.email,
+  to: cleanEmails(replyData.to),
+  cc: cleanEmails(replyData.cc) || null,
+  subject: replyData.subject,
+  body: bodyContent,
+  attachments: attachments.map((att) => ({
+    filename: att.name,
+    type: att.type,
+    size: att.size,
+    url: att.url || null,
+  })),
+};
+
+
 
     if (replyingToMessageId) {
       payload.replyToMessageId = replyingToMessageId;
