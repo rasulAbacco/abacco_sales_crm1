@@ -94,7 +94,7 @@ export default function EmployeeDashboard() {
       if (!user?.email) return;
       try {
         const res = await fetch(
-          `${API_BASE_URL}/api/leads/employee/${user.email}`
+          `${API_BASE_URL}/api/leads/employee/${user.email}`,
         );
         const data = await res.json();
         setLeads(data);

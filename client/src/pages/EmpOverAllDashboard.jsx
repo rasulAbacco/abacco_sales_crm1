@@ -287,8 +287,8 @@ ${API_BASE_URL}/api/analytics/employee/${user.empId}`)
                             entry.result?.toLowerCase().includes("won")
                               ? COLORS.success
                               : entry.result?.toLowerCase().includes("lost")
-                              ? COLORS.danger
-                              : COLORS.warning
+                                ? COLORS.danger
+                                : COLORS.warning
                           }
                         />
                       ))}
@@ -330,8 +330,8 @@ ${API_BASE_URL}/api/analytics/employee/${user.empId}`)
                         entry.result?.toLowerCase().includes("won")
                           ? COLORS.success
                           : entry.result?.toLowerCase().includes("lost")
-                          ? COLORS.danger
-                          : COLORS.warning
+                            ? COLORS.danger
+                            : COLORS.warning
                       }
                     />
                   ))}
