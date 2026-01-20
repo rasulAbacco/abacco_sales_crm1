@@ -634,6 +634,13 @@ export default function MessageTemplates() {
     }
   };
 
+  const insertPlaceholder = (placeholder) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      document.execCommand("insertHTML", false, `<span>${placeholder}</span>`);
+    }
+  };
+
   // Filtering Logic (Unchanged)
   const filteredTemplates = templates.filter((t) => {
     const matchesSearch =
