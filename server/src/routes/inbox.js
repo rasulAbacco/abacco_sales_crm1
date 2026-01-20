@@ -530,13 +530,20 @@ router.get("/conversations/:accountId", async (req, res) => {
     conditions.push(`em."hideTrash" = false`);
     //AND em.direction = 'received'
     // folder logic (STRICT & MUTUALLY EXCLUSIVE)
+    //   if (folder === "inbox") {
+    //     conditions.push(`
+    //   (
+    //     (em.folder = 'inbox' AND em.direction = 'received')
+    //     OR
+    //     (em.folder = 'sent' AND em.direction = 'sent')
+    //   )
+    //   AND em."isTrash" = false
+    //   AND em."isSpam" = false
+    //   AND em."hideInbox" = false
+    // `);
     if (folder === "inbox") {
       conditions.push(`
-    (
-      (em.folder = 'inbox' AND em.direction = 'received')  
-      OR 
-      (em.folder = 'sent' AND em.direction = 'sent')
-    )
+    em.direction = 'received'
     AND em."isTrash" = false
     AND em."isSpam" = false
     AND em."hideInbox" = false
@@ -747,7 +754,7 @@ router.get("/conversations/:accountId", async (req, res) => {
         (c) =>
           leadEmails.has(normalize(c.displayEmail)) ||
           leadEmails.has(normalize(c.lastSenderEmail)) ||
-          leadEmails.has(normalize(c.initiatorEmail))
+          leadEmails.has(normalize(c.initiatorEmail)),
       );
     }
 

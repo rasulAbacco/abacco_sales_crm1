@@ -36,7 +36,7 @@ import {
   Zap,
 } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4002";
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4002";
 
 const monthsFull = [
   "January",
@@ -134,7 +134,7 @@ export default function EmployeeDashboards() {
       from,
       to,
     }),
-    [period, year, month, leadType, statusFilter, from, to]
+    [period, year, month, leadType, statusFilter, from, to],
   );
 
   const loadAll = useCallback(async () => {
@@ -170,7 +170,7 @@ export default function EmployeeDashboards() {
         name: s.leadStatus,
         value: s.count,
       })),
-    [statusCounts]
+    [statusCounts],
   );
 
   const leadTypeChart = useMemo(
@@ -179,7 +179,7 @@ export default function EmployeeDashboards() {
         name: t.leadType,
         value: t.count,
       })),
-    [typeCounts]
+    [typeCounts],
   );
 
   const statusPalette = ["#10b981", "#f59e0b", "#ef4444", "#60a5fa"];
