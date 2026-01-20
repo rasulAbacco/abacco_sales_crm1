@@ -8,6 +8,7 @@ self.addEventListener("push", function (event) {
     icon: "/mail_icon.png",
     badge: "/bell_icon_1.png",
     data: data.url || "/inbox",
+    requireInteraction: true, // ✅ added (notification stays)
   });
 });
 

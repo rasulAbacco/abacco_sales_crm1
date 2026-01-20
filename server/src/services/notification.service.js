@@ -41,3 +41,39 @@ export async function notifyNewEmail({
     console.error("⚠️ Push notification failed:", err.message);
   }
 }
+
+export async function notifyLeadForwarded({
+  employeeUserId,
+  leadId,
+  leadClient,
+  adminName,
+}) {
+  // 1️⃣ Save notification in DB
+  const notification = await prisma.notification.create({
+    data: {
+      userId: employeeUserId,
+      type: "lead_forwarded",
+      title: "New Lead Assigned",
+      message: `Lead "${leadClient}" was forwarded by ${adminName}`,
+    },
+  });
+
+  // 2️⃣ In-app realtime notification (Socket)
+  try {
+    emitToUser(employeeUserId, "notification:new", notification);
+  } catch (err) {
+    console.error("Socket emit failed:", err.message);
+  }
+
+  // 3️⃣ PC / Browser Push Notification
+  // 🔴 VERY IMPORTANT: url MUST be STRING ONLY
+  try {
+    await sendPushToUser(employeeUserId, {
+      title: notification.title,
+      message: notification.message,
+      url: "/api/forwardedLeads", // ✅ STRING (matches sw.js)
+    });
+  } catch (err) {
+    console.error("Push failed:", err.message);
+  }
+}

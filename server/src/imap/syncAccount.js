@@ -11,6 +11,7 @@ export async function syncAccount(prisma, account) {
   for (const folder of folders) {
     await syncFolder(client, prisma, account, folder);
   }
+  
 
   await client.logout();
 }

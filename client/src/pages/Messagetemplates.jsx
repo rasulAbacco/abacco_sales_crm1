@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, forwardRef } from "react";
 import {
   Plus,
   Search,
@@ -26,64 +26,482 @@ import {
   Quote,
   ArrowUpDown,
   Type as FontIcon,
+  Eraser,
+  RotateCcw,
+  Save,
+  Send,
+  User,
+  Tag,
+  MessageSquare,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { api } from "../pages/api.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-// 🎨 Constants from MessageView.jsx
-const FONT_FAMILIES = [
-  { value: "Calibri, sans-serif", label: "Calibri" },
-  { value: "Arial, sans-serif", label: "Arial" },
-  { value: "'Times New Roman', serif", label: "Times New Roman" },
-  { value: "'Courier New', monospace", label: "Courier New" },
-  { value: "Georgia, serif", label: "Georgia" },
-  { value: "Verdana, sans-serif", label: "Verdana" },
-  { value: "Tahoma, sans-serif", label: "Tahoma" },
-];
+// ==========================================
+// ✅ COPIED: OUTLOOK EDITOR (Manual Inputs) FROM FILE 1
+// ==========================================
+const OutlookEditor = forwardRef(({ initialContent, placeholder }, ref) => {
+  const editorRef = useRef(null);
 
-const FONT_SIZES = [
-  { value: "8pt", label: "8" },
-  { value: "9pt", label: "9" },
-  { value: "10pt", label: "10" },
-  { value: "11pt", label: "11" },
-  { value: "12pt", label: "12" },
-  { value: "14pt", label: "14" },
-  { value: "16pt", label: "16" },
-  { value: "18pt", label: "18" },
-  { value: "24pt", label: "24" },
-];
+  // Toolbar State
+  const [fontFamily, setFontFamily] = useState("Calibri");
+  const [fontSizeValue, setFontSizeValue] = useState("11"); // Default 11
+  const [lineSpacingValue, setLineSpacingValue] = useState("1.15"); // Default 1.15
 
-const COLORS = [
-  "#000000",
-  "#444444",
-  "#666666",
-  "#999999",
-  "#CCCCCC",
-  "#FFFFFF",
-  "#FF0000",
-  "#FF9900",
-  "#FFFF00",
-  "#00FF00",
-  "#00FFFF",
-  "#0000FF",
-  "#9900FF",
-  "#FF00FF",
-  "#F4CCCC",
-  "#FCE5CD",
-  "#FFF2CC",
-  "#D9EAD3",
-];
+  // Color pickers hidden inputs
+  const textColorRef = useRef(null);
+  const highlightColorRef = useRef(null);
 
-const LINE_HEIGHTS = [
-  { value: "1.0", label: "Single" },
-  { value: "1.15", label: "1.15" },
-  { value: "1.5", label: "1.5" },
-  { value: "2.0", label: "Double" },
-  { value: "2.5", label: "2.5" },
-  { value: "3.0", label: "3.0" },
-];
+  // Connect parent ref to internal div
+  useEffect(() => {
+    if (ref) ref.current = editorRef.current;
+  }, [ref]);
+
+  // Initialize Content
+  useEffect(() => {
+    if (editorRef.current && initialContent) {
+      editorRef.current.innerHTML = initialContent;
+    }
+    document.execCommand("defaultParagraphSeparator", false, "p");
+  }, [initialContent]);
+
+  // --- Core Formatting Command ---
+  const exec = (command, value = null) => {
+    document.execCommand(command, false, value);
+    editorRef.current?.focus();
+  };
+
+  // --- Font Family ---
+  const handleFontFamily = (e) => {
+    const val = e.target.value;
+    setFontFamily(val);
+    exec("fontName", val);
+  };
+
+  // --- ✅ MANUAL FONT SIZE HANDLER (Robust) ---
+  const applyFontSize = () => {
+    const sizeStr = fontSizeValue + "pt";
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+
+    // If cursor is blinking (no selection)
+    if (selection.isCollapsed) {
+      const span = `<span style="font-size: ${sizeStr}">&nbsp;</span>`;
+      document.execCommand("insertHTML", false, span);
+    } else {
+      // ROBUST: Iterate text nodes to preserve paragraph structure
+      applyStyleToSelectionNodes("fontSize", sizeStr);
+    }
+  };
+
+  // --- Helper: Apply Inline Style to Text Nodes (Prevents structure destruction) ---
+  const applyStyleToSelectionNodes = (styleProp, value) => {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+
+    const tempDiv = document.createElement("div");
+    tempDiv.appendChild(range.cloneContents());
+
+    const processNodes = (parentNode) => {
+      const children = Array.from(parentNode.childNodes);
+      children.forEach((child) => {
+        if (child.nodeType === Node.TEXT_NODE) {
+          const span = document.createElement("span");
+          span.style[styleProp] = value;
+          span.textContent = child.textContent;
+          parentNode.replaceChild(span, child);
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          processNodes(child);
+        }
+      });
+    };
+
+    processNodes(tempDiv);
+    document.execCommand("insertHTML", false, tempDiv.innerHTML);
+  };
+
+  // --- Helper: Adjust Font Size Step ---
+  const adjustFontSize = (delta) => {
+    let current = parseFloat(fontSizeValue);
+    if (isNaN(current)) current = 11;
+
+    let newSize = parseFloat((current + delta).toFixed(1));
+    if (newSize < 1) newSize = 1;
+
+    setFontSizeValue(newSize.toString());
+
+    const sizeStr = newSize + "pt";
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+
+    if (selection.isCollapsed) {
+      document.execCommand(
+        "insertHTML",
+        false,
+        `<span style="font-size:${sizeStr}">&nbsp;</span>`,
+      );
+    } else {
+      applyStyleToSelectionNodes("fontSize", sizeStr);
+    }
+  };
+
+  // --- ✅ MANUAL LINE SPACING HANDLER ---
+  const applyLineSpacing = () => {
+    const val = parseFloat(lineSpacingValue);
+    const valStr = val.toString();
+
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) return;
+
+    let anchorNode = selection.anchorNode;
+    while (
+      anchorNode &&
+      anchorNode.nodeName !== "P" &&
+      anchorNode.nodeName !== "DIV"
+    ) {
+      anchorNode = anchorNode.parentNode;
+    }
+
+    const applyStyle = (element) => {
+      if (!element || (element.nodeName !== "P" && element.nodeName !== "DIV"))
+        return;
+      element.style.lineHeight = valStr;
+
+      // Strict Logic: 1.0 means no spacing. > 1.0 means standard spacing.
+      if (val <= 1.0) {
+        element.style.marginBottom = "0px";
+        element.style.marginTop = "0px";
+      } else {
+        // Outlook default margin ~ 10-12px
+        element.style.marginBottom = "12px";
+      }
+    };
+
+    if (anchorNode) applyStyle(anchorNode);
+
+    // Apply to all paragraphs in selection
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    if (container && container.nodeName !== "P") {
+      const allPs = container.querySelectorAll("p");
+      allPs.forEach((p) => {
+        if (selection.containsNode(p, true)) {
+          applyStyle(p);
+        }
+      });
+    }
+  };
+
+  // --- Colors ---
+  const handleColorClick = (type) => {
+    if (type === "text") textColorRef.current?.click();
+    if (type === "highlight") highlightColorRef.current?.click();
+  };
+
+  // --- Manual Select All ---
+  const selectAll = () => {
+    if (editorRef.current) {
+      const range = document.createRange();
+      range.selectNodeContents(editorRef.current);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  };
+
+  // --- Paste Logic (Keep Format, Enforce Defaults on Plain Text) ---
+  const handlePaste = (e) => {
+    e.preventDefault();
+    const htmlData = e.clipboardData.getData("text/html");
+    const textData = e.clipboardData.getData("text/plain");
+
+    if (htmlData && htmlData.trim().length > 0) {
+      // Rich Paste: Keep format as requested ("keep format")
+      // We strip scripts for safety
+      const cleanHtml = htmlData.replace(
+        /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+        "",
+      );
+      document.execCommand("insertHTML", false, cleanHtml);
+    } else {
+      // Plain Text: Apply User Defaults (Calibri, 1.15)
+      const paragraphs = textData.split(/\n\s*\n/);
+      const normHtml = paragraphs
+        .map((para) => {
+          const lines = para.trim().replace(/\n/g, "<br>");
+          return lines
+            ? `<p style="margin:0 0 12px 0;font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.15;">${lines}</p>`
+            : "";
+        })
+        .filter((p) => p)
+        .join("");
+      document.execCommand("insertHTML", false, normHtml);
+    }
+  };
+
+  return (
+    <div className="border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white flex flex-col">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2 p-2 bg-gray-50 border-b border-gray-300 select-none">
+        {/* Group 1: Font Family */}
+        <div className="flex items-center border-r border-gray-300 pr-2">
+          <div className="relative group">
+            <select
+              value={fontFamily}
+              onChange={handleFontFamily}
+              className="appearance-none bg-transparent border border-gray-300 rounded px-2 py-1 text-xs w-32 cursor-pointer hover:bg-white hover:border-blue-400 focus:outline-none"
+            >
+              <option value="Calibri">Calibri</option>
+              <option value="Arial">Arial</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Tahoma">Tahoma</option>
+              <option value="Trebuchet MS">Trebuchet MS</option>
+              <option value="Courier New">Courier New</option>
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 w-3 h-3" />
+          </div>
+        </div>
+
+        {/* Group 2: Font Size (Manual Input) */}
+        <div className="flex items-center border-r border-gray-300 pr-2 gap-1">
+          <button
+            onClick={() => adjustFontSize(-0.1)}
+            className="p-1 hover:bg-gray-200 rounded text-gray-700"
+            title="Decrease Font Size"
+          >
+            <Minus className="w-3 h-3" />
+          </button>
+
+          <div className="flex items-center border border-gray-300 rounded bg-white">
+            <input
+              type="number"
+              step="0.1"
+              min="1"
+              value={fontSizeValue}
+              onChange={(e) => setFontSizeValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyFontSize()}
+              className="w-14 text-center text-xs p-0.5 focus:outline-none"
+            />
+            <span className="text-xs text-gray-500 pr-1">pt</span>
+            <button
+              onClick={applyFontSize}
+              className="px-1 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded"
+              title="Apply Font Size"
+            >
+              ✓
+            </button>
+          </div>
+
+          <button
+            onClick={() => adjustFontSize(0.1)}
+            className="p-1 hover:bg-gray-200 rounded text-gray-700"
+            title="Increase Font Size"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
+
+        {/* Group 3: Basic Formatting */}
+        <div className="flex items-center gap-1 border-r border-gray-300 pr-2">
+          <button
+            onClick={() => exec("bold")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Bold"
+          >
+            <Bold className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("italic")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Italic"
+          >
+            <Italic className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("underline")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Underline"
+          >
+            <Underline className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("strikeThrough")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Strikethrough"
+          >
+            <Type className="w-4 h-4 text-gray-600" />
+          </button>
+
+          <div className="relative">
+            <input
+              type="color"
+              ref={textColorRef}
+              className="hidden"
+              onChange={(e) => exec("foreColor", e.target.value)}
+            />
+            <button
+              onClick={() => handleColorClick("text")}
+              className="p-2 hover:bg-gray-200 rounded transition-colors"
+              title="Font Color"
+            >
+              <div
+                className="w-4 h-4 text-gray-600"
+                style={{ border: "1px solid #ddd" }}
+              >
+                A
+              </div>
+            </button>
+          </div>
+
+          <div className="relative">
+            <input
+              type="color"
+              ref={highlightColorRef}
+              className="hidden"
+              defaultValue="#ffff00"
+              onChange={(e) => exec("backColor", e.target.value)}
+            />
+            <button
+              onClick={() => handleColorClick("highlight")}
+              className="p-2 hover:bg-gray-200 rounded transition-colors bg-[#ffff00]"
+              title="Text Highlight Color"
+            >
+              <div className="w-4 h-4 bg-transparent"></div>
+            </button>
+          </div>
+        </div>
+
+        {/* Group 4: Paragraph & Alignment */}
+        <div className="flex items-center gap-1 border-r border-gray-300 pr-2">
+          <button
+            onClick={() => exec("insertUnorderedList")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Bullets"
+          >
+            <List className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("insertOrderedList")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Numbering"
+          >
+            <ListOrdered className="w-4 h-4 text-gray-600" />
+          </button>
+
+          <button
+            onClick={() => exec("outdent")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Decrease Indent"
+          >
+            <ChevronUp className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("indent")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Increase Indent"
+          >
+            <ChevronDown className="w-4 h-4 text-gray-600" />
+          </button>
+
+          <button
+            onClick={() => exec("justifyLeft")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Align Left"
+          >
+            <AlignLeft className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("justifyCenter")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Align Center"
+          >
+            <AlignCenter className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("justifyRight")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Align Right"
+          >
+            <AlignRight className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("justifyFull")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Justify"
+          >
+            <AlignJustify className="w-4 h-4 text-gray-600" />
+          </button>
+        </div>
+
+        {/* Group 5: Line Spacing (Manual Input) & Utils */}
+        <div className="flex items-center gap-2">
+          {/* Manual Line Spacing Input */}
+          <div className="flex items-center bg-white border border-gray-300 rounded px-1">
+            <span className="text-xs text-gray-500 ml-1" title="Line Spacing">
+              Spacing:
+            </span>
+            <input
+              type="number"
+              step="0.05"
+              value={lineSpacingValue}
+              onChange={(e) => setLineSpacingValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyLineSpacing()}
+              className="w-12 text-center text-xs p-0.5 focus:outline-none"
+              min="1"
+            />
+            <button
+              onClick={applyLineSpacing}
+              className="p-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 text-xs font-semibold"
+              title="Apply Spacing"
+            >
+              ✓
+            </button>
+          </div>
+
+          <button
+            onClick={() => exec("removeFormat")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors text-red-500"
+            title="Clear Formatting"
+          >
+            <Eraser className="w-4 h-4" />
+          </button>
+
+          {/* Manual Select All Button */}
+          <button
+            onClick={selectAll}
+            className="px-2 py-1 text-xs font-medium bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+            title="Select All"
+          >
+            Select All
+          </button>
+        </div>
+      </div>
+
+      {/* Content Area */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        className="min-h-[120px] overflow-y-auto p-4 focus:outline-none bg-white resize-y"
+        style={{
+          fontFamily: "Calibri, Arial, sans-serif",
+          fontSize: "11pt",
+          lineHeight: "1.15",
+          color: "#000000",
+          resize: "vertical", // 👈 enables dragger
+          maxHeight: "70vh", // 👈 optional safety limit
+        }}
+        placeholder={placeholder}
+        onPaste={handlePaste}
+      ></div>
+    </div>
+  );
+});
 
 export default function MessageTemplates() {
   // Existing States
@@ -101,15 +519,8 @@ export default function MessageTemplates() {
     leadStatus: "",
   });
 
-  // 🔥 New Editor States (From MessageView)
-  const [currentFont, setCurrentFont] = useState("Calibri, sans-serif");
-  const [currentSize, setCurrentSize] = useState("11pt");
-  const [currentColor, setCurrentColor] = useState("#000000");
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [showLineHeightPicker, setShowLineHeightPicker] = useState(false);
-
+  // Ref for the Outlook Editor
   const editorRef = useRef(null);
-  const colorPickerRef = useRef(null);
 
   const allStatuses = [
     "Invoice Pending",
@@ -129,26 +540,6 @@ export default function MessageTemplates() {
   useEffect(() => {
     fetchTemplates();
     fetchCustomStatuses();
-  }, []);
-
-  useEffect(() => {
-    if (showCreateModal && editorRef.current) {
-      editorRef.current.innerHTML = formData.bodyHtml || "<div><br/></div>";
-    }
-  }, [showCreateModal]);
-
-  // Handle outside clicks for color picker
-  useEffect(() => {
-    const handleClick = (e) => {
-      if (
-        colorPickerRef.current &&
-        !colorPickerRef.current.contains(e.target)
-      ) {
-        setShowColorPicker(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
   // --- API Functions (Unchanged) ---
@@ -171,96 +562,6 @@ export default function MessageTemplates() {
     } catch (err) {
       console.error(err);
     }
-  };
-
-  // --- Formatting Logic (From MessageView) ---
-  const formatText = (command, value = null) => {
-    document.execCommand(command, false, value);
-    editorRef.current?.focus();
-  };
-
-  const applyFontFamily = (font) => {
-    setCurrentFont(font);
-    formatText("fontName", font);
-  };
-
-  const applyFontSize = (size) => {
-    setCurrentSize(size);
-    const selection = window.getSelection();
-    if (selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      const span = document.createElement("span");
-      span.style.fontSize = size;
-      try {
-        range.surroundContents(span);
-      } catch (e) {
-        const content = range.extractContents();
-        span.appendChild(content);
-        range.insertNode(span);
-      }
-    }
-    editorRef.current?.focus();
-  };
-
-  const applyLineHeight = (value) => {
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
-    const range = selection.getRangeAt(0);
-
-    const findBlock = (node) => {
-      const tags = ["P", "DIV", "LI", "H1", "H2", "H3", "BLOCKQUOTE"];
-      let curr = node;
-      while (curr && curr !== editorRef.current) {
-        if (curr.nodeType === 1 && tags.includes(curr.tagName)) return curr;
-        curr = curr.parentNode;
-      }
-      return null;
-    };
-
-    const block = findBlock(range.startContainer);
-    if (block) {
-      block.style.lineHeight = value;
-    } else {
-      document.execCommand("formatBlock", false, "div");
-      const newBlock = findBlock(
-        window.getSelection().getRangeAt(0).startContainer
-      );
-      if (newBlock) newBlock.style.lineHeight = value;
-    }
-    setShowLineHeightPicker(false);
-  };
-
-  const handlePaste = (e) => {
-    e.preventDefault();
-    const clipboardData = e.clipboardData || window.clipboardData;
-    const pastedHTML = clipboardData.getData("text/html");
-    const pastedText = clipboardData.getData("text/plain");
-    const content = pastedHTML || pastedText.replace(/\n/g, "<br>");
-
-    const cleanHTML = DOMPurify.sanitize(content, {
-      ALLOWED_TAGS: [
-        "p",
-        "br",
-        "strong",
-        "b",
-        "em",
-        "i",
-        "u",
-        "s",
-        "span",
-        "div",
-        "font",
-        "a",
-        "ul",
-        "ol",
-        "li",
-        "hr",
-        "blockquote",
-      ],
-      ALLOWED_ATTR: ["style", "href", "color", "size", "face", "align"],
-    });
-
-    document.execCommand("insertHTML", false, cleanHTML);
   };
 
   // --- Action Handlers ---
@@ -286,7 +587,7 @@ export default function MessageTemplates() {
       const payload = { ...template, name: `${template.name} (Copy)` };
       const res = await api.post(
         `${API_BASE_URL}/api/email-templates`,
-        payload
+        payload,
       );
       if (res.data.success) {
         fetchTemplates();
@@ -308,7 +609,9 @@ export default function MessageTemplates() {
   };
 
   const handleSave = async () => {
+    // Get content from the ref provided by OutlookEditor
     const bodyContent = editorRef.current?.innerHTML || "";
+
     if (!formData.name.trim() || !formData.leadStatus || !bodyContent.trim()) {
       alert("Please fill required fields (Name, Status, Body)");
       return;
@@ -319,7 +622,7 @@ export default function MessageTemplates() {
       if (editingTemplate) {
         await api.put(
           `${API_BASE_URL}/api/email-templates/${editingTemplate.id}`,
-          payload
+          payload,
         );
       } else {
         await api.post(`${API_BASE_URL}/api/email-templates`, payload);
@@ -466,10 +769,10 @@ export default function MessageTemplates() {
         )}
       </div>
 
-      {/* 🔥 NEW RICH TEXT EDITOR MODAL 🔥 */}
+      {/* ✅ UPDATED: MODAL WITH OUTLOOK EDITOR ✅ */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl max-h-[95vh] flex flex-col overflow-hidden">
+          <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl max-h-[95vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
               <h2 className="font-bold text-lg">
                 {editingTemplate ? "Edit Template" : "New Template"}
@@ -534,219 +837,18 @@ export default function MessageTemplates() {
                 />
               </div>
 
-              {/* Toolbar & Editor (The MessageView UI) */}
-              <div className="border border-gray-300 rounded-xl overflow-hidden flex flex-col">
-                <div className="bg-gray-50 border-b p-2 flex flex-wrap gap-1 items-center">
-                  {/* Font Family Dropdown */}
-                  <select
-                    value={currentFont}
-                    onChange={(e) => applyFontFamily(e.target.value)}
-                    className="text-xs border p-1 rounded bg-white cursor-pointer"
-                  >
-                    {FONT_FAMILIES.map((f) => (
-                      <option key={f.value} value={f.value}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Font Size Dropdown */}
-                  <select
-                    value={currentSize}
-                    onChange={(e) => applyFontSize(e.target.value)}
-                    className="text-xs border p-1 rounded bg-white cursor-pointer w-14"
-                  >
-                    {FONT_SIZES.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  <div className="w-px h-6 bg-gray-300 mx-1" />
-
-                  {/* Formatting buttons */}
-                  <button
-                    onClick={() => formatText("bold")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                    title="Bold"
-                  >
-                    <Bold className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => formatText("italic")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                    title="Italic"
-                  >
-                    <Italic className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => formatText("underline")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                    title="Underline"
-                  >
-                    <Underline className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => formatText("strikeThrough")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                    title="Strikethrough"
-                  >
-                    <Strikethrough className="w-4 h-4" />
-                  </button>
-
-                  <div className="w-px h-6 bg-gray-300 mx-1" />
-
-                  {/* Alignment */}
-                  <button
-                    onClick={() => formatText("justifyLeft")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                  >
-                    <AlignLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => formatText("justifyCenter")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                  >
-                    <AlignCenter className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => formatText("justifyRight")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                  >
-                    <AlignRight className="w-4 h-4" />
-                  </button>
-
-                  <div className="w-px h-6 bg-gray-300 mx-1" />
-
-                  {/* List & Color */}
-                  <button
-                    onClick={() => formatText("insertUnorderedList")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                  >
-                    <List className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => formatText("insertOrderedList")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                  >
-                    <ListOrdered className="w-4 h-4" />
-                  </button>
-
-                  <div className="relative" ref={colorPickerRef}>
-                    <button
-                      onClick={() => setShowColorPicker(!showColorPicker)}
-                      className="p-2 hover:bg-gray-200 rounded relative"
-                    >
-                      <Type className="w-4 h-4" />
-                      <div
-                        className="absolute bottom-1 left-1/2 -translate-x-1/2 w-3 h-0.5"
-                        style={{ backgroundColor: currentColor }}
-                      />
-                    </button>
-                    {showColorPicker && (
-                      <div className="absolute top-10 left-0 bg-white border shadow-xl p-2 grid grid-cols-6 gap-1 z-50 rounded-lg">
-                        {COLORS.map((c) => (
-                          <button
-                            key={c}
-                            onClick={() => {
-                              setCurrentColor(c);
-                              formatText("foreColor", c);
-                              setShowColorPicker(false);
-                            }}
-                            className="w-5 h-5 rounded border"
-                            style={{ backgroundColor: c }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="w-px h-6 bg-gray-300 mx-1" />
-
-                  {/* Line Height Picker */}
-                  <div className="relative">
-                    <button
-                      onClick={() =>
-                        setShowLineHeightPicker(!showLineHeightPicker)
-                      }
-                      className="p-2 hover:bg-gray-200 rounded flex gap-1 items-center"
-                    >
-                      <ArrowUpDown className="w-4 h-4" />{" "}
-                      <ChevronDown className="w-3 h-3" />
-                    </button>
-                    {showLineHeightPicker && (
-                      <div className="absolute top-10 left-0 bg-white border shadow-xl py-1 z-50 w-28 rounded-lg">
-                        {LINE_HEIGHTS.map((lh) => (
-                          <button
-                            key={lh.value}
-                            onClick={() => applyLineHeight(lh.value)}
-                            className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50"
-                          >
-                            {lh.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <button
-                    onClick={() => formatText("insertHorizontalRule")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                    title="Horizontal Line"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => formatText("formatBlock", "blockquote")}
-                    className="p-2 hover:bg-gray-200 rounded"
-                    title="Quote"
-                  >
-                    <Quote className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      const url = prompt("Link URL:");
-                      if (url) formatText("createLink", url);
-                    }}
-                    className="p-2 hover:bg-gray-200 rounded"
-                  >
-                    <LinkIcon className="w-4 h-4" />
-                  </button>
+              {/* ✅ REPLACED TOOLBAR & EDITOR WITH OUTLOOK EDITOR COMPONENT */}
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">
+                  Email Body *
+                </label>
+                <div className="mt-1">
+                  <OutlookEditor
+                    ref={editorRef}
+                    initialContent={formData.bodyHtml}
+                    placeholder="Type your template content here..."
+                  />
                 </div>
-
-                {/* Placeholders Guide Bar */}
-                {/* <div className="bg-amber-50 border-b border-amber-100 px-4 py-2 flex items-center gap-3">
-                  <span className="text-[10px] font-bold text-amber-800 uppercase">
-                    Quick Add:
-                  </span>
-                  {[
-                    "{{clientName}}",
-                    "{{senderName}}",
-                    "{{email}}",
-                    "{{company}}",
-                  ].map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => insertPlaceholder(p)}
-                      className="text-[10px] bg-white border border-amber-200 px-2 py-0.5 rounded hover:bg-amber-100 transition-colors font-mono"
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div> */}
-
-                <div
-                  ref={editorRef}
-                  contentEditable
-                  onPaste={handlePaste}
-                  className="min-h-[350px] max-h-[450px] overflow-y-auto p-6 focus:outline-none transition-all prose prose-sm max-w-none"
-                  style={{
-                    fontFamily: currentFont,
-                    fontSize: currentSize,
-                    lineHeight: "1.5",
-                  }}
-                />
               </div>
             </div>
 

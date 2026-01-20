@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, forwardRef } from "react";
 import {
   Mail,
   Phone,
@@ -18,8 +18,482 @@ import {
   Underline,
   List,
   Link as LinkIcon,
+  Type,
+  Eraser,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Minus,
+  RotateCcw,
+  ListOrdered,
 } from "lucide-react";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// ==========================================
+// ✅ UPDATED: OUTLOOK EDITOR (Manual Inputs)
+// ==========================================
+const OutlookEditor = forwardRef(({ initialContent, placeholder }, ref) => {
+  const editorRef = useRef(null);
+
+  // Toolbar State
+  const [fontFamily, setFontFamily] = useState("Calibri");
+  const [fontSizeValue, setFontSizeValue] = useState("11"); // Default 11
+  const [lineSpacingValue, setLineSpacingValue] = useState("1.15"); // Default 1.15
+
+  // Color pickers hidden inputs
+  const textColorRef = useRef(null);
+  const highlightColorRef = useRef(null);
+
+  // Connect parent ref to internal div
+  useEffect(() => {
+    if (ref) ref.current = editorRef.current;
+  }, [ref]);
+
+  // Initialize Content
+  useEffect(() => {
+    if (editorRef.current && initialContent) {
+      editorRef.current.innerHTML = initialContent;
+    }
+    document.execCommand("defaultParagraphSeparator", false, "p");
+  }, [initialContent]);
+
+  // --- Core Formatting Command ---
+  const exec = (command, value = null) => {
+    document.execCommand(command, false, value);
+    editorRef.current?.focus();
+  };
+
+  // --- Font Family ---
+  const handleFontFamily = (e) => {
+    const val = e.target.value;
+    setFontFamily(val);
+    exec("fontName", val);
+  };
+
+  // --- ✅ MANUAL FONT SIZE HANDLER (Robust) ---
+  const applyFontSize = () => {
+    const sizeStr = fontSizeValue + "pt";
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+
+    // If cursor is blinking (no selection)
+    if (selection.isCollapsed) {
+      const span = `<span style="font-size: ${sizeStr}">&nbsp;</span>`;
+      document.execCommand("insertHTML", false, span);
+    } else {
+      // ROBUST: Iterate text nodes to preserve paragraph structure
+      applyStyleToSelectionNodes("fontSize", sizeStr);
+    }
+  };
+
+  // --- Helper: Apply Inline Style to Text Nodes (Prevents structure destruction) ---
+  const applyStyleToSelectionNodes = (styleProp, value) => {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+
+    const tempDiv = document.createElement("div");
+    tempDiv.appendChild(range.cloneContents());
+
+    const processNodes = (parentNode) => {
+      const children = Array.from(parentNode.childNodes);
+      children.forEach((child) => {
+        if (child.nodeType === Node.TEXT_NODE) {
+          const span = document.createElement("span");
+          span.style[styleProp] = value;
+          span.textContent = child.textContent;
+          parentNode.replaceChild(span, child);
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          processNodes(child);
+        }
+      });
+    };
+
+    processNodes(tempDiv);
+    document.execCommand("insertHTML", false, tempDiv.innerHTML);
+  };
+
+  // --- Helper: Adjust Font Size Step ---
+  const adjustFontSize = (delta) => {
+    let current = parseFloat(fontSizeValue);
+    if (isNaN(current)) current = 11;
+
+    let newSize = parseFloat((current + delta).toFixed(1));
+    if (newSize < 1) newSize = 1;
+
+    setFontSizeValue(newSize.toString());
+
+    const sizeStr = newSize + "pt";
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+
+    if (selection.isCollapsed) {
+      document.execCommand(
+        "insertHTML",
+        false,
+        `<span style="font-size:${sizeStr}">&nbsp;</span>`,
+      );
+    } else {
+      applyStyleToSelectionNodes("fontSize", sizeStr);
+    }
+  };
+
+  // --- ✅ MANUAL LINE SPACING HANDLER ---
+  const applyLineSpacing = () => {
+    const val = parseFloat(lineSpacingValue);
+    const valStr = val.toString();
+
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) return;
+
+    let anchorNode = selection.anchorNode;
+    while (
+      anchorNode &&
+      anchorNode.nodeName !== "P" &&
+      anchorNode.nodeName !== "DIV"
+    ) {
+      anchorNode = anchorNode.parentNode;
+    }
+
+    const applyStyle = (element) => {
+      if (!element || (element.nodeName !== "P" && element.nodeName !== "DIV"))
+        return;
+      element.style.lineHeight = valStr;
+
+      // Strict Logic: 1.0 means no spacing. > 1.0 means standard spacing.
+      if (val <= 1.0) {
+        element.style.marginBottom = "0px";
+        element.style.marginTop = "0px";
+      } else {
+        // Outlook default margin ~ 10-12px
+        element.style.marginBottom = "12px";
+      }
+    };
+
+    if (anchorNode) applyStyle(anchorNode);
+
+    // Apply to all paragraphs in selection
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    if (container && container.nodeName !== "P") {
+      const allPs = container.querySelectorAll("p");
+      allPs.forEach((p) => {
+        if (selection.containsNode(p, true)) {
+          applyStyle(p);
+        }
+      });
+    }
+  };
+
+  // --- Colors ---
+  const handleColorClick = (type) => {
+    if (type === "text") textColorRef.current?.click();
+    if (type === "highlight") highlightColorRef.current?.click();
+  };
+
+  // --- Manual Select All ---
+  const selectAll = () => {
+    if (editorRef.current) {
+      const range = document.createRange();
+      range.selectNodeContents(editorRef.current);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  };
+
+  // --- Paste Logic (Keep Format, Enforce Defaults on Plain Text) ---
+  const handlePaste = (e) => {
+    e.preventDefault();
+    const htmlData = e.clipboardData.getData("text/html");
+    const textData = e.clipboardData.getData("text/plain");
+
+    if (htmlData && htmlData.trim().length > 0) {
+      // Rich Paste: Keep format as requested ("keep format")
+      // We strip scripts for safety
+      const cleanHtml = htmlData.replace(
+        /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+        "",
+      );
+      document.execCommand("insertHTML", false, cleanHtml);
+    } else {
+      // Plain Text: Apply User Defaults (Calibri, 1.15)
+      const paragraphs = textData.split(/\n\s*\n/);
+      const normHtml = paragraphs
+        .map((para) => {
+          const lines = para.trim().replace(/\n/g, "<br>");
+          return lines
+            ? `<p style="margin:0 0 12px 0;font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.15;">${lines}</p>`
+            : "";
+        })
+        .filter((p) => p)
+        .join("");
+      document.execCommand("insertHTML", false, normHtml);
+    }
+  };
+
+  return (
+    <div className="border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white flex flex-col">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2 p-2 bg-gray-50 border-b border-gray-300 select-none">
+        {/* Group 1: Font Family */}
+        <div className="flex items-center border-r border-gray-300 pr-2">
+          <div className="relative group">
+            <select
+              value={fontFamily}
+              onChange={handleFontFamily}
+              className="appearance-none bg-transparent border border-gray-300 rounded px-2 py-1 text-xs w-32 cursor-pointer hover:bg-white hover:border-blue-400 focus:outline-none"
+            >
+              <option value="Calibri">Calibri</option>
+              <option value="Arial">Arial</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Tahoma">Tahoma</option>
+              <option value="Trebuchet MS">Trebuchet MS</option>
+              <option value="Courier New">Courier New</option>
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 w-3 h-3" />
+          </div>
+        </div>
+
+        {/* Group 2: Font Size (Manual Input) */}
+        <div className="flex items-center border-r border-gray-300 pr-2 gap-1">
+          <button
+            onClick={() => adjustFontSize(-0.1)}
+            className="p-1 hover:bg-gray-200 rounded text-gray-700"
+            title="Decrease Font Size"
+          >
+            <Minus className="w-3 h-3" />
+          </button>
+
+          <div className="flex items-center border border-gray-300 rounded bg-white">
+            <input
+              type="number"
+              step="0.1"
+              min="1"
+              value={fontSizeValue}
+              onChange={(e) => setFontSizeValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyFontSize()}
+              className="w-14 text-center text-xs p-0.5 focus:outline-none"
+            />
+            <span className="text-xs text-gray-500 pr-1">pt</span>
+            <button
+              onClick={applyFontSize}
+              className="px-1 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded"
+              title="Apply Font Size"
+            >
+              ✓
+            </button>
+          </div>
+
+          <button
+            onClick={() => adjustFontSize(0.1)}
+            className="p-1 hover:bg-gray-200 rounded text-gray-700"
+            title="Increase Font Size"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
+
+        {/* Group 3: Basic Formatting */}
+        <div className="flex items-center gap-1 border-r border-gray-300 pr-2">
+          <button
+            onClick={() => exec("bold")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Bold"
+          >
+            <Bold className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("italic")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Italic"
+          >
+            <Italic className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("underline")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Underline"
+          >
+            <Underline className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("strikeThrough")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Strikethrough"
+          >
+            <Type className="w-4 h-4 text-gray-600" />
+          </button>
+
+          <div className="relative">
+            <input
+              type="color"
+              ref={textColorRef}
+              className="hidden"
+              onChange={(e) => exec("foreColor", e.target.value)}
+            />
+            <button
+              onClick={() => handleColorClick("text")}
+              className="p-2 hover:bg-gray-200 rounded transition-colors"
+              title="Font Color"
+            >
+              <div
+                className="w-4 h-4 text-gray-600"
+                style={{ border: "1px solid #ddd" }}
+              >
+                A
+              </div>
+            </button>
+          </div>
+
+          <div className="relative">
+            <input
+              type="color"
+              ref={highlightColorRef}
+              className="hidden"
+              defaultValue="#ffff00"
+              onChange={(e) => exec("backColor", e.target.value)}
+            />
+            <button
+              onClick={() => handleColorClick("highlight")}
+              className="p-2 hover:bg-gray-200 rounded transition-colors bg-[#ffff00]"
+              title="Text Highlight Color"
+            >
+              <div className="w-4 h-4 bg-transparent"></div>
+            </button>
+          </div>
+        </div>
+
+        {/* Group 4: Paragraph & Alignment */}
+        <div className="flex items-center gap-1 border-r border-gray-300 pr-2">
+          <button
+            onClick={() => exec("insertUnorderedList")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Bullets"
+          >
+            <List className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("insertOrderedList")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Numbering"
+          >
+            <ListOrdered className="w-4 h-4 text-gray-600" />
+          </button>
+
+          <button
+            onClick={() => exec("outdent")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Decrease Indent"
+          >
+            <ChevronUp className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("indent")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Increase Indent"
+          >
+            <ChevronDown className="w-4 h-4 text-gray-600" />
+          </button>
+
+          <button
+            onClick={() => exec("justifyLeft")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Align Left"
+          >
+            <AlignLeft className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("justifyCenter")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Align Center"
+          >
+            <AlignCenter className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("justifyRight")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Align Right"
+          >
+            <AlignRight className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("justifyFull")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Justify"
+          >
+            <AlignJustify className="w-4 h-4 text-gray-600" />
+          </button>
+        </div>
+
+        {/* Group 5: Line Spacing (Manual Input) & Utils */}
+        <div className="flex items-center gap-2">
+          {/* Manual Line Spacing Input */}
+          <div className="flex items-center bg-white border border-gray-300 rounded px-1">
+            <span className="text-xs text-gray-500 ml-1" title="Line Spacing">
+              Spacing:
+            </span>
+            <input
+              type="number"
+              step="0.05"
+              value={lineSpacingValue}
+              onChange={(e) => setLineSpacingValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyLineSpacing()}
+              className="w-12 text-center text-xs p-0.5 focus:outline-none"
+              min="1"
+            />
+            <button
+              onClick={applyLineSpacing}
+              className="p-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 text-xs font-semibold"
+              title="Apply Spacing"
+            >
+              ✓
+            </button>
+          </div>
+
+          <button
+            onClick={() => exec("removeFormat")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors text-red-500"
+            title="Clear Formatting"
+          >
+            <Eraser className="w-4 h-4" />
+          </button>
+
+          {/* Manual Select All Button */}
+          <button
+            onClick={selectAll}
+            className="px-2 py-1 text-xs font-medium bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+            title="Select All"
+          >
+            Select All
+          </button>
+        </div>
+      </div>
+
+      {/* Content Area */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        className="min-h-[120px] overflow-y-auto p-4 focus:outline-none bg-white resize-y"
+        style={{
+          fontFamily: "Calibri, Arial, sans-serif",
+          fontSize: "11pt",
+          lineHeight: "1.15",
+          color: "#000000",
+          resize: "vertical", // 👈 enables dragger
+          maxHeight: "70vh", // 👈 optional safety limit
+        }}
+        placeholder={placeholder}
+        onPaste={handlePaste}
+      ></div>
+    </div>
+  );
+});
 
 // Mock ComposeForm component for demonstration
 const ComposeForm = ({
@@ -35,7 +509,7 @@ const ComposeForm = ({
       value={composeData.from}
       onChange={(e) => {
         const selectedAccount = accounts.find(
-          (acc) => acc.email === e.target.value
+          (acc) => acc.email === e.target.value,
         );
         setComposeData({
           ...composeData,
@@ -121,7 +595,7 @@ export default function Forwardedlead() {
       setLoading(true);
       try {
         const res = await fetch(
-          `${API_BASE_URL}/api/forwardedLeads/assigned/${user.id}`
+          `${API_BASE_URL}/api/forwardedLeads/assigned/${user.id}`,
         );
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
@@ -140,122 +614,46 @@ export default function Forwardedlead() {
   useEffect(() => {
     if (!user?.empId) return;
 
-//     const fetchAccounts = async () => {
-//       try {
-//         const res = await fetch(`${API_BASE_URL}/api/accounts`, {
-//           headers: {
-//             "Content-Type": "application/json",
-//             Authorization: `Bearer ${localStorage.getItem("token")}`,
-//           },
-//           credentials: "include",
-//         });
+    const fetchAccounts = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/accounts`, {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          credentials: "include",
+        });
 
-//         if (!res.ok) {
-//           throw new Error(`HTTP error! status: ${res.status}`);
-//         }
-// const result = await res.json();
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
 
-// if (
-//   !result.success ||
-//   !Array.isArray(result.data) ||
-//   result.data.length === 0
-// ) {
-//   setAccounts([]);
-//   setPopupMessage("No email account found. Please add an email account.");
-//   setShowAddAccountPopup(true);
-//   return;
-// }
+        const result = await res.json();
 
-// setAccounts(result.data);
-// setShowAddAccountPopup(false);
+        if (
+          !result.success ||
+          !Array.isArray(result.data) ||
+          result.data.length === 0
+        ) {
+          setAccounts([]);
+          setPopupMessage(
+            "No email account found. Please add an email account.",
+          );
+          setShowAddAccountPopup(true);
+          return;
+        }
 
-
-//         setAccounts(data);
-//         setShowAddAccountPopup(false);
-//       } catch (err) {
-//         console.error("❌ Error fetching accounts by empId:", err);
-//         setPopupMessage("Unable to load accounts. Please try again.");
-//         setShowAddAccountPopup(true);
-//       }
-//     };
-const fetchAccounts = async () => {
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/accounts`, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
-      },
-      credentials: "include",
-    });
-
-    if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
-    }
-
-    const result = await res.json();
-
-    if (
-      !result.success ||
-      !Array.isArray(result.data) ||
-      result.data.length === 0
-    ) {
-      setAccounts([]);
-      setPopupMessage("No email account found. Please add an email account.");
-      setShowAddAccountPopup(true);
-      return;
-    }
-
-    // ✅ THIS IS THE ONLY SET YOU NEED
-    setAccounts(result.data);
-    setShowAddAccountPopup(false);
-  } catch (err) {
-    console.error("❌ Error fetching accounts by empId:", err);
-    setPopupMessage("Unable to load accounts. Please try again.");
-    setShowAddAccountPopup(true);
-  }
-};
+        setAccounts(result.data);
+        setShowAddAccountPopup(false);
+      } catch (err) {
+        console.error("❌ Error fetching accounts by empId:", err);
+        setPopupMessage("Unable to load accounts. Please try again.");
+        setShowAddAccountPopup(true);
+      }
+    };
 
     fetchAccounts();
   }, [user?.empId]);
-
-  // ✅ Setup paste handler for the main editor
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    const handlePaste = (e) => {
-      e.preventDefault();
-
-      // Try to get HTML first, fall back to plain text
-      let content = e.clipboardData.getData("text/html");
-
-      if (!content) {
-        // Get plain text from clipboard
-        const text = e.clipboardData.getData("text/plain");
-
-        // Convert plain text to HTML preserving paragraphs
-        const paragraphs = text.split(/\n\s*\n/);
-        content = paragraphs
-          .map((para) => {
-            const lines = para.trim().replace(/\n/g, "<br>");
-            return lines
-              ? `<p style="margin:0 0 12px 0;font-family:Calibri,Arial,sans-serif;font-size:11pt;">${lines}</p>`
-              : "";
-          })
-          .filter((p) => p)
-          .join("");
-      }
-
-      // Insert the formatted content
-      document.execCommand("insertHTML", false, content);
-    };
-
-    editor.addEventListener("paste", handlePaste);
-
-    return () => {
-      editor.removeEventListener("paste", handlePaste);
-    };
-  }, [showComposePopup]);
 
   const toggleRowExpansion = (index) =>
     setExpandedRows((prev) => ({ ...prev, [index]: !prev[index] }));
@@ -288,7 +686,7 @@ const fetchAccounts = async () => {
   const handleSendEmail = async (payload) => {
     if (!payload.emailAccountId) {
       alert(
-        "⚠️ Email account is not selected. Please select a 'From' address."
+        "⚠️ Email account is not selected. Please select a 'From' address.",
       );
       return;
     }
@@ -360,20 +758,16 @@ const fetchAccounts = async () => {
   function parseFromField(fromStr) {
     if (!fromStr) return { name: "", email: "" };
 
-    // Match pattern: "Name <email@domain.com>" or just "email@domain.com"
     const match = fromStr.match(/^(.+?)\s*<([^>]+)>$|^([^\s]+@[^\s]+)$/);
 
     if (match) {
       if (match[1] && match[2]) {
-        // Has name and email
         return { name: match[1].trim(), email: match[2].trim() };
       } else if (match[3]) {
-        // Just email
         return { name: "", email: match[3].trim() };
       }
     }
 
-    // Fallback
     return { name: "", email: fromStr.trim() };
   }
 
@@ -381,27 +775,22 @@ const fetchAccounts = async () => {
   function formatBodyWithParagraphs(text) {
     if (!text) return "";
 
-    // If already contains HTML tags, return as-is
     if (/<br|<p|<div/i.test(text)) {
       return text;
     }
 
-    // Escape HTML entities first
     let escaped = text
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
 
-    // Convert plain text to HTML with proper paragraph spacing
-    // Split by double line breaks (paragraphs)
     const paragraphs = escaped.split(/\n\s*\n/);
 
     return paragraphs
       .map((para) => {
-        // Convert single line breaks within paragraph to <br>
         const lines = para.trim().replace(/\n/g, "<br>");
         return lines
-          ? `<p style="margin:0 0 12px 0;line-height:1.35;">${lines}</p>`
+          ? `<p style="margin:0 0 12px 0;line-height:1.15;">${lines}</p>` // Updated to 1.15
           : "";
       })
       .filter((p) => p)
@@ -412,14 +801,12 @@ const fetchAccounts = async () => {
   function buildForwardBlock(lead) {
     const cleanBody = cleanForwardedBody(lead.body || "");
 
-    // Parse existing headers if present
     const fromMatch = cleanBody.match(/From:\s*([^\n]+)/i);
     const sentMatch = cleanBody.match(/Sent:\s*([^\n]+)/i);
     const toMatch = cleanBody.match(/To:\s*([^\n]+)/i);
     const ccMatch = cleanBody.match(/Cc:\s*([^\n]+)/i);
     const subjectMatch = cleanBody.match(/Subject:\s*([^\n]+)/i);
 
-    // Extract the actual body content (everything after headers)
     let actualBody = cleanBody;
     if (fromMatch || sentMatch) {
       const headerEnd = Math.max(
@@ -427,53 +814,45 @@ const fetchAccounts = async () => {
         sentMatch?.index || 0,
         toMatch?.index || 0,
         ccMatch?.index || 0,
-        subjectMatch?.index || 0
+        subjectMatch?.index || 0,
       );
 
-      // Find the end of headers (usually marked by double newline or after Subject)
       const bodyStart = cleanBody.indexOf("\n\n", headerEnd);
       if (bodyStart > 0) {
         actualBody = cleanBody.substring(bodyStart + 2);
       } else if (subjectMatch) {
-        // If no double newline, look for content after Subject line
         const subjectEnd = subjectMatch.index + subjectMatch[0].length;
         actualBody = cleanBody.substring(subjectEnd).replace(/^\n+/, "");
       }
     }
 
-    // Parse From field to extract name and email properly
     const fromField = fromMatch?.[1] || lead.client || "";
     const parsedFrom = parseFromField(fromField);
     const fromDisplay = parsedFrom.name
       ? `${parsedFrom.name} &lt;${parsedFrom.email}&gt;`
       : parsedFrom.email;
 
-    // Use lead data or extracted data
     const sent = lead.date ? formatLongDate(lead.date) : sentMatch?.[1] || "";
     const to = toMatch?.[1] || lead.email || "";
     const cc = ccMatch?.[1] || lead.cc || "";
     const subject = subjectMatch?.[1] || lead.subject || "(No Subject)";
 
-    // Format body with proper paragraph spacing
     const formattedBody = formatBodyWithParagraphs(actualBody);
 
-    // Build clean Outlook-style header
     const header = `
-<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.35;margin:0;padding:0;">
+<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.15;margin:0;padding:0;">
 <div style="border-top:1px solid #E1E1E1;margin:12px 0;"></div>
 <p style="margin:0 0 2px 0;"><b>From:</b> ${fromDisplay}</p>
 <p style="margin:0 0 2px 0;"><b>Sent:</b> ${sent}</p>
 <p style="margin:0 0 2px 0;"><b>To:</b> ${to}</p>
-${cc ? `<p style="margin:0 0 2px 0;"><b>Cc:</b> ${cc}</p>` : ""}
+ ${cc ? `<p style="margin:0 0 2px 0;"><b>Cc:</b> ${cc}</p>` : ""}
 <p style="margin:0 0 12px 0;"><b>Subject:</b> ${subject}</p>
 </div>`;
 
-    // Return combined HTML with proper spacing
-    return `${header}<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.35;">${formattedBody}</div>`;
+    return `${header}<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.15;">${formattedBody}</div>`;
   }
 
   const handleOpenComposePopup = (lead) => {
-    // Prepare CC list
     const ccList =
       lead.cc && typeof lead.cc === "string"
         ? lead.cc
@@ -482,7 +861,6 @@ ${cc ? `<p style="margin:0 0 2px 0;"><b>Cc:</b> ${cc}</p>` : ""}
             .filter((c) => c !== "")
         : [];
 
-    // Set compose data
     setComposeData({
       from: accounts[0]?.email || "",
       emailAccountId: accounts[0]?.id || null,
@@ -494,15 +872,12 @@ ${cc ? `<p style="margin:0 0 2px 0;"><b>Cc:</b> ${cc}</p>` : ""}
       attachments: [],
     });
 
-    // Build properly formatted forwarded content
     const structured = buildForwardBlock(lead);
     setForwardedContent(structured);
     setShowQuotedText(true);
 
-    // Open modal
     setShowComposePopup(true);
 
-    // Initialize editor after modal opens
     setTimeout(() => {
       if (editorRef.current) {
         editorRef.current.innerHTML = "";
@@ -519,24 +894,10 @@ ${cc ? `<p style="margin:0 0 2px 0;"><b>Cc:</b> ${cc}</p>` : ""}
       : "";
 
     return `
-<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.35;">
-${userHtml}
-${forwardedHtml ? "<br>" + forwardedHtml : ""}
+<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.15;">
+ ${userHtml}
+ ${forwardedHtml ? "<br>" + forwardedHtml : ""}
 </div>`.trim();
-  };
-
-  // ✅ Format text commands
-  const formatText = (command) => {
-    document.execCommand(command, false, null);
-    editorRef.current?.focus();
-  };
-
-  const insertLink = () => {
-    const url = prompt("Enter URL:");
-    if (url) {
-      document.execCommand("createLink", false, url);
-    }
-    editorRef.current?.focus();
   };
 
   const handleUpdateResult = async (index) => {
@@ -567,7 +928,7 @@ ${forwardedHtml ? "<br>" + forwardedHtml : ""}
           const fetchLeads = async () => {
             try {
               const res = await fetch(
-                `${API_BASE_URL}/api/forwardedLeads/assigned/${user.id}`
+                `${API_BASE_URL}/api/forwardedLeads/assigned/${user.id}`,
               );
               const json = await res.json();
               if (json.success && Array.isArray(json.data)) {
@@ -615,13 +976,13 @@ ${forwardedHtml ? "<br>" + forwardedHtml : ""}
       <style>{`
         .forwarded-content p {
           margin: 0 0 12px 0;
-          line-height: 1.35;
+          line-height: 1.15;
         }
         .forwarded-content p:last-child {
           margin-bottom: 0;
         }
         .forwarded-content br {
-          line-height: 1.35;
+          line-height: 1.15;
         }
         [contenteditable] p {
           margin: 0 0 12px 0;
@@ -736,7 +1097,7 @@ ${forwardedHtml ? "<br>" + forwardedHtml : ""}
 
                       <span
                         className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold border backdrop-blur-md bg-white/40 border-white/30 shadow-sm ${getLeadTypeColor(
-                          lead.leadType
+                          lead.leadType,
                         )}`}
                       >
                         <Tag className="w-3.5 h-3.5" />
@@ -923,7 +1284,7 @@ ${forwardedHtml ? "<br>" + forwardedHtml : ""}
                       value={composeData.from}
                       onChange={(e) => {
                         const selectedAccount = accounts.find(
-                          (acc) => acc.email === e.target.value
+                          (acc) => acc.email === e.target.value,
                         );
                         setComposeData({
                           ...composeData,
@@ -969,8 +1330,8 @@ ${forwardedHtml ? "<br>" + forwardedHtml : ""}
                       {(composeData.ccList && composeData.ccList.length > 0
                         ? composeData.ccList
                         : composeData.cc
-                        ? [composeData.cc]
-                        : [""]
+                          ? [composeData.cc]
+                          : [""]
                       ).map((cc, idx) => (
                         <div key={idx} className="flex items-center gap-2">
                           <input
@@ -1047,94 +1408,45 @@ ${forwardedHtml ? "<br>" + forwardedHtml : ""}
                   </div>
                 </div>
 
-                {/* ✅ IMPROVED Message Editor with Toolbar */}
-                <div className="mt-6 border border-gray-300 rounded-lg overflow-hidden">
-                  {/* Toolbar */}
-                  <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-300">
-                    <button
-                      onClick={() => formatText("bold")}
-                      className="p-2 hover:bg-gray-200 rounded transition-colors"
-                      title="Bold"
-                    >
-                      <Bold className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("italic")}
-                      className="p-2 hover:bg-gray-200 rounded transition-colors"
-                      title="Italic"
-                    >
-                      <Italic className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={() => formatText("underline")}
-                      className="p-2 hover:bg-gray-200 rounded transition-colors"
-                      title="Underline"
-                    >
-                      <Underline className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <div className="w-px h-6 bg-gray-300 mx-1"></div>
-                    <button
-                      onClick={() => formatText("insertUnorderedList")}
-                      className="p-2 hover:bg-gray-200 rounded transition-colors"
-                      title="Bullet List"
-                    >
-                      <List className="w-4 h-4 text-gray-600" />
-                    </button>
-                    <button
-                      onClick={insertLink}
-                      className="p-2 hover:bg-gray-200 rounded transition-colors"
-                      title="Insert Link"
-                    >
-                      <LinkIcon className="w-4 h-4 text-gray-600" />
-                    </button>
-                  </div>
-
-                  {/* ✅ New Message Editor - Clean and Simple */}
-                  <div
+                {/* ✅ NEW OUTLOOK EDITOR REPLACEMENT */}
+                <div className="mt-6">
+                  <OutlookEditor
                     ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    className="min-h-[120px] max-h-[200px] overflow-y-auto p-4 focus:outline-none bg-white"
-                    style={{
-                      fontFamily: "Calibri, Arial, sans-serif",
-                      fontSize: "11pt",
-                      lineHeight: "1.35",
-                      color: "#000000",
-                    }}
+                    initialContent={composeData.body}
                     placeholder="Type your message here..."
                   />
+                </div>
 
-                  {/* ✅ Show/Hide Quoted Text Toggle */}
-                  <div className="border-t border-gray-200">
-                    <button
-                      onClick={() => setShowQuotedText(!showQuotedText)}
-                      className="w-full px-4 py-2 flex items-center justify-center gap-2 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
-                    >
-                      <span className="text-lg leading-none">•••</span>
-                      <span>
-                        {showQuotedText ? "Hide" : "Show"} forwarded message
-                      </span>
-                    </button>
+                {/* ✅ Show/Hide Quoted Text Toggle */}
+                <div className="border-t border-gray-200 mt-0">
+                  <button
+                    onClick={() => setShowQuotedText(!showQuotedText)}
+                    className="w-full px-4 py-2 flex items-center justify-center gap-2 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    <span className="text-lg leading-none">•••</span>
+                    <span>
+                      {showQuotedText ? "Hide" : "Show"} forwarded message
+                    </span>
+                  </button>
 
-                    {/* ✅ Forwarded Message - Editable and Well-Formatted */}
-                    {showQuotedText && (
-                      <div
-                        ref={forwardedEditorRef}
-                        contentEditable
-                        suppressContentEditableWarning
-                        className="p-4 bg-gray-50 border-t border-gray-200 max-h-[300px] overflow-y-auto focus:outline-none forwarded-content"
-                        style={{
-                          fontFamily: "Calibri, Arial, sans-serif",
-                          fontSize: "11pt",
-                          lineHeight: "1.35",
-                          color: "#000000",
-                        }}
-                        dangerouslySetInnerHTML={{
-                          __html: forwardedContent,
-                        }}
-                      />
-                    )}
-                  </div>
+                  {/* ✅ Forwarded Message - Editable and Well-Formatted */}
+                  {showQuotedText && (
+                    <div
+                      ref={forwardedEditorRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      className="p-4 bg-gray-50 border-t border-gray-200 max-h-[300px] overflow-y-auto focus:outline-none forwarded-content"
+                      style={{
+                        fontFamily: "Calibri, Arial, sans-serif",
+                        fontSize: "11pt",
+                        lineHeight: "1.15",
+                        color: "#000000",
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: forwardedContent,
+                      }}
+                    />
+                  )}
                 </div>
               </div>
             </div>

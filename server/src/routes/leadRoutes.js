@@ -1,5 +1,6 @@
 import express from "express";
 import prisma from "../prismaClient.js";
+import { notifyLeadForwarded } from "../services/notification.service.js";
 
 const router = express.Router();
 
@@ -53,6 +54,13 @@ router.post("/forward", async (req, res) => {
     await prisma.salesLead.update({
       where: { id: Number(id) },
       data: { leadStatus: "Forwarded" },
+    });
+    // 🔔 SEND NOTIFICATION TO EMPLOYEE
+    await notifyLeadForwarded({
+      employeeUserId: Number(userId), // 👈 employee receiving lead
+      leadId: newLeadDetail.id, // 👈 forwarded lead id
+      leadClient: client, // 👈 client name
+      adminName: req.user?.name || "Admin", // 👈 admin name
     });
 
     res.json({
@@ -182,7 +190,7 @@ router.get("/followups", async (req, res) => {
     const normalizedEmail = email.trim().toLowerCase();
 
     console.log(
-      `📩 Fetching lead details for client email: ${normalizedEmail}`
+      `📩 Fetching lead details for client email: ${normalizedEmail}`,
     );
 
     // ✅ Step 2: Fetch leads from LeadDetails table

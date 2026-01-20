@@ -1,6 +1,6 @@
-// 🔥 FULLY UPDATED: MessageView.jsx - With Lead Edit Pencil + Account Dropdown + Templates
+// 🔥 FULLY UPDATED: MessageView.jsx - With Outlook Editor Integration
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, forwardRef } from "react";
 import {
   ChevronLeft,
   Reply,
@@ -26,7 +26,7 @@ import {
   ChevronUp,
   Clock,
   Edit,
-  RotateCw,
+  RotateCcw,
   AlignLeft,
   AlignCenter,
   AlignRight,
@@ -36,7 +36,9 @@ import {
   Minus,
   Quote,
   ArrowUpDown,
-  Pencil, // ✅ Added Pencil Icon
+  Pencil,
+  Plus,
+  Eraser,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { api } from "../../../pages/api.js";
@@ -50,118 +52,465 @@ import {
 import FollowUpEditModal from "../../components/FollowUpEditModal.jsx";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-// 🎨 Outlook-style default fonts
-const FONT_FAMILIES = [
-  { value: "Calibri, sans-serif", label: "Calibri" },
-  { value: "Arial, sans-serif", label: "Arial" },
-  { value: "'Times New Roman', serif", label: "Times New Roman" },
-  { value: "'Courier New', monospace", label: "Courier New" },
-  { value: "Georgia, serif", label: "Georgia" },
-  { value: "Verdana, sans-serif", label: "Verdana" },
-  { value: "Tahoma, sans-serif", label: "Tahoma" },
-  { value: "'Comic Sans MS', cursive", label: "Comic Sans MS" },
-  { value: "'Trebuchet MS', sans-serif", label: "Trebuchet MS" },
-  { value: "Impact, sans-serif", label: "Impact" },
-];
+// ==========================================
+// ✅ OUTLOOK EDITOR COMPONENT (COPIED FROM MessageTemplates.jsx)
+// ==========================================
+const OutlookEditor = forwardRef(({ initialContent, placeholder }, ref) => {
+  const editorRef = useRef(null);
 
-// 📏 Font sizes like Outlook
-const FONT_SIZES = [
-  { value: "8pt", label: "8" },
-  { value: "9pt", label: "9" },
-  { value: "10pt", label: "10" },
-  { value: "11pt", label: "11" },
-  { value: "12pt", label: "12" },
-  { value: "14pt", label: "14" },
-  { value: "16pt", label: "16" },
-  { value: "18pt", label: "18" },
-  { value: "20pt", label: "20" },
-  { value: "22pt", label: "22" },
-  { value: "24pt", label: "24" },
-  { value: "26pt", label: "26" },
-  { value: "28pt", label: "28" },
-  { value: "36pt", label: "36" },
-  { value: "48pt", label: "48" },
-  { value: "72pt", label: "72" },
-];
+  // Toolbar State
+  const [fontFamily, setFontFamily] = useState("Calibri");
+  const [fontSizeValue, setFontSizeValue] = useState("11");
+  const [lineSpacingValue, setLineSpacingValue] = useState("1.15");
 
-// 🎨 Common colors like Outlook
-const COLORS = [
-  "#000000",
-  "#444444",
-  "#666666",
-  "#999999",
-  "#CCCCCC",
-  "#EEEEEE",
-  "#F3F3F3",
-  "#FFFFFF",
-  "#FF0000",
-  "#FF9900",
-  "#FFFF00",
-  "#00FF00",
-  "#00FFFF",
-  "#0000FF",
-  "#9900FF",
-  "#FF00FF",
-  "#F4CCCC",
-  "#FCE5CD",
-  "#FFF2CC",
-  "#D9EAD3",
-  "#D0E0E3",
-  "#C9DAF8",
-  "#D9D2E9",
-  "#EAD1DC",
-  "#EA9999",
-  "#F9CB9C",
-  "#FFE599",
-  "#B6D7A8",
-  "#A2C4C9",
-  "#A4C2F4",
-  "#B4A7D6",
-  "#D5A6BD",
-  "#E06666",
-  "#F6B26B",
-  "#FFD966",
-  "#93C47D",
-  "#76A5AF",
-  "#6D9EEB",
-  "#8E7CC3",
-  "#C27BA0",
-  "#CC0000",
-  "#E69138",
-  "#F1C232",
-  "#6AA84F",
-  "#45818E",
-  "#3C78D8",
-  "#674EA7",
-  "#A64D79",
-  "#990000",
-  "#B45F06",
-  "#BF9000",
-  "#38761D",
-  "#134F5C",
-  "#1155CC",
-  "#351C75",
-  "#741B47",
-  "#660000",
-  "#783F04",
-  "#7F6000",
-  "#274E13",
-  "#0C343D",
-  "#1C4587",
-  "#20124D",
-  "#4C1130",
-];
+  // Color pickers hidden inputs
+  const textColorRef = useRef(null);
+  const highlightColorRef = useRef(null);
 
-// 📏 NEW: Line Spacing Options
-const LINE_HEIGHTS = [
-  { value: "1.0", label: "Single" },
-  { value: "1.15", label: "1.15" },
-  { value: "1.5", label: "1.5" },
-  { value: "2.0", label: "Double" },
-  { value: "2.5", label: "2.5" },
-  { value: "3.0", label: "3.0" },
-];
+  // Connect parent ref to internal div
+  useEffect(() => {
+    if (ref) ref.current = editorRef.current;
+  }, [ref]);
 
+  // Initialize Content
+  useEffect(() => {
+    if (editorRef.current && initialContent) {
+      editorRef.current.innerHTML = initialContent;
+    }
+    document.execCommand("defaultParagraphSeparator", false, "p");
+  }, [initialContent]);
+
+  // --- Core Formatting Command ---
+  const exec = (command, value = null) => {
+    document.execCommand(command, false, value);
+    editorRef.current?.focus();
+  };
+
+  // --- Font Family ---
+  const handleFontFamily = (e) => {
+    const val = e.target.value;
+    setFontFamily(val);
+    exec("fontName", val);
+  };
+
+  // --- Manual Font Size Handler ---
+  const applyFontSize = () => {
+    const sizeStr = fontSizeValue + "pt";
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+
+    if (selection.isCollapsed) {
+      const span = `<span style="font-size: ${sizeStr}">&nbsp;</span>`;
+      document.execCommand("insertHTML", false, span);
+    } else {
+      applyStyleToSelectionNodes("fontSize", sizeStr);
+    }
+  };
+
+  // --- Helper: Apply Inline Style to Text Nodes ---
+  const applyStyleToSelectionNodes = (styleProp, value) => {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+
+    const tempDiv = document.createElement("div");
+    tempDiv.appendChild(range.cloneContents());
+
+    const processNodes = (parentNode) => {
+      const children = Array.from(parentNode.childNodes);
+      children.forEach((child) => {
+        if (child.nodeType === Node.TEXT_NODE) {
+          const span = document.createElement("span");
+          span.style[styleProp] = value;
+          span.textContent = child.textContent;
+          parentNode.replaceChild(span, child);
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          processNodes(child);
+        }
+      });
+    };
+
+    processNodes(tempDiv);
+    document.execCommand("insertHTML", false, tempDiv.innerHTML);
+  };
+
+  // --- Helper: Adjust Font Size Step ---
+  const adjustFontSize = (delta) => {
+    let current = parseFloat(fontSizeValue);
+    if (isNaN(current)) current = 11;
+
+    let newSize = parseFloat((current + delta).toFixed(1));
+    if (newSize < 1) newSize = 1;
+
+    setFontSizeValue(newSize.toString());
+
+    const sizeStr = newSize + "pt";
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+
+    if (selection.isCollapsed) {
+      document.execCommand(
+        "insertHTML",
+        false,
+        `<span style="font-size:${sizeStr}">&nbsp;</span>`,
+      );
+    } else {
+      applyStyleToSelectionNodes("fontSize", sizeStr);
+    }
+  };
+
+  // --- Manual Line Spacing Handler ---
+  const applyLineSpacing = () => {
+    const val = parseFloat(lineSpacingValue);
+    const valStr = val.toString();
+
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) return;
+
+    let anchorNode = selection.anchorNode;
+    while (
+      anchorNode &&
+      anchorNode.nodeName !== "P" &&
+      anchorNode.nodeName !== "DIV"
+    ) {
+      anchorNode = anchorNode.parentNode;
+    }
+
+    const applyStyle = (element) => {
+      if (!element || (element.nodeName !== "P" && element.nodeName !== "DIV"))
+        return;
+      element.style.lineHeight = valStr;
+
+      if (val <= 1.0) {
+        element.style.marginBottom = "0px";
+        element.style.marginTop = "0px";
+      } else {
+        element.style.marginBottom = "12px";
+      }
+    };
+
+    if (anchorNode) applyStyle(anchorNode);
+
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    if (container && container.nodeName !== "P") {
+      const allPs = container.querySelectorAll("p");
+      allPs.forEach((p) => {
+        if (selection.containsNode(p, true)) {
+          applyStyle(p);
+        }
+      });
+    }
+  };
+
+  // --- Colors ---
+  const handleColorClick = (type) => {
+    if (type === "text") textColorRef.current?.click();
+    if (type === "highlight") highlightColorRef.current?.click();
+  };
+
+  // --- Manual Select All ---
+  const selectAll = () => {
+    if (editorRef.current) {
+      const range = document.createRange();
+      range.selectNodeContents(editorRef.current);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  };
+
+  // --- Paste Logic ---
+  const handlePaste = (e) => {
+    e.preventDefault();
+    const htmlData = e.clipboardData.getData("text/html");
+    const textData = e.clipboardData.getData("text/plain");
+
+    if (htmlData && htmlData.trim().length > 0) {
+      const cleanHtml = htmlData.replace(
+        /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+        "",
+      );
+      document.execCommand("insertHTML", false, cleanHtml);
+    } else {
+      const paragraphs = textData.split(/\n\s*\n/);
+      const normHtml = paragraphs
+        .map((para) => {
+          const lines = para.trim().replace(/\n/g, "<br>");
+          return lines
+            ? `<p style="margin:0 0 12px 0;font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.15;">${lines}</p>`
+            : "";
+        })
+        .filter((p) => p)
+        .join("");
+      document.execCommand("insertHTML", false, normHtml);
+    }
+  };
+
+  return (
+    <div className="border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white flex flex-col">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2 p-2 bg-gray-50 border-b border-gray-300 select-none">
+        {/* Group 1: Font Family */}
+        <div className="flex items-center border-r border-gray-300 pr-2">
+          <div className="relative group">
+            <select
+              value={fontFamily}
+              onChange={handleFontFamily}
+              className="appearance-none bg-transparent border border-gray-300 rounded px-2 py-1 text-xs w-32 cursor-pointer hover:bg-white hover:border-blue-400 focus:outline-none"
+            >
+              <option value="Calibri">Calibri</option>
+              <option value="Arial">Arial</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Tahoma">Tahoma</option>
+              <option value="Trebuchet MS">Trebuchet MS</option>
+              <option value="Courier New">Courier New</option>
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 w-3 h-3" />
+          </div>
+        </div>
+
+        {/* Group 2: Font Size (Manual Input) */}
+        <div className="flex items-center border-r border-gray-300 pr-2 gap-1">
+          <button
+            onClick={() => adjustFontSize(-0.1)}
+            className="p-1 hover:bg-gray-200 rounded text-gray-700"
+            title="Decrease Font Size"
+          >
+            <Minus className="w-3 h-3" />
+          </button>
+
+          <div className="flex items-center border border-gray-300 rounded bg-white">
+            <input
+              type="number"
+              step="0.1"
+              min="1"
+              value={fontSizeValue}
+              onChange={(e) => setFontSizeValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyFontSize()}
+              className="w-14 text-center text-xs p-0.5 focus:outline-none"
+            />
+            <span className="text-xs text-gray-500 pr-1">pt</span>
+            <button
+              onClick={applyFontSize}
+              className="px-1 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded"
+              title="Apply Font Size"
+            >
+              ✓
+            </button>
+          </div>
+
+          <button
+            onClick={() => adjustFontSize(0.1)}
+            className="p-1 hover:bg-gray-200 rounded text-gray-700"
+            title="Increase Font Size"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
+
+        {/* Group 3: Basic Formatting */}
+        <div className="flex items-center gap-1 border-r border-gray-300 pr-2">
+          <button
+            onClick={() => exec("bold")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Bold"
+          >
+            <Bold className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("italic")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Italic"
+          >
+            <Italic className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("underline")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Underline"
+          >
+            <Underline className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("strikeThrough")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Strikethrough"
+          >
+            <Type className="w-4 h-4 text-gray-600" />
+          </button>
+
+          <div className="relative">
+            <input
+              type="color"
+              ref={textColorRef}
+              className="hidden"
+              onChange={(e) => exec("foreColor", e.target.value)}
+            />
+            <button
+              onClick={() => handleColorClick("text")}
+              className="p-2 hover:bg-gray-200 rounded transition-colors"
+              title="Font Color"
+            >
+              <div
+                className="w-4 h-4 text-gray-600"
+                style={{ border: "1px solid #ddd" }}
+              >
+                A
+              </div>
+            </button>
+          </div>
+
+          <div className="relative">
+            <input
+              type="color"
+              ref={highlightColorRef}
+              className="hidden"
+              defaultValue="#ffff00"
+              onChange={(e) => exec("backColor", e.target.value)}
+            />
+            <button
+              onClick={() => handleColorClick("highlight")}
+              className="p-2 hover:bg-gray-200 rounded transition-colors bg-[#ffff00]"
+              title="Text Highlight Color"
+            >
+              <div className="w-4 h-4 bg-transparent"></div>
+            </button>
+          </div>
+        </div>
+
+        {/* Group 4: Paragraph & Alignment */}
+        <div className="flex items-center gap-1 border-r border-gray-300 pr-2">
+          <button
+            onClick={() => exec("insertUnorderedList")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Bullets"
+          >
+            <List className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("insertOrderedList")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Numbering"
+          >
+            <ListOrdered className="w-4 h-4 text-gray-600" />
+          </button>
+
+          <button
+            onClick={() => exec("outdent")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Decrease Indent"
+          >
+            <ChevronUp className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("indent")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Increase Indent"
+          >
+            <ChevronDown className="w-4 h-4 text-gray-600" />
+          </button>
+
+          <button
+            onClick={() => exec("justifyLeft")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Align Left"
+          >
+            <AlignLeft className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("justifyCenter")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Align Center"
+          >
+            <AlignCenter className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("justifyRight")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Align Right"
+          >
+            <AlignRight className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => exec("justifyFull")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors"
+            title="Justify"
+          >
+            <AlignJustify className="w-4 h-4 text-gray-600" />
+          </button>
+        </div>
+
+        {/* Group 5: Line Spacing (Manual Input) & Utils */}
+        <div className="flex items-center gap-2">
+          {/* Manual Line Spacing Input */}
+          <div className="flex items-center bg-white border border-gray-300 rounded px-1">
+            <span className="text-xs text-gray-500 ml-1" title="Line Spacing">
+              Spacing:
+            </span>
+            <input
+              type="number"
+              step="0.05"
+              value={lineSpacingValue}
+              onChange={(e) => setLineSpacingValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyLineSpacing()}
+              className="w-12 text-center text-xs p-0.5 focus:outline-none"
+              min="1"
+            />
+            <button
+              onClick={applyLineSpacing}
+              className="p-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 text-xs font-semibold"
+              title="Apply Spacing"
+            >
+              ✓
+            </button>
+          </div>
+
+          <button
+            onClick={() => exec("removeFormat")}
+            className="p-2 hover:bg-gray-200 rounded transition-colors text-red-500"
+            title="Clear Formatting"
+          >
+            <Eraser className="w-4 h-4" />
+          </button>
+
+          {/* Manual Select All Button */}
+          <button
+            onClick={selectAll}
+            className="px-2 py-1 text-xs font-medium bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+            title="Select All"
+          >
+            Select All
+          </button>
+        </div>
+      </div>
+
+      {/* Content Area */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        className="min-h-[120px] overflow-y-auto p-4 focus:outline-none bg-white resize-y"
+        style={{
+          fontFamily: "Calibri, Arial, sans-serif",
+          fontSize: "11pt",
+          lineHeight: "1.15",
+          color: "#000000",
+          resize: "vertical",
+          maxHeight: "70vh",
+        }}
+        placeholder={placeholder}
+        onPaste={handlePaste}
+      ></div>
+    </div>
+  );
+});
+
+// ==========================================
+// MAIN MESSAGE VIEW COMPONENT
+// ==========================================
 export default function MessageView({
   selectedAccount,
   selectedConversation,
@@ -178,7 +527,6 @@ export default function MessageView({
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedMessages, setExpandedMessages] = useState({});
-  const [showLineHeightPicker, setShowLineHeightPicker] = useState(false);
   const [replyMode, setReplyMode] = useState(null);
   const [replyingToMessageId, setReplyingToMessageId] = useState(null);
   const [editingScheduledId, setEditingScheduledId] = useState(null);
@@ -203,15 +551,8 @@ export default function MessageView({
   const fileInputRef = useRef(null);
   const editorRef = useRef(null);
 
-  // 🎨 Editor state for formatting
-  const [currentFont, setCurrentFont] = useState("Calibri, sans-serif");
-  const [currentSize, setCurrentSize] = useState("11pt");
-  const [currentColor, setCurrentColor] = useState("#000000");
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const colorPickerRef = useRef(null);
-
   // ============================================================
-  // HELPER FUNCTIONS
+  // HELPER FUNCTIONS (ALL PRESERVED)
   // ============================================================
 
   const isEditableScheduled = () => {
@@ -222,7 +563,7 @@ export default function MessageView({
     try {
       setLoading(true);
       const response = await api.get(
-        `${API_BASE_URL}/api/scheduled-messages/${scheduledMessageId}/conversation`
+        `${API_BASE_URL}/api/scheduled-messages/${scheduledMessageId}/conversation`,
       );
       if (response.data.success) {
         setMessages(response.data.conversationMessages);
@@ -247,7 +588,7 @@ export default function MessageView({
             accountId: selectedAccount.id,
             folder: selectedFolder,
           },
-        }
+        },
       );
       if (response.data.success) {
         const updatedMessages = (response.data.data || []).map((msg) => ({
@@ -273,6 +614,7 @@ export default function MessageView({
       console.error("❌ Failed to mark conversation as read:", error);
     }
   };
+
   const handleMoveToInbox = async () => {
     if (!selectedConversation || !selectedAccount) return;
 
@@ -284,7 +626,6 @@ export default function MessageView({
 
       alert("Moved to Inbox");
 
-      // Go back to conversation list (Spam view)
       if (onBack) onBack();
     } catch (err) {
       console.error("Move to inbox failed", err);
@@ -300,7 +641,7 @@ export default function MessageView({
     try {
       const response = await api.get(
         `${API_BASE_URL}/api/inbox/conversation/${email}/country`,
-        { params: { emailAccountId: selectedAccount.id } }
+        { params: { emailAccountId: selectedAccount.id } },
       );
       if (response.data.success && response.data.country) {
         setCountry(response.data.country);
@@ -314,7 +655,7 @@ export default function MessageView({
     if (!selectedAccount?.id) return;
     try {
       const response = await api.get(
-        `${API_BASE_URL}/api/inbox/accounts/${selectedAccount.id}/user`
+        `${API_BASE_URL}/api/inbox/accounts/${selectedAccount.id}/user`,
       );
       if (response.data.success && response.data.userName) {
         setAccountUserName(response.data.userName);
@@ -340,24 +681,18 @@ export default function MessageView({
   const getCollapsedPreview = (html, maxLength = 300) => {
     if (!html) return "";
 
-    // 1️⃣ Remove images completely
     const withoutImages = html.replace(/<img[^>]*>/gi, "");
-
-    // 2️⃣ Remove style & script blocks
     const cleaned = withoutImages.replace(
       /<(style|script)[^>]*>[\s\S]*?<\/\1>/gi,
-      ""
+      "",
     );
 
-    // 3️⃣ Convert HTML → text
     const tmp = document.createElement("div");
     tmp.innerHTML = cleaned;
 
     let text = tmp.textContent || tmp.innerText || "";
-
     text = text.replace(/\s+/g, " ").trim();
 
-    // 4️⃣ Truncate
     return text.length > maxLength ? text.slice(0, maxLength) + "…" : text;
   };
 
@@ -405,37 +740,30 @@ export default function MessageView({
   };
 
   // ============================================================
-  // ✅ NEW: LEAD MANAGEMENT LOGIC (EDIT LEAD)
+  // ✅ LEAD MANAGEMENT LOGIC (ALL PRESERVED)
   // ============================================================
 
   const handleOpenEditLead = async () => {
     if (!selectedConversation) return;
 
-    // 1. Determine the Client's Email
-    // If I sent the last email, I want to edit the Recipient.
-    // If I received the last email, I want to edit the Sender.
     let targetEmail = "";
 
-    // First try the conversation metadata
     if (
       selectedConversation.displayEmail &&
       selectedConversation.displayEmail !== "Unknown"
     ) {
       targetEmail = selectedConversation.displayEmail;
     } else {
-      // Fallback to latest message logic
       const msg = messages[0];
       if (msg) {
         if (msg.direction === "received") {
           targetEmail = msg.fromEmail;
         } else {
-          // For sent items, grab the first 'To' address
           targetEmail = msg.toEmail ? msg.toEmail.split(",")[0].trim() : "";
         }
       }
     }
 
-    // Clean the email (remove Name <email> format if present)
     const emailMatch = targetEmail.match(/<(.+?)>/);
     const cleanEmail = emailMatch ? emailMatch[1] : targetEmail;
 
@@ -445,10 +773,8 @@ export default function MessageView({
     }
 
     try {
-      // 2. Fetch Lead Data
-      // Using the route from leadRoutes.js: router.get("/by-email/:email", ...)
       const res = await api.get(
-        `${API_BASE_URL}/api/leads/by-email/${cleanEmail}`
+        `${API_BASE_URL}/api/leads/by-email/${cleanEmail}`,
       );
 
       if (res.data.success && res.data.data) {
@@ -456,14 +782,14 @@ export default function MessageView({
         setShowLeadEditModal(true);
       } else {
         alert(
-          "No existing lead profile found for this email. Please create one in the Leads section first."
+          "No existing lead profile found for this email. Please create one in the Leads section first.",
         );
       }
     } catch (error) {
       console.error("Error fetching lead for edit:", error);
       if (error.response && error.response.status === 404) {
         alert(
-          "No existing lead profile found for this email. Please create one in the Leads section first."
+          "No existing lead profile found for this email. Please create one in the Leads section first.",
         );
       } else {
         alert("Failed to fetch lead details.");
@@ -482,16 +808,14 @@ export default function MessageView({
     if (!leadEditForm.id) return;
 
     try {
-      // Using route from leadRoutes.js: router.put("/update/:id", ...)
       const res = await api.put(
         `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
-        leadEditForm
+        leadEditForm,
       );
 
       if (res.data.success) {
         alert("Lead updated successfully!");
         setShowLeadEditModal(false);
-        // Refresh country if changed
         if (leadEditForm.country !== country) {
           setCountry(leadEditForm.country);
         }
@@ -503,215 +827,7 @@ export default function MessageView({
   };
 
   // ============================================================
-  // 🎨 FORMATTING FUNCTIONS
-  // ============================================================
-
-  const applyLineHeight = (value) => {
-    // ... (Existing implementation kept exactly the same)
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
-
-    const range = selection.getRangeAt(0);
-
-    const findBlock = (node) => {
-      const blockTags = [
-        "P",
-        "DIV",
-        "H1",
-        "H2",
-        "H3",
-        "H4",
-        "H5",
-        "H6",
-        "LI",
-        "BLOCKQUOTE",
-      ];
-      let current = node;
-      while (current && current !== editorRef.current) {
-        if (current.nodeType === 1 && blockTags.includes(current.tagName)) {
-          return current;
-        }
-        current = current.parentNode;
-      }
-      return null;
-    };
-
-    const startBlock = findBlock(range.startContainer);
-    const endBlock = findBlock(range.endContainer);
-
-    if (!startBlock && !endBlock) {
-      document.execCommand("formatBlock", false, "div");
-      const newBlock = findBlock(
-        window.getSelection().getRangeAt(0).startContainer
-      );
-      if (newBlock) newBlock.style.lineHeight = value;
-      setShowLineHeightPicker(false);
-      editorRef.current?.focus();
-      return;
-    }
-
-    const blocksToStyle = new Set();
-    if (startBlock) blocksToStyle.add(startBlock);
-    if (endBlock) blocksToStyle.add(endBlock);
-
-    if (startBlock && endBlock && startBlock !== endBlock) {
-      let current = startBlock;
-      while (current && current !== endBlock) {
-        if (current.nextSibling) {
-          current = current.nextSibling;
-          const block = findBlock(current);
-          if (block) blocksToStyle.add(block);
-        } else {
-          current = current.parentNode;
-          if (current === editorRef.current || !current) break;
-        }
-      }
-    }
-
-    blocksToStyle.forEach((block) => {
-      block.style.lineHeight = value;
-    });
-
-    setShowLineHeightPicker(false);
-    editorRef.current?.focus();
-  };
-
-  const formatText = (command, value = null) => {
-    document.execCommand(command, false, value);
-    editorRef.current?.focus();
-  };
-
-  const applyFontFamily = (font) => {
-    setCurrentFont(font);
-    formatText("fontName", font);
-  };
-
-  const applyFontSize = (size) => {
-    setCurrentSize(size);
-    const selection = window.getSelection();
-    if (selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      const span = document.createElement("span");
-      span.style.fontSize = size;
-      try {
-        range.surroundContents(span);
-      } catch (e) {
-        const content = range.extractContents();
-        span.appendChild(content);
-        range.insertNode(span);
-      }
-    }
-    editorRef.current?.focus();
-  };
-
-  const applyColor = (color) => {
-    setCurrentColor(color);
-    formatText("foreColor", color);
-    setShowColorPicker(false);
-  };
-
-  const applyHighlight = (color) => {
-    formatText("backColor", color);
-  };
-
-  const insertLink = () => {
-    const url = prompt("Enter URL:");
-    if (url) {
-      formatText("createLink", url);
-    }
-  };
-
-  const insertHorizontalLine = () => {
-    formatText("insertHorizontalRule");
-  };
-
-  // 🔥 FORMAT-PRESERVING PASTE
-  const handlePaste = (e) => {
-    e.preventDefault();
-    const clipboardData = e.clipboardData || window.clipboardData;
-    const pastedHTML = clipboardData.getData("text/html");
-    const pastedText = clipboardData.getData("text/plain");
-    const contentToInsert = pastedHTML || pastedText.replace(/\n/g, "<br>");
-
-    const cleanHTML = DOMPurify.sanitize(contentToInsert, {
-      ALLOWED_TAGS: [
-        "p",
-        "br",
-        "strong",
-        "b",
-        "em",
-        "i",
-        "u",
-        "s",
-        "strike",
-        "span",
-        "div",
-        "font",
-        "a",
-        "ul",
-        "ol",
-        "li",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "table",
-        "tr",
-        "td",
-        "th",
-        "tbody",
-        "thead",
-        "blockquote",
-        "pre",
-        "code",
-        "hr",
-      ],
-      ALLOWED_ATTR: [
-        "style",
-        "href",
-        "target",
-        "class",
-        "id",
-        "color",
-        "size",
-        "face",
-        "align",
-      ],
-      ALLOWED_STYLES: {
-        "*": {
-          color: [/^#[0-9a-fA-F]{3,6}$/],
-          "background-color": [/^#[0-9a-fA-F]{3,6}$/],
-          "font-size": [/^\d+pt$/, /^\d+px$/],
-          "font-family": [/.*/],
-          "font-weight": [/^(bold|normal|\d+)$/],
-          "font-style": [/^(italic|normal)$/],
-          "text-decoration": [/^(underline|line-through|none)$/],
-          "text-align": [/^(left|right|center|justify)$/],
-        },
-      },
-    });
-
-    document.execCommand("insertHTML", false, cleanHTML);
-    editorRef.current?.focus();
-  };
-
-  const handleCopy = (e) => {
-    const selection = window.getSelection();
-    if (selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      const clonedSelection = range.cloneContents();
-      const div = document.createElement("div");
-      div.appendChild(clonedSelection);
-      e.clipboardData.setData("text/html", div.innerHTML);
-      e.clipboardData.setData("text/plain", selection.toString());
-      e.preventDefault();
-    }
-  };
-
-  // ============================================================
-  // 🔥 NEW: FETCH ACCOUNTS AND TEMPLATES
+  // 🔥 FETCH ACCOUNTS AND TEMPLATES (ALL PRESERVED)
   // ============================================================
 
   const fetchAccounts = async () => {
@@ -743,10 +859,9 @@ export default function MessageView({
 
     const recipientName = extractRecipientName(
       message.fromEmail,
-      message.fromName
+      message.fromName,
     );
 
-    // Replace placeholders
     let templateBody = replacePlaceholders(template.bodyHtml, {
       senderName: account.senderName || account.email.split("@")[0],
       clientName: recipientName,
@@ -755,16 +870,13 @@ export default function MessageView({
       company: "",
     });
 
-    // 🔥 FIX: Strip all background colors using regex
     templateBody = templateBody.replace(/background-color\s*:\s*[^;]+;?/gi, "");
     templateBody = templateBody.replace(/background\s*:\s*[^;]+;?/gi, "");
     templateBody = templateBody.replace(/bgcolor\s*=\s*["'][^"']*["']/gi, "");
 
-    // 🔥 FIX: Deep clean using DOM manipulation
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = templateBody;
 
-    // Remove background from ALL elements
     const allEls = tempDiv.querySelectorAll("*");
     allEls.forEach((el) => {
       el.style.background = "none";
@@ -774,15 +886,13 @@ export default function MessageView({
 
     templateBody = tempDiv.innerHTML;
 
-    // Add signature
     if (account.senderName) {
       templateBody += `<br>Best regards,<br><b>${account.senderName}</b>`;
     }
 
-    // Preserve quoted message
     const currentContent = editorRef.current?.innerHTML || "";
     const quotedStart = currentContent.indexOf(
-      '<hr style="border:none;border-top:1px solid #e5e7eb'
+      '<hr style="border:none;border-top:1px solid #e5e7eb',
     );
 
     let quotedText = "";
@@ -792,7 +902,6 @@ export default function MessageView({
 
     const finalContent = `${templateBody}<br/><br/>${quotedText}`;
 
-    // Set in editor
     if (editorRef.current) {
       editorRef.current.innerHTML = finalContent;
       editorRef.current.style.background = "transparent";
@@ -825,7 +934,6 @@ export default function MessageView({
     const template = templates.find((t) => t.id === parseInt(templateId));
     setSelectedTemplate(template);
 
-    // Only apply if account is selected
     if (selectedFromAccount && template) {
       applyTemplateWithAccount(template, selectedFromAccount);
     } else if (!selectedFromAccount) {
@@ -839,7 +947,6 @@ export default function MessageView({
     const account = accounts.find((acc) => acc.id === parseInt(accountId));
     setSelectedFromAccount(account);
 
-    // Update replyData.from
     if (account) {
       setReplyData((prev) => ({
         ...prev,
@@ -847,14 +954,13 @@ export default function MessageView({
       }));
     }
 
-    // If template is selected, reapply with new account
     if (selectedTemplate && account) {
       applyTemplateWithAccount(selectedTemplate, account);
     }
   };
 
   // ============================================================
-  // EFFECTS
+  // EFFECTS (ALL PRESERVED)
   // ============================================================
 
   useEffect(() => {
@@ -867,14 +973,12 @@ export default function MessageView({
       setCountry(null);
       setScheduledDraft(null);
 
-      // If it's a scheduled message
       if (
         selectedConversation.isScheduled &&
         selectedConversation.scheduledMessageId
       ) {
         fetchScheduledConversation(selectedConversation.scheduledMessageId);
       } else {
-        // Normal conversation
         fetchMessages();
         markConversationAsRead();
       }
@@ -884,20 +988,17 @@ export default function MessageView({
     }
   }, [selectedConversation, selectedAccount, selectedFolder]);
 
-  // 🔥 NEW: When scheduled draft loads, set the From Account in the state
   useEffect(() => {
     if (scheduledDraft) {
-      // If the draft HAS an account ID, pre-select it
       if (scheduledDraft.accountId) {
         const linkedAccount = accounts.find(
-          (a) => a.id === scheduledDraft.accountId
+          (a) => a.id === scheduledDraft.accountId,
         );
         if (linkedAccount) {
           setSelectedFromAccount(linkedAccount);
           setReplyData((prev) => ({ ...prev, from: linkedAccount.email }));
         }
       } else {
-        // If NO account ID (decide later), force null so dropdown is empty
         setSelectedFromAccount(null);
         setReplyData((prev) => ({ ...prev, from: "" }));
       }
@@ -911,26 +1012,13 @@ export default function MessageView({
     }
   }, [messages]);
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (
-        colorPickerRef.current &&
-        !colorPickerRef.current.contains(event.target)
-      ) {
-        setShowColorPicker(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
   // ============================================================
-  // ACTION HANDLERS
+  // ACTION HANDLERS (ALL PRESERVED)
   // ============================================================
 
   const handleTrashClick = async () => {
     const confirmed = window.confirm(
-      "Are you sure you want to move this conversation to Trash?"
+      "Are you sure you want to move this conversation to Trash?",
     );
     if (!confirmed) return;
     try {
@@ -939,7 +1027,7 @@ export default function MessageView({
         {
           conversationId: selectedConversation.conversationId,
           accountId: selectedAccount.id,
-        }
+        },
       );
       if (response.data.success) {
         alert("Conversation moved to Trash.");
@@ -957,7 +1045,7 @@ export default function MessageView({
       {
         conversationId: selectedConversation.conversationId,
         accountId: selectedAccount.id,
-      }
+      },
     );
     if (res.data.success) onBack();
   };
@@ -965,7 +1053,7 @@ export default function MessageView({
   const handlePermanentDelete = async () => {
     if (
       !window.confirm(
-        "WARNING: Once deleted, this message cannot be restored. Proceed?"
+        "WARNING: Once deleted, this message cannot be restored. Proceed?",
       )
     )
       return;
@@ -974,17 +1062,16 @@ export default function MessageView({
       {
         conversationId: selectedConversation.conversationId,
         accountId: selectedAccount.id,
-      }
+      },
     );
     if (res.data.success) onBack();
   };
 
   // ============================================================
-  // REPLY HANDLERS
+  // REPLY HANDLERS (ALL PRESERVED)
   // ============================================================
 
   const handleReply = (type, message) => {
-    // ... (Existing Implementation)
     if (!message) return;
 
     if (scheduledDraft && scheduledDraft.status === "pending") {
@@ -1057,10 +1144,10 @@ export default function MessageView({
   <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
     <b style="font-weight: bold;">From:</b> ${formatSender(
       message.fromName,
-      message.fromEmail
+      message.fromEmail,
     )}<br/>
     <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
-      message.sentAt
+      message.sentAt,
     )}<br/>
     <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
     ${
@@ -1076,9 +1163,8 @@ export default function MessageView({
   </div>
 `;
 
-    // 🔥 Set default account
     const defaultAccount = accounts.find(
-      (acc) => acc.id === selectedAccount?.id
+      (acc) => acc.id === selectedAccount?.id,
     );
     setSelectedFromAccount(defaultAccount);
 
@@ -1106,7 +1192,6 @@ export default function MessageView({
   };
 
   const handleReplyWithScheduledDraft = (type, message) => {
-    // ... (Existing Implementation)
     setReplyMode("editScheduled");
     setEditingScheduledId(scheduledDraft.id);
 
@@ -1161,9 +1246,8 @@ export default function MessageView({
       cc = [...new Set(ccList)].join(", ");
     }
 
-    // 🔥 Set default account
     const defaultAccount = accounts.find(
-      (acc) => acc.id === selectedAccount?.id
+      (acc) => acc.id === selectedAccount?.id,
     );
     setSelectedFromAccount(defaultAccount);
 
@@ -1194,7 +1278,6 @@ export default function MessageView({
   };
 
   const handleForward = (type, message) => {
-    // ... (Existing Implementation)
     if (!message) return;
 
     const fromHeader = formatHeaderAddress(message.fromName, message.fromEmail);
@@ -1235,9 +1318,8 @@ export default function MessageView({
 
     const prefix = message.subject?.startsWith("Fwd:") ? "" : "Fwd: ";
 
-    // 🔥 Set default account
     const defaultAccount = accounts.find(
-      (acc) => acc.id === selectedAccount?.id
+      (acc) => acc.id === selectedAccount?.id,
     );
     setSelectedFromAccount(defaultAccount);
 
@@ -1265,7 +1347,6 @@ export default function MessageView({
   };
 
   const updateScheduledMessage = async (bodyContent) => {
-    // ... (Existing Implementation)
     const payload = {
       subject: replyData.subject,
       bodyHtml: bodyContent,
@@ -1275,7 +1356,7 @@ export default function MessageView({
 
     const response = await api.patch(
       `${API_BASE_URL}/api/scheduled-messages/${editingScheduledId}`,
-      payload
+      payload,
     );
 
     if (response.data.success) {
@@ -1285,47 +1366,7 @@ export default function MessageView({
     }
   };
 
-  // const sendNormalReply = async (bodyContent) => {
-  //   // ... (Existing Implementation)
-  //   let endpoint;
-  //   if (replyMode === "replyAll")
-  //     endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
-  //   else if (replyMode === "forward")
-  //     endpoint = `${API_BASE_URL}/api/inbox/forward`;
-  //   else endpoint = `${API_BASE_URL}/api/inbox/reply`;
-
-  //   const payload = {
-  //     emailAccountId: selectedFromAccount?.id || selectedAccount.id,
-  //     fromEmail: replyData.from,
-  //     from: replyData.from,
-  //     to: replyData.to,
-  //     cc: replyData.cc || null,
-  //     subject: replyData.subject,
-  //     body: bodyContent,
-  //     attachments: attachments.map((att) => ({
-  //       filename: att.name,
-  //       url: att.url,
-  //       type: att.type,
-  //       size: att.size,
-  //     })),
-  //   };
-
-  //   if (replyingToMessageId) {
-  //     payload.replyToMessageId = replyingToMessageId;
-  //     payload.replyToId = replyingToMessageId;
-  //     payload.forwardMessageId = replyingToMessageId;
-  //   }
-
-  //   const response = await api.post(endpoint, payload);
-
-  //   if (response.data.success) {
-  //     await fetchMessages();
-  //     closeReplyModal();
-  //     alert("Message sent successfully!");
-  //   }
-  // };
   const sendNormalReply = async (bodyContent) => {
-    // ... endpoint logic ...
     let endpoint = `${API_BASE_URL}/api/inbox/reply`;
     if (replyMode === "replyAll")
       endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
@@ -1345,8 +1386,6 @@ export default function MessageView({
         type: att.type,
         size: att.size,
       })),
-
-      // 🔥 ADD ONLY THIS LINE
       scheduledMessageId:
         replyMode === "editScheduled" ? editingScheduledId : null,
     };
@@ -1358,7 +1397,6 @@ export default function MessageView({
     const response = await api.post(endpoint, payload);
 
     if (response.data.success) {
-      // Notify parent to remove from list
       if (onMessageSent) {
         onMessageSent(selectedConversation?.conversationId);
       }
@@ -1367,39 +1405,6 @@ export default function MessageView({
     }
   };
 
-  // const handleSendReply = async () => {
-  //   const bodyContent = editorRef.current?.innerHTML || "";
-
-  //   if (!bodyContent.trim() || !selectedAccount) {
-  //     alert("Please enter message content");
-  //     return;
-  //   }
-
-  //   if (!replyData.to.trim()) {
-  //     alert("Please enter a recipient email address");
-  //     return;
-  //   }
-
-  //   if (!selectedFromAccount) {
-  //     alert("Please select an email account to send from");
-  //     return;
-  //   }
-
-  //   setIsSending(true);
-
-  //   try {
-  //     if (replyMode === "editScheduled" && editingScheduledId) {
-  //       await updateScheduledMessage(bodyContent);
-  //     } else {
-  //       await sendNormalReply(bodyContent);
-  //     }
-  //   } catch (error) {
-  //     console.error("Error sending message:", error);
-  //     alert("Failed to send message. Please try again.");
-  //   } finally {
-  //     setIsSending(false);
-  //   }
-  // };
   const handleSendReply = async () => {
     const bodyContent = editorRef.current?.innerHTML || "";
 
@@ -1413,7 +1418,6 @@ export default function MessageView({
       return;
     }
 
-    // 🔥 CRITICAL VALIDATION: Ensure account is selected
     if (!selectedFromAccount) {
       alert("⚠️ Please select a 'From' email account before sending.");
       return;
@@ -1423,7 +1427,6 @@ export default function MessageView({
 
     try {
       if (replyMode === "editScheduled" && editingScheduledId) {
-        // Even if editing a schedule, we are SENDING it now via SMTP
         await sendNormalReply(bodyContent);
       } else {
         await sendNormalReply(bodyContent);
@@ -1435,6 +1438,7 @@ export default function MessageView({
       setIsSending(false);
     }
   };
+
   const closeReplyModal = () => {
     setReplyMode(null);
     setReplyingToMessageId(null);
@@ -1482,7 +1486,7 @@ export default function MessageView({
   };
 
   // ============================================================
-  // RENDER
+  // RENDER (ALL PRESERVED)
   // ============================================================
 
   if (!selectedConversation) {
@@ -1539,7 +1543,6 @@ export default function MessageView({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* ✏️ Edit Lead */}
             <button
               onClick={handleOpenEditLead}
               className="p-2 hover:bg-indigo-50 rounded-lg transition-colors group"
@@ -1548,7 +1551,6 @@ export default function MessageView({
               <Pencil className="w-4 h-4 text-gray-600 group-hover:text-indigo-600" />
             </button>
 
-            {/* 📥 SPAM → INBOX */}
             {selectedFolder === "spam" && (
               <button
                 onClick={handleMoveToInbox}
@@ -1559,19 +1561,16 @@ export default function MessageView({
               </button>
             )}
 
-            {/* 🗑️ TRASH ACTIONS */}
             {selectedFolder === "trash" ? (
               <>
-                {/* Restore */}
                 <button
                   onClick={handleRestore}
                   className="p-2 hover:bg-blue-50 rounded-lg transition-colors group"
                   title="Restore to Inbox"
                 >
-                  <RotateCw className="w-4 h-4 text-blue-600" />
+                  <RotateCcw className="w-4 h-4 text-blue-600" />
                 </button>
 
-                {/* Permanent Delete */}
                 <button
                   onClick={handlePermanentDelete}
                   className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
@@ -1582,7 +1581,6 @@ export default function MessageView({
               </>
             ) : (
               <>
-                {/* Move to Trash (Inbox / Spam) */}
                 <button
                   onClick={handleTrashClick}
                   className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
@@ -1593,7 +1591,6 @@ export default function MessageView({
               </>
             )}
 
-            {/* More options */}
             <button
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               title="More options"
@@ -1623,7 +1620,6 @@ export default function MessageView({
 
       {/* Messages List */}
       <div className="flex-1 overflow-y-auto">
-        {/* ... (Existing Message List Implementation) */}
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
@@ -1632,18 +1628,11 @@ export default function MessageView({
           <div className="max-w-4xl mx-auto py-6 px-6 space-y-4">
             {messages
               .filter((msg) => {
-                // If we are in Sent folder, show only sent items
                 if (selectedFolder === "sent") return msg.direction === "sent";
-
-                // If we are in Trash or Spam, show everything in that conversation
                 if (["spam", "trash"].includes(selectedFolder)) return true;
-
-                // 📥 FIX FOR INBOX: Show both SENT and RECEIVED messages
-                // This ensures your replies show up in the conversation history
                 return msg.direction === "received" || msg.direction === "sent";
               })
               .reverse()
-              // ... render message
               .map((message) => {
                 const isExpanded = expandedMessages[message.id];
                 const accountDomain = selectedAccount.email.split("@")[1];
@@ -1851,11 +1840,10 @@ export default function MessageView({
         )}
       </div>
 
-      {/* 🔥 REPLY MODAL WITH ACCOUNT & TEMPLATE DROPDOWNS */}
+      {/* 🔥 REPLY MODAL WITH OUTLOOK EDITOR */}
       {replyMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[95vh] overflow-hidden">
-            {/* ... (Existing Reply Modal Content) */}
             <div className="border-b border-gray-200 px-6 py-4 bg-gray-50 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <button
@@ -1981,311 +1969,70 @@ export default function MessageView({
                   </div>
                 </div>
 
-                <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  {/* Toolbar */}
-                  <div className="bg-gradient-to-b from-gray-50 to-gray-100 border-b border-gray-300">
-                    <div className="flex items-center gap-2 p-2 flex-wrap">
-                      {/* Font Family */}
-                      <div className="relative">
-                        <select
-                          value={currentFont}
-                          onChange={(e) => applyFontFamily(e.target.value)}
-                          className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none pr-8"
-                          style={{ minWidth: "140px" }}
-                        >
-                          {FONT_FAMILIES.map((font) => (
-                            <option key={font.value} value={font.value}>
-                              {font.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-
-                      {/* Font Size */}
-                      <div className="relative">
-                        <select
-                          value={currentSize}
-                          onChange={(e) => applyFontSize(e.target.value)}
-                          className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none pr-8"
-                          style={{ minWidth: "70px" }}
-                        >
-                          {FONT_SIZES.map((size) => (
-                            <option key={size.value} value={size.value}>
-                              {size.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                      </div>
-
-                      <div className="w-px h-6 bg-gray-300"></div>
-                      {/* 🔥 NEW: Line Spacing Dropdown */}
-                      <div className="relative">
-                        <button
-                          onClick={() =>
-                            setShowLineHeightPicker(!showLineHeightPicker)
-                          }
-                          className="p-2 hover:bg-white rounded transition-colors flex items-center gap-1"
-                          title="Line Spacing"
-                        >
-                          <ArrowUpDown className="w-4 h-4 text-gray-700" />
-                          <ChevronDown className="w-3 h-3 text-gray-500" />
-                        </button>
-
-                        {showLineHeightPicker && (
-                          <div className="absolute top-full left-0 mt-2 bg-white border border-gray-300 rounded-lg shadow-xl py-1 z-50 w-32">
-                            {LINE_HEIGHTS.map((lh) => (
-                              <button
-                                key={lh.value}
-                                onClick={() => applyLineHeight(lh.value)}
-                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600"
-                                style={{ lineHeight: lh.value }} // Preview the effect in the dropdown
-                              >
-                                {lh.label}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {/* Text Formatting */}
-                      <button
-                        onClick={() => formatText("bold")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Bold"
-                      >
-                        <Bold className="w-4 h-4 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={() => formatText("italic")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Italic"
-                      >
-                        <Italic className="w-4 h-4 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={() => formatText("underline")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Underline"
-                      >
-                        <Underline className="w-4 h-4 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={() => formatText("strikeThrough")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Strikethrough"
-                      >
-                        <Strikethrough className="w-4 h-4 text-gray-700" />
-                      </button>
-
-                      <div className="w-px h-6 bg-gray-300"></div>
-
-                      {/* Font Color */}
-                      <div className="relative" ref={colorPickerRef}>
-                        <button
-                          onClick={() => setShowColorPicker(!showColorPicker)}
-                          className="p-2 hover:bg-white rounded transition-colors relative"
-                          title="Font Color"
-                        >
-                          <Type className="w-4 h-4 text-gray-700" />
-                          <div
-                            className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-4 h-1 rounded"
-                            style={{ backgroundColor: currentColor }}
-                          ></div>
-                        </button>
-
-                        {showColorPicker && (
-                          <div
-                            className="absolute top-full left-0 mt-2 bg-white border border-gray-300 rounded-lg shadow-xl p-3 z-50"
-                            style={{ width: "240px" }}
-                          >
-                            <div className="mb-2 text-xs font-semibold text-gray-600">
-                              Font Color
-                            </div>
-                            <div className="grid grid-cols-8 gap-1 mb-3">
-                              {COLORS.map((color) => (
-                                <button
-                                  key={color}
-                                  onClick={() => applyColor(color)}
-                                  className="w-6 h-6 rounded border-2 hover:scale-110 transition-transform"
-                                  style={{
-                                    backgroundColor: color,
-                                    borderColor:
-                                      color === currentColor
-                                        ? "#3B82F6"
-                                        : "#E5E7EB",
-                                  }}
-                                  title={color}
-                                />
-                              ))}
-                            </div>
-                            <div className="pt-2 border-t border-gray-200">
-                              <div className="text-xs font-semibold text-gray-600 mb-2">
-                                Highlight Color
-                              </div>
-                              <div className="grid grid-cols-8 gap-1">
-                                {COLORS.slice(8, 32).map((color) => (
-                                  <button
-                                    key={color}
-                                    onClick={() => applyHighlight(color)}
-                                    className="w-6 h-6 rounded border-2 border-gray-200 hover:scale-110 transition-transform"
-                                    style={{ backgroundColor: color }}
-                                    title={color}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="w-px h-6 bg-gray-300"></div>
-
-                      {/* Lists */}
-                      <button
-                        onClick={() => formatText("insertUnorderedList")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Bullet List"
-                      >
-                        <List className="w-4 h-4 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={() => formatText("insertOrderedList")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Numbered List"
-                      >
-                        <ListOrdered className="w-4 h-4 text-gray-700" />
-                      </button>
-
-                      <div className="w-px h-6 bg-gray-300"></div>
-
-                      {/* Alignment */}
-                      <button
-                        onClick={() => formatText("justifyLeft")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Align Left"
-                      >
-                        <AlignLeft className="w-4 h-4 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={() => formatText("justifyCenter")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Align Center"
-                      >
-                        <AlignCenter className="w-4 h-4 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={() => formatText("justifyRight")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Align Right"
-                      >
-                        <AlignRight className="w-4 h-4 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={() => formatText("justifyFull")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Justify"
-                      >
-                        <AlignJustify className="w-4 h-4 text-gray-700" />
-                      </button>
-
-                      <div className="w-px h-6 bg-gray-300"></div>
-
-                      <button
-                        onClick={insertLink}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Insert Link"
-                      >
-                        <LinkIcon className="w-4 h-4 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={insertHorizontalLine}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Horizontal Line"
-                      >
-                        <Minus className="w-4 h-4 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={() => formatText("formatBlock", "blockquote")}
-                        className="p-2 hover:bg-white rounded transition-colors"
-                        title="Quote"
-                      >
-                        <Quote className="w-4 h-4 text-gray-700" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Editor */}
-                  <div
+                {/* ✅ OUTLOOK EDITOR COMPONENT */}
+                <div className="mb-4">
+                  <OutlookEditor
                     ref={editorRef}
-                    contentEditable
-                    onPaste={handlePaste}
-                    onCopy={handleCopy}
-                    className="min-h-[400px] max-h-[500px] overflow-y-auto p-4 focus:outline-none transition-all"
-                    style={{
-                      fontFamily: "Calibri, sans-serif",
-                      fontSize: "11pt",
-                      lineHeight: "1.5",
-                    }}
+                    initialContent=""
                     placeholder="Type your message here..."
                   />
-                  {/* ... (Attachments and Send button) */}
-                  {attachments.length > 0 && (
-                    <div className="px-4 py-2 bg-gray-50 border-t border-gray-200">
-                      <div className="flex flex-wrap gap-2">
-                        {attachments.map((att, index) => (
-                          <div
-                            key={index}
-                            className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-gray-300 shadow-sm"
-                          >
-                            <File className="w-3 h-3 text-gray-500" />
-                            <span className="text-xs text-gray-700">
-                              {att.name}
-                            </span>
-                            <button
-                              onClick={() => removeAttachment(index)}
-                              className="p-0.5 hover:bg-gray-200 rounded-full"
-                            >
-                              <X className="w-3 h-3 text-gray-500" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                </div>
 
-                  <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
-                    <div>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        multiple
-                        onChange={handleAttachmentUpload}
-                        className="hidden"
-                      />
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="p-2 hover:bg-gray-200 rounded transition-colors"
-                        title="Attach files"
-                      >
-                        <Paperclip className="w-4 h-4 text-gray-600" />
-                      </button>
+                {/* Attachments */}
+                {attachments.length > 0 && (
+                  <div className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg mb-4">
+                    <div className="flex flex-wrap gap-2">
+                      {attachments.map((att, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-gray-300 shadow-sm"
+                        >
+                          <File className="w-3 h-3 text-gray-500" />
+                          <span className="text-xs text-gray-700">
+                            {att.name}
+                          </span>
+                          <button
+                            onClick={() => removeAttachment(index)}
+                            className="p-0.5 hover:bg-gray-200 rounded-full"
+                          >
+                            <X className="w-3 h-3 text-gray-500" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      onChange={handleAttachmentUpload}
+                      className="hidden"
+                    />
                     <button
-                      onClick={handleSendReply}
-                      disabled={isSending}
-                      className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-all text-sm font-medium shadow-sm hover:shadow-md"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="p-2 hover:bg-gray-200 rounded transition-colors"
+                      title="Attach files"
                     >
-                      {isSending ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Send className="w-4 h-4" />
-                      )}
-                      {replyMode === "editScheduled"
-                        ? "Update Schedule"
-                        : "Send"}
+                      <Paperclip className="w-4 h-4 text-gray-600" />
                     </button>
                   </div>
+                  <button
+                    onClick={handleSendReply}
+                    disabled={isSending}
+                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-all text-sm font-medium shadow-sm hover:shadow-md"
+                  >
+                    {isSending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    {replyMode === "editScheduled" ? "Update Schedule" : "Send"}
+                  </button>
                 </div>
               </div>
             </div>
@@ -2293,9 +2040,9 @@ export default function MessageView({
         </div>
       )}
 
-      {/* ✅ ADDED: Render Edit Modal */}
+      {/* ✅ Lead Edit Modal */}
       {showLeadEditModal && (
-        <FollowUpEditModal // 👈 WAS FloatingEditWindow
+        <FollowUpEditModal
           editForm={leadEditForm}
           onChange={handleLeadFormChange}
           onSave={handleSaveLead}
