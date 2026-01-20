@@ -1,0 +1,633 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USER
+// ============================================================
+model User {
+  id                Int                @id @default(autoincrement())
+  empId             String             @unique
+  name              String
+  email             String             @unique
+  password          String
+  role              String             @default("user")
+  createdAt         DateTime           @default(now())
+  isAlive           Boolean?           @default(true)
+  emailAccounts     EmailAccount[]
+  leadDetails       LeadDetails[]
+  salesLeads        SalesLead[]
+  scheduledMsgs     ScheduledMessage[]
+  tags              Tag[]
+  emailComments     EmailComment[]
+  sequences         EmailSequence[]
+  templates         EmailTemplate[]
+  pushSubscriptions PushSubscription[]
+  Notification      Notification[]
+}
+
+// ============================================================
+// EMAIL ACCOUNT
+// ============================================================
+model EmailAccount {
+  id       Int     @id @default(autoincrement())
+  userId   Int
+  empId    String?
+  email    String  @unique
+  provider String? // gmail, outlook, zoho, generic
+
+  // IMAP Settings
+  imapHost   String?
+  imapPort   Int?
+  imapUser   String?
+  imapSecure Boolean? @default(true)
+
+  // SMTP Settings
+  smtpHost   String?
+  smtpPort   Int?
+  smtpUser   String?
+  smtpSecure Boolean? @default(true)
+
+  // Auth
+  authType      String  @default("password") // password, oauth2
+  encryptedPass String?
+
+  // OAuth2 Tokens
+  oauthClientId     String?
+  oauthClientSecret String?
+  refreshToken      String?
+  accessToken       String?
+  tokenExpiry       DateTime?
+
+  // Gmail Push
+  watchExpiry DateTime?
+  historyId   String?
+
+  // Sync State
+  verified       Boolean   @default(true)
+  lastFullSyncAt DateTime?
+  lastSyncAt     DateTime?
+  syncStatus     String?   @default("idle")
+  syncError      String?
+
+  // Signature
+  signature String?
+
+  senderName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  User              User               @relation(fields: [userId], references: [id])
+  messages          EmailMessage[]
+  scheduledMessages ScheduledMessage[]
+  syncStates        SyncState[]
+  folders           EmailFolder[]
+
+  @@index([userId])
+  @@index([email])
+}
+
+// ============================================================
+// SYNC STATE - Track sync progress per folder
+// ============================================================
+model SyncState {
+  id          Int       @id @default(autoincrement())
+  accountId   Int
+  folder      String
+  uidValidity BigInt    @default(0)
+  lastUid     BigInt    @default(0)
+  historyId   String?
+  lastSyncAt  DateTime?
+
+  account EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, folder])
+  @@index([accountId])
+}
+
+// ============================================================
+// EMAIL FOLDER
+// ============================================================
+model EmailFolder {
+  id          Int     @id @default(autoincrement())
+  accountId   Int
+  name        String
+  path        String
+  type        String?
+  specialUse  String?
+  parentId    Int?
+  unreadCount Int     @default(0)
+  totalCount  Int     @default(0)
+  color       String?
+
+  account  EmailAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  parent   EmailFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id])
+  children EmailFolder[] @relation("FolderHierarchy")
+
+  @@unique([accountId, path])
+  @@index([accountId])
+}
+
+// ============================================================
+// CONVERSATION - Outlook-style (Message-ID based)
+// ============================================================
+model Conversation {
+  id String @id // Pure Message-ID (no account prefix)
+
+  // Core conversation data
+  subject      String
+  participants String // Comma-separated: all TO + CC
+  toRecipients String // Comma-separated: TO only (defines conversation)
+  ccRecipients String? // Comma-separated: CC only
+
+  // Metadata
+  initiatorEmail String // Who started this conversation
+  lastMessageAt  DateTime
+  messageCount   Int      @default(1)
+  unreadCount    Int      @default(0)
+
+  // Flags
+  isStarred    Boolean   @default(false)
+  isSnoozed    Boolean   @default(false)
+  snoozedUntil DateTime?
+
+  // CRM linking
+  contactId Int?
+  dealId    Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations (NO emailAccount relation)
+  messages         EmailMessage[]
+  tags             ConversationTag[]
+  scheduledMessage ScheduledMessage[]
+  comments         EmailComment[]
+
+  @@index([lastMessageAt])
+  @@index([initiatorEmail])
+}
+
+// ============================================================
+// EMAIL MESSAGE - With proper threading fields
+// ============================================================
+model EmailMessage {
+  id             Int     @id @default(autoincrement())
+  emailAccountId Int
+  conversationId String? // Links to Conversation.id (Message-ID)
+  leadDetailId   Int?
+  salesLeadId    Int?
+
+  // Core fields
+  messageId String // RFC Message-ID (unique identifier)
+  uid       Int? // IMAP UID
+  gmailId   String?
+
+  // Threading (RFC 2822) - CRITICAL for Outlook-style
+  threadId   String?
+  inReplyTo  String? // Message-ID this is replying to
+  references String? // Space-separated Message-IDs
+
+  // Email content
+  subject String?
+
+  // 🔥 UPDATED: Captured from IMAP Envelope/Headers
+  fromEmail String
+  fromName  String? // e.g., 'Robert Downey Jr.' or 'Pramod Abacco'
+  toEmail   String
+  toName    String? // e.g., 'Robert Downey Jr.' or 'Pramod Abacco'
+
+  ccEmail  String?
+  bccEmail String?
+  replyTo  String?
+  body     String?
+  bodyHtml String?
+  bodyText String?
+  snippet  String?
+
+  // Direction & Status
+  direction  String // sent, received
+  sentAt     DateTime  @default(now())
+  receivedAt DateTime?
+
+  // Flags (synced with IMAP)
+  isRead      Boolean @default(false)
+  isStarred   Boolean @default(false)
+  isFlagged   Boolean @default(false)
+  isImportant Boolean @default(false)
+  isDraft     Boolean @default(false)
+  isSpam      Boolean @default(false)
+  isTrash     Boolean @default(false)
+  isArchived  Boolean @default(false)
+
+  // Folder
+  folder     String? @default("inbox")
+  labelIds   String?
+  categories String?
+
+  // Snooze
+  isSnoozed      Boolean   @default(false)
+  snoozedUntil   DateTime?
+  originalFolder String?
+
+  // Tracking
+  trackOpens    Boolean   @default(false)
+  trackClicks   Boolean   @default(false)
+  openCount     Int       @default(0)
+  clickCount    Int       @default(0)
+  lastOpenedAt  DateTime?
+  lastClickedAt DateTime?
+
+  // Priority
+  priority   String? @default("normal")
+  importance String? @default("normal")
+
+  // UI State
+  hasBody   Boolean  @default(false)
+  hideInbox Boolean? @default(false)
+  hideTrash Boolean? @default(false)
+
+  // Legacy (keep for compatibility)
+  read Boolean @default(false)
+
+  // Relations
+  attachments    Attachment[]
+  emailAccount   EmailAccount    @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  conversation   Conversation?   @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  leadDetail     LeadDetails?    @relation(fields: [leadDetailId], references: [id])
+  salesLead      SalesLead?      @relation(fields: [salesLeadId], references: [id])
+  tags           MessageTag[]
+  comments       EmailComment[]
+  trackingEvents TrackingEvent[]
+
+  @@unique([emailAccountId, messageId])
+  @@index([uid])
+  @@index([emailAccountId, folder])
+  @@index([emailAccountId, sentAt])
+  @@index([conversationId])
+  @@index([threadId])
+  @@index([fromEmail])
+  @@index([toEmail])
+}
+
+// ============================================================
+// EMAIL COMMENT - HubSpot-style internal notes
+// ============================================================
+model EmailComment {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  messageId      Int?
+  conversationId String?
+  content        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id])
+  message      EmailMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([conversationId])
+}
+
+// ============================================================
+// EMAIL TEMPLATE
+// ============================================================
+model EmailTemplate {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  name       String
+  subject    String?
+  bodyHtml   String
+  leadStatus String? // 🔥 NEW: Link templates to lead statuses
+  category   String?
+  isShared   Boolean  @default(false)
+  useCount   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([leadStatus]) // 🔥 NEW: Index for filtering by lead status
+}
+
+// ============================================================
+// EMAIL SEQUENCE
+// ============================================================
+model EmailSequence {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  name        String
+  description String?
+  status      String   @default("draft")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User                 @relation(fields: [userId], references: [id])
+  steps       SequenceStep[]
+  enrollments SequenceEnrollment[]
+
+  @@index([userId])
+}
+
+model SequenceStep {
+  id         Int     @id @default(autoincrement())
+  sequenceId Int
+  stepNumber Int
+  delayDays  Int     @default(1)
+  delayHours Int     @default(0)
+  subject    String?
+  bodyHtml   String
+
+  sequence EmailSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@index([sequenceId])
+}
+
+model SequenceEnrollment {
+  id           Int       @id @default(autoincrement())
+  sequenceId   Int
+  contactEmail String
+  currentStep  Int       @default(0)
+  status       String    @default("active")
+  enrolledAt   DateTime  @default(now())
+  nextSendAt   DateTime?
+
+  sequence EmailSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@index([sequenceId])
+  @@index([contactEmail])
+}
+
+// ============================================================
+// TRACKING EVENT
+// ============================================================
+model TrackingEvent {
+  id         Int      @id @default(autoincrement())
+  messageId  Int
+  type       String // open, click
+  ipAddress  String?
+  userAgent  String?
+  linkUrl    String?
+  occurredAt DateTime @default(now())
+
+  message EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([occurredAt])
+}
+
+// ============================================================
+// ATTACHMENT
+// ============================================================
+model Attachment {
+  id         Int      @id @default(autoincrement())
+  messageId  Int
+  filename   String
+  mimeType   String?
+  size       Int?
+  storageUrl String?
+  data       Bytes?
+  cid        String?
+  hash       String?
+  isInline   Boolean  @default(false)
+  uploadedAt DateTime @default(now())
+
+  message EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([hash])
+}
+
+// ============================================================
+// SALES LEAD
+// ============================================================
+model SalesLead {
+  id Int @id @default(autoincrement())
+
+  client    String
+  email     String?
+  cc        String?
+  empId     String?
+  agentName String? // ✅ ADD
+  website   String?
+  link      String? // ✅ ADD
+  phone     String?
+  country   String?
+  subject   String?
+  body      String?
+  response  String?
+  leadType  String?
+  Result    String?
+
+  date       DateTime? // ✅ ADD (actual lead date)
+  createdAt  DateTime  @default(now())
+  leadStatus String    @default("New")
+
+  userId          Int?
+  leadDetailsId   Int?
+  leadEmailMetaId Int?
+
+  EmailMessage  EmailMessage[]
+  leadDetails   LeadDetails?   @relation(fields: [leadDetailsId], references: [id])
+  user          User?          @relation(fields: [userId], references: [id])
+  LeadEmailMeta LeadEmailMeta? @relation(fields: [leadEmailMetaId], references: [id])
+
+  @@index([email])
+}
+
+// ============================================================
+// LEAD DETAILS
+// ============================================================
+model LeadDetails {
+  id Int @id @default(autoincrement())
+
+  // ─────────────────────────────────────
+  // Core lead data (from SalesLead)
+  // ─────────────────────────────────────
+  date       DateTime? // actual lead contact date
+  client     String
+  email      String
+  cc         String?
+  empId      String?
+  agentName  String? // ✅ NEW
+  website    String? // ✅ NEW
+  link       String?
+  phone      String?
+  subject    String?
+  body       String?
+  response   String?
+  leadType   String?
+  leadStatus String?   @default("New")
+
+  // ─────────────────────────────────────
+  // Enrichment / CRM fields
+  // ─────────────────────────────────────
+  brand        String?
+  country      String?
+  salesperson  String?
+  result       String?
+  companyName  String?
+  meetingNotes String?
+
+  followUpDate    DateTime?
+  day             String?
+  followUpHistory Json?
+  dealValue       Float?
+
+  // ─────────────────────────────────────
+  // System fields
+  // ─────────────────────────────────────
+  createdAt   DateTime @default(now())
+  lastUpdated DateTime @updatedAt
+
+  active       Boolean? @default(true)
+  isFollowedUp Boolean  @default(false)
+
+  userId Int?
+
+  // ─────────────────────────────────────
+  // Relations
+  // ─────────────────────────────────────
+  messages      EmailMessage[]
+  user          User?          @relation(fields: [userId], references: [id])
+  leadEmailMeta LeadEmailMeta?
+  SalesLead     SalesLead[]
+
+  @@index([email])
+}
+
+model LeadEmailMeta {
+  id           Int      @id @default(autoincrement())
+  leadDetailId Int      @unique
+  email        String?
+  cc           String?
+  country      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  leadDetail LeadDetails @relation(fields: [leadDetailId], references: [id])
+  SalesLead  SalesLead[]
+}
+
+// ============================================================
+// TAG SYSTEM
+// ============================================================
+model Tag {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  empId     String?
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+
+  conversationTags ConversationTag[]
+  messageTags      MessageTag[]
+  user             User              @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model ConversationTag {
+  conversationId String
+  tagId          Int
+
+  Conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  Tag          Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, tagId])
+}
+
+model MessageTag {
+  messageId Int
+  tagId     Int
+
+  Message EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  Tag     Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, tagId])
+}
+
+// ============================================================
+// SCHEDULED MESSAGE
+// ============================================================
+model ScheduledMessage {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  empId          String?
+  accountId      Int?
+  conversationId String?
+  toEmail        String
+  ccEmail        String?
+  subject        String?
+  bodyHtml       String
+  sendAt         DateTime
+  status         String   @default("pending")
+
+  // 🔥 NEW FIELD: Store the lead status (Standard or Custom)
+  leadStatus String?
+
+  attachments  Json?
+  retryCount   Int      @default(0)
+  errorMessage String?
+  isFollowedUp Boolean? @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  emailAccount EmailAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
+
+  @@index([status, sendAt])
+  @@index([accountId])
+}
+
+model CustomLeadStatus {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  color       String   @default("bg-gray-100 text-gray-800 border-gray-200")
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Notification {
+  id     Int @id @default(autoincrement())
+  userId Int
+
+  type    String // email_received | email_reply | followup | system
+  title   String
+  message String
+
+  // Deep link support
+  accountId      Int?
+  conversationId String?
+
+  isRead Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+// 1️⃣ Add the PushSubscription model
+model PushSubscription {
+  id       Int    @id @default(autoincrement())
+  userId   Int
+  endpoint String @unique
+  p256dh   String
+  auth     String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

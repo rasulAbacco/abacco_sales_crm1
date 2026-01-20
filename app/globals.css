@@ -1,0 +1,28 @@
+Using proper Tailwind v4 import with theme configuration
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+/* Custom animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s ease-in-out;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
