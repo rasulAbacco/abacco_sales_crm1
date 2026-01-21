@@ -104,7 +104,6 @@ router.post("/leads/bulk", async (req, res) => {
       leadStatus: "New",
     }));
 
-
     await prisma.salesLead.createMany({
       data: formattedLeads,
       skipDuplicates: true,

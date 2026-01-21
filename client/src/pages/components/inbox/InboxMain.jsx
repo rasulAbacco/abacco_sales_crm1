@@ -78,7 +78,7 @@ export default function InboxMain() {
         accountsData.map(async (account) => {
           try {
             const unreadRes = await api.get(
-              `${API_BASE_URL}/api/inbox/accounts/${account.id}/unread`
+              `${API_BASE_URL}/api/inbox/accounts/${account.id}/unread`,
             );
             return {
               ...account,
@@ -87,7 +87,7 @@ export default function InboxMain() {
           } catch {
             return { ...account, unreadCount: 0 };
           }
-        })
+        }),
       );
 
       setAccounts(accountsWithUnread);
@@ -146,7 +146,7 @@ export default function InboxMain() {
           unreadCount: 0,
           messageCount: 1,
           isStarred: false,
-        })
+        }),
       );
 
       setConversations(formattedResults);
@@ -178,7 +178,7 @@ export default function InboxMain() {
 
       const res = await api.get(
         `${API_BASE_URL}/api/inbox/conversations/${selectedAccount.id}`,
-        { params }
+        { params },
       );
 
       setConversations(res.data?.data || []);
@@ -307,7 +307,7 @@ export default function InboxMain() {
   const handleMessageSent = (conversationId) => {
     if (activeView === "today") {
       setConversations((prev) =>
-        prev.filter((c) => c.conversationId !== conversationId)
+        prev.filter((c) => c.conversationId !== conversationId),
       );
       if (selectedConversation?.conversationId === conversationId) {
         setSelectedConversation(null);
