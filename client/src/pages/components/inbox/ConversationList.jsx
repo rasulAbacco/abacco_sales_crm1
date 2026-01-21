@@ -128,25 +128,25 @@ export default function ConversationList({
     return cleanName.charAt(0).toUpperCase() || "?";
   };
 
-  const handleConversationSelect = async (conversation) => {
-    onConversationSelect(conversation);
-    try {
-      await api.post(`${API_BASE_URL}/api/inbox/mark-read-conversation`, {
-        conversationId: conversation.conversationId,
-        accountId: selectedAccount.id,
-      });
+const handleConversationSelect = async (conversation) => {
+  onConversationSelect(conversation);
+  try {
+    // 🔥 FIX: Use POST and include the ID in the URL path
+    await api.post(
+      `${API_BASE_URL}/api/inbox/conversations/${conversation.conversationId}/read`,
+    );
 
-      setConversations((prevConversations) =>
-        prevConversations.map((conv) =>
-          conv.conversationId === conversation.conversationId
-            ? { ...conv, unreadCount: 0 }
-            : conv
-        )
-      );
-    } catch (error) {
-      console.error("Failed to mark as read:", error);
-    }
-  };
+    setConversations((prevConversations) =>
+      prevConversations.map((conv) =>
+        conv.conversationId === conversation.conversationId
+          ? { ...conv, unreadCount: 0 }
+          : conv,
+      ),
+    );
+  } catch (error) {
+    console.error("Failed to mark as read:", error);
+  }
+};
 
   if (!selectedAccount || !selectedFolder) {
     return (

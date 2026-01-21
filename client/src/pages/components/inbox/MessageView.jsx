@@ -605,16 +605,16 @@ export default function MessageView({
   };
 
   const markConversationAsRead = async () => {
+    if (!selectedConversation || !selectedAccount) return;
     try {
-      await api.post(`${API_BASE_URL}/api/inbox/mark-read-conversation`, {
-        conversationId: selectedConversation.conversationId,
-        accountId: selectedAccount.id,
-      });
+      // 🔥 FIX: Match the backend route structure
+      await api.post(
+        `${API_BASE_URL}/api/inbox/conversations/${selectedConversation.conversationId}/read`,
+      );
     } catch (error) {
       console.error("❌ Failed to mark conversation as read:", error);
     }
   };
-
   const handleMoveToInbox = async () => {
     if (!selectedConversation || !selectedAccount) return;
 
@@ -743,11 +743,65 @@ export default function MessageView({
   // ✅ LEAD MANAGEMENT LOGIC (ALL PRESERVED)
   // ============================================================
 
+  // const handleOpenEditLead = async () => {
+  //   if (!selectedConversation) return;
+
+  //   let targetEmail = "";
+
+  //   if (
+  //     selectedConversation.displayEmail &&
+  //     selectedConversation.displayEmail !== "Unknown"
+  //   ) {
+  //     targetEmail = selectedConversation.displayEmail;
+  //   } else {
+  //     const msg = messages[0];
+  //     if (msg) {
+  //       if (msg.direction === "received") {
+  //         targetEmail = msg.fromEmail;
+  //       } else {
+  //         targetEmail = msg.toEmail ? msg.toEmail.split(",")[0].trim() : "";
+  //       }
+  //     }
+  //   }
+
+  //   const emailMatch = targetEmail.match(/<(.+?)>/);
+  //   const cleanEmail = emailMatch ? emailMatch[1] : targetEmail;
+
+  //   if (!cleanEmail) {
+  //     alert("Could not determine client email to edit.");
+  //     return;
+  //   }
+
+  //   try {
+  //     const res = await api.get(
+  //       `${API_BASE_URL}/api/leads/by-email/${cleanEmail}`,
+  //     );
+
+  //     if (res.data.success && res.data.data) {
+  //       setLeadEditForm(res.data.data);
+  //       setShowLeadEditModal(true);
+  //     } else {
+  //       alert(
+  //         "No existing lead profile found for this email. Please create one in the Leads section first.",
+  //       );
+  //     }
+  //   } catch (error) {
+  //     console.error("Error fetching lead for edit:", error);
+  //     if (error.response && error.response.status === 404) {
+  //       alert(
+  //         "No existing lead profile found for this email. Please create one in the Leads section first.",
+  //       );
+  //     } else {
+  //       alert("Failed to fetch lead details.");
+  //     }
+  //   }
+  // };
   const handleOpenEditLead = async () => {
     if (!selectedConversation) return;
 
     let targetEmail = "";
 
+    // 1. Determine the correct email to search for in the CRM
     if (
       selectedConversation.displayEmail &&
       selectedConversation.displayEmail !== "Unknown"
@@ -778,22 +832,30 @@ export default function MessageView({
       );
 
       if (res.data.success && res.data.data) {
-        setLeadEditForm(res.data.data);
+        const leadData = res.data.data;
+
+        // 🔥 FIX: Ensure 'client' contains the name, not the email
+        // If the database 'client' field is empty or contains an email,
+        // use displayName as a fallback.
+        const clientName =
+          leadData.client && !leadData.client.includes("@")
+            ? leadData.client
+            : selectedConversation.displayName ||
+              leadData.name ||
+              leadData.client;
+
+        setLeadEditForm({
+          ...leadData,
+          client: clientName,
+        });
+
         setShowLeadEditModal(true);
       } else {
-        alert(
-          "No existing lead profile found for this email. Please create one in the Leads section first.",
-        );
+        alert("No existing lead profile found for this email.");
       }
     } catch (error) {
       console.error("Error fetching lead for edit:", error);
-      if (error.response && error.response.status === 404) {
-        alert(
-          "No existing lead profile found for this email. Please create one in the Leads section first.",
-        );
-      } else {
-        alert("Failed to fetch lead details.");
-      }
+      alert("Failed to fetch lead details.");
     }
   };
 
