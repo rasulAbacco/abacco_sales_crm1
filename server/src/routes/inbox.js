@@ -1,5 +1,6 @@
 // server/routes/inbox.js - ENHANCED VERSION
 import express from "express";
+import { randomBytes } from "crypto";
 import { PrismaClient } from "@prisma/client";
 import { Buffer } from "buffer";
 import qp from "quoted-printable";
@@ -16,6 +17,10 @@ const qpDecode = qp.decode;
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 const BASE_URL = process.env.API_BASE_URL || "http://localhost:4002";
+
+function generateId() {
+  return randomBytes(16).toString("hex");
+}
 
 /* ============================================================
    🧠 Helper – Normalize Subject for Threading
@@ -2287,7 +2292,6 @@ router.post("/reply-all", async (req, res) => {
   }
 });
 
-
 // router.post("/forward", async (req, res) => {
 //   try {
 //     const {
@@ -2631,45 +2635,179 @@ router.post("/forward", async (req, res) => {
 });
 
 /* ✅ POST: Mark Conversation Read */
-router.post("/mark-read-conversation", async (req, res) => {
+router.post("/forward", async (req, res) => {
   try {
-    const { conversationId, accountId } = req.body;
+    console.log("📨 FORWARD PAYLOAD:", req.body);
 
-    if (!conversationId || !accountId) {
+    const {
+      emailAccountId,
+      forwardMessageId,
+      conversationId,
+      to,
+      cc,
+      body,
+      attachments = [],
+      scheduledMessageId,
+    } = req.body;
+
+    if (!emailAccountId || !to) {
       return res.status(400).json({
         success: false,
-        message: "conversationId and accountId required",
+        message: "emailAccountId and to are required",
       });
     }
 
-    // Mark all messages in conversation as read
-    const updated = await prisma.emailMessage.updateMany({
-      where: {
-        conversationId,
-        emailAccountId: Number(accountId),
-        direction: "received",
-        isRead: false,
-      },
-      data: { isRead: true },
+    /* ============================================================
+       1️⃣ FIND ORIGINAL MESSAGE (SAFE)
+    ============================================================ */
+    let original = null;
+
+    if (forwardMessageId) {
+      original = await prisma.emailMessage.findUnique({
+        where: { id: Number(forwardMessageId) },
+      });
+    }
+
+    if (!original && conversationId) {
+      original = await prisma.emailMessage.findFirst({
+        where: { conversationId },
+        orderBy: { sentAt: "desc" },
+      });
+    }
+
+    if (!original) {
+      return res.status(400).json({
+        success: false,
+        message: "Original message not found",
+      });
+    }
+
+    /* ============================================================
+       2️⃣ FETCH ACCOUNT
+    ============================================================ */
+    const account = await prisma.emailAccount.findUnique({
+      where: { id: Number(emailAccountId) },
+      include: { User: { select: { name: true } } },
     });
 
-    // Update conversation unread count
-    try {
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { unreadCount: 0 },
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: "Email account not found",
       });
-    } catch (e) {
-      // Conversation might not exist
     }
 
-    res.json({
+    const senderName = account.User?.name || "";
+    const authEmail = account.smtpUser || account.email;
+
+    /* ============================================================
+       3️⃣ CREATE NEW CONVERSATION (SAFE ID)
+    ============================================================ */
+    const newConversationId = generateId();
+
+    const finalSubject = original.subject?.startsWith("Fwd:")
+      ? original.subject
+      : `Fwd: ${original.subject || ""}`;
+
+    await prisma.conversation.create({
+      data: {
+        id: newConversationId,
+        subject: finalSubject,
+        initiatorEmail: authEmail,
+        participants: authEmail,
+        lastMessageAt: new Date(),
+        messageCount: 1,
+        unreadCount: 0,
+      },
+    });
+
+    /* ============================================================
+       4️⃣ SMTP TRANSPORTER (PRODUCTION SAFE)
+    ============================================================ */
+    const transporter = nodemailer.createTransport({
+      host: account.smtpHost,
+      port: Number(account.smtpPort),
+      secure: Number(account.smtpPort) === 465,
+      auth: {
+        user: authEmail,
+        pass: account.encryptedPass,
+      },
+    });
+
+    /* ============================================================
+       5️⃣ BUILD BODY
+    ============================================================ */
+    const forwardedBody = `
+      ${body || ""}
+      <br><br>
+      <hr />
+      <b>From:</b> ${original.fromEmail}<br>
+      <b>Sent:</b> ${original.sentAt.toLocaleString()}<br>
+      <b>Subject:</b> ${original.subject || ""}
+      <br><br>
+      ${original.body || ""}
+    `;
+
+    /* ============================================================
+       6️⃣ MESSAGE-ID
+    ============================================================ */
+    const messageId = `<${Date.now()}.${Math.random()
+      .toString(36)
+      .slice(2)}@${authEmail.split("@")[1]}>`;
+
+    /* ============================================================
+       7️⃣ SEND EMAIL
+    ============================================================ */
+    await transporter.sendMail({
+      from: `"${senderName}" <${authEmail}>`,
+      to,
+      cc: cc || undefined,
+      subject: finalSubject,
+      html: forwardedBody,
+      messageId,
+      attachments: attachments.map((f) => ({
+        filename: f.filename || f.name,
+        path: f.url,
+        contentType: f.type || f.mimeType,
+      })),
+    });
+
+    /* ============================================================
+       8️⃣ SAVE MESSAGE
+    ============================================================ */
+    const savedForward = await prisma.emailMessage.create({
+      data: {
+        emailAccountId: Number(emailAccountId),
+        conversationId: newConversationId,
+        messageId,
+
+        fromEmail: authEmail,
+        fromName: senderName,
+
+        toEmail: to,
+        ccEmail: cc || null,
+
+        subject: finalSubject,
+        body: forwardedBody,
+        direction: "sent",
+        sentAt: new Date(),
+        folder: "inbox",
+        isRead: true,
+      },
+    });
+
+    return res.json({
       success: true,
-      updatedCount: updated.count,
+      message: "Forward sent successfully",
+      data: savedForward,
     });
   } catch (err) {
-    console.error("❌ MARK READ ERROR:", err);
-    res.status(500).json({ success: false });
+    console.error("❌ FORWARD ERROR (PROD):", err);
+    return res.status(500).json({
+      success: false,
+      message: "Forward failed",
+      error: err.message,
+    });
   }
 });
 

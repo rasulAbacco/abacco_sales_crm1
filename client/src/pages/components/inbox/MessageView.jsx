@@ -1137,27 +1137,19 @@ export default function MessageView({
           .join(", ");
       }
     }
-
     const quoted = `
   <br/><br/>
   <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
   <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-    <b style="font-weight: bold;">From:</b> ${formatSender(
-      message.fromName,
-      message.fromEmail,
-    )}<br/>
-    <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
-      message.sentAt,
-    )}<br/>
-    <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
-    ${
-      message.ccEmail
-        ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
-        : ""
-    }
-    <b style="font-weight: bold;">Subject:</b> ${
-      message.subject || "(No Subject)"
-    }
+    <b>From:</b> ${
+      message.fromName?.trim()
+        ? `${message.fromName} &lt;${message.fromEmail}&gt;`
+        : message.fromEmail
+    }<br/>
+    <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
+    <b>To:</b> ${message.toEmail}<br/>
+    ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
+    <b>Subject:</b> ${message.subject || "(No Subject)"}
     <br/><br/>
     ${message.bodyHtml || message.body || ""}
   </div>
@@ -1205,7 +1197,11 @@ export default function MessageView({
     <br/><br/>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
     <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-      <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
+<b>From:</b> ${
+      message.fromName?.trim()
+        ? `${message.fromName} &lt;${message.fromEmail}&gt;`
+        : message.fromEmail
+    }<br/>
       <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
       <b>To:</b> ${message.toEmail}<br/>
       ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
@@ -1280,7 +1276,9 @@ export default function MessageView({
   const handleForward = (type, message) => {
     if (!message) return;
 
-    const fromHeader = formatHeaderAddress(message.fromName, message.fromEmail);
+    const fromHeader = message.fromName?.trim()
+      ? `${message.fromName} &lt;${message.fromEmail}&gt;`
+      : message.fromEmail;
     const toHeader = message.toEmail;
     const ccHeader = message.ccEmail
       ? message.ccEmail
@@ -1378,24 +1376,22 @@ export default function MessageView({
       endpoint = `${API_BASE_URL}/api/inbox/reply-all`;
     if (replyMode === "forward") endpoint = `${API_BASE_URL}/api/inbox/forward`;
 
-const payload = {
-  conversationId: selectedConversation.conversationId,
-  emailAccountId: selectedFromAccount.id,
-  fromEmail: selectedFromAccount.email,
-  from: selectedFromAccount.email,
-  to: cleanEmails(replyData.to),
-  cc: cleanEmails(replyData.cc) || null,
-  subject: replyData.subject,
-  body: bodyContent,
-  attachments: attachments.map((att) => ({
-    filename: att.name,
-    type: att.type,
-    size: att.size,
-    url: att.url || null,
-  })),
-};
-
-
+    const payload = {
+      conversationId: selectedConversation.conversationId,
+      emailAccountId: selectedFromAccount.id,
+      fromEmail: selectedFromAccount.email,
+      from: selectedFromAccount.email,
+      to: cleanEmails(replyData.to),
+      cc: cleanEmails(replyData.cc) || null,
+      subject: replyData.subject,
+      body: bodyContent,
+      attachments: attachments.map((att) => ({
+        filename: att.name,
+        type: att.type,
+        size: att.size,
+        url: att.url || null,
+      })),
+    };
 
     if (replyingToMessageId) {
       payload.replyToMessageId = replyingToMessageId;
