@@ -70,35 +70,52 @@ export default function FollowUpEditModal({
               </label>
               <input
                 type="email"
-                value={editForm.email || ""}
-                onChange={(e) => onChange("email", e.target.value)}
+                value={editForm.client || ""}
+                onChange={(e) => onChange("client", e.target.value)}
+                placeholder="client@example.com"
                 className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                CC Email
+                Employee Email
               </label>
               <input
-                type="text"
-                value={editForm.cc || ""}
-                onChange={(e) => onChange("cc", e.target.value)}
+                type="email"
+                value={editForm.email || ""}
+                onChange={(e) => onChange("email", e.target.value)}
+                placeholder="employee@company.com"
                 className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
           </div>
 
-          <div className="mt-3">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Phone
-            </label>
-            <input
-              type="text"
-              value={editForm.phone || ""}
-              onChange={(e) => onChange("phone", e.target.value)}
-              className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Client CC Email
+              </label>
+              <input
+                type="text"
+                value={editForm.cc || ""}
+                onChange={(e) => onChange("cc", e.target.value)}
+                placeholder="cc@example.com"
+                className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Phone
+              </label>
+              <input
+                type="text"
+                value={editForm.phone || ""}
+                onChange={(e) => onChange("phone", e.target.value)}
+                className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
           </div>
         </div>
 
@@ -158,7 +175,6 @@ export default function FollowUpEditModal({
               <label className="block text-sm font-medium text-slate-700 mb-2">
                 Lead Status
               </label>
-              {/* ✅ UPDATED: Map over dynamic statusOptions */}
               <select
                 value={editForm.leadStatus || ""}
                 onChange={(e) => onChange("leadStatus", e.target.value)}

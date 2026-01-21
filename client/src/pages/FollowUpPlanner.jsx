@@ -35,10 +35,10 @@ export default function FollowUpPlanner() {
   const [followups, setFollowups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editingLead, setEditingLead] = useState(
-    JSON.parse(localStorage.getItem("editingLead")) || null
+    JSON.parse(localStorage.getItem("editingLead")) || null,
   );
   const [editForm, setEditForm] = useState(
-    JSON.parse(localStorage.getItem("editForm")) || {}
+    JSON.parse(localStorage.getItem("editForm")) || {},
   );
   const [selectedLead, setSelectedLead] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -216,7 +216,7 @@ export default function FollowUpPlanner() {
       const data = await res.json();
       if (data.success) {
         setFollowups((prev) =>
-          prev.map((f) => (f.id === editForm.id ? data.data : f))
+          prev.map((f) => (f.id === editForm.id ? data.data : f)),
         );
         setEditingLead(null);
         alert("✅ Lead updated successfully!");
@@ -294,7 +294,7 @@ export default function FollowUpPlanner() {
     const csvContent = [
       headers.join(","),
       ...csvData.map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
       ),
     ].join("\n");
 
@@ -304,7 +304,7 @@ export default function FollowUpPlanner() {
     link.setAttribute("href", url);
     link.setAttribute(
       "download",
-      `leads_export_${new Date().toISOString().split("T")[0]}.csv`
+      `leads_export_${new Date().toISOString().split("T")[0]}.csv`,
     );
     link.style.visibility = "hidden";
     document.body.appendChild(link);
@@ -314,7 +314,7 @@ export default function FollowUpPlanner() {
 
   const handleEmailClick = async (lead) => {
     const res = await fetch(
-      `${API_BASE_URL}/api/leads/saleslead-by-email/${lead.email}`
+      `${API_BASE_URL}/api/leads/saleslead-by-email/${lead.email}`,
     );
     const json = await res.json();
 
@@ -333,7 +333,7 @@ export default function FollowUpPlanner() {
   // ✅ New: Handle opening detail modal from Label Link click
   const handleLabelLinkClick = async (lead) => {
     const res = await fetch(
-      `${API_BASE_URL}/api/leads/saleslead-by-email/${lead.email}`
+      `${API_BASE_URL}/api/leads/saleslead-by-email/${lead.email}`,
     );
     const json = await res.json();
 
@@ -382,7 +382,7 @@ export default function FollowUpPlanner() {
       if (data.success) {
         // Update local state
         setFollowups((prev) =>
-          prev.map((f) => (f.id === selectedLead.id ? { ...selectedLead } : f))
+          prev.map((f) => (f.id === selectedLead.id ? { ...selectedLead } : f)),
         );
 
         alert("✅ Lead details updated successfully!");
@@ -927,7 +927,7 @@ export default function FollowUpPlanner() {
                                 day: "2-digit",
                                 month: "2-digit",
                                 year: "numeric",
-                              }
+                              },
                             )
                           : "No date set"}
                       </div>
@@ -935,7 +935,7 @@ export default function FollowUpPlanner() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`inline-block px-3 py-1 rounded-full text-xs font-medium border whitespace-nowrap ${getStatusColor(
-                          lead.leadStatus
+                          lead.leadStatus,
                         )}`}
                       >
                         {lead.leadStatus || "Not Set"}
@@ -1529,7 +1529,7 @@ export default function FollowUpPlanner() {
                     <p className="text-sm font-medium text-gray-900">
                       {selectedLead.followUpDate
                         ? new Date(
-                            selectedLead.followUpDate
+                            selectedLead.followUpDate,
                           ).toLocaleDateString("en-IN", {
                             day: "2-digit",
                             month: "long",
@@ -1606,7 +1606,7 @@ export default function FollowUpPlanner() {
                   value={messageForm.from}
                   onChange={(e) => {
                     const selected = accounts.find(
-                      (acc) => acc.email === e.target.value
+                      (acc) => acc.email === e.target.value,
                     );
                     setMessageForm({
                       ...messageForm,
@@ -1664,7 +1664,7 @@ export default function FollowUpPlanner() {
                       <button
                         onClick={() => {
                           const updated = messageForm.ccList.filter(
-                            (_, i) => i !== idx
+                            (_, i) => i !== idx,
                           );
                           setMessageForm({ ...messageForm, ccList: updated });
                         }}
@@ -1775,7 +1775,7 @@ export default function FollowUpPlanner() {
                           className="flex-shrink-0 text-red-500 hover:text-red-700 text-sm font-medium ml-3 transition-colors"
                           onClick={() => {
                             const updated = messageForm.attachments.filter(
-                              (_, i) => i !== idx
+                              (_, i) => i !== idx,
                             );
                             setMessageForm({
                               ...messageForm,
@@ -2154,7 +2154,7 @@ export default function FollowUpPlanner() {
           }
           onStatusUpdated={(updated) =>
             setCustomStatuses((prev) =>
-              prev.map((s) => (s.id === updated.id ? updated : s))
+              prev.map((s) => (s.id === updated.id ? updated : s)),
             )
           }
           onStatusDeleted={(id) =>
