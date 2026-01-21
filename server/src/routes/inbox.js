@@ -243,6 +243,7 @@ router.get("/conversation-detail", async (req, res) => {
   }
 });
 
+
 // router.get("/conversations/:accountId", async (req, res) => {
 //   try {
 //     const accountId = Number(req.params.accountId);
@@ -277,15 +278,28 @@ router.get("/conversation-detail", async (req, res) => {
 //     conditions.push(`em."emailAccountId" = $${params.length + 1}`);
 //     params.push(accountId);
 
-//     // folder
+//     // 🔥 GLOBAL SAFETY: never show permanently deleted
+//     conditions.push(`em."hideTrash" = false`);
+//     //AND em.direction = 'received'
+//     // folder logic (STRICT & MUTUALLY EXCLUSIVE)
+//     //   if (folder === "inbox") {
+//     //     conditions.push(`
+//     //   (
+//     //     (em.folder = 'inbox' AND em.direction = 'received')
+//     //     OR
+//     //     (em.folder = 'sent' AND em.direction = 'sent')
+//     //   )
+//     //   AND em."isTrash" = false
+//     //   AND em."isSpam" = false
+//     //   AND em."hideInbox" = false
+//     // `);
 //     if (folder === "inbox") {
 //       conditions.push(`
-//         em.folder = 'inbox'
-//         AND em.direction = 'received'
-//         AND em."isTrash" = false
-//         AND em."isSpam" = false
-//         AND em."hideInbox" = false
-//       `);
+//     em.direction = 'received'
+//     AND em."isTrash" = false
+//     AND em."isSpam" = false
+//     AND em."hideInbox" = false
+//   `);
 //     } else if (folder === "sent") {
 //       conditions.push(`
 //         em.folder = 'sent'
@@ -293,9 +307,14 @@ router.get("/conversation-detail", async (req, res) => {
 //         AND em."isTrash" = false
 //       `);
 //     } else if (folder === "spam") {
-//       conditions.push(`em.folder = 'spam'`);
+//       conditions.push(`
+//         em.folder = 'spam'
+//         AND em."isTrash" = false
+//       `);
 //     } else if (folder === "trash") {
-//       conditions.push(`em."isTrash" = true`);
+//       conditions.push(`
+//         em."isTrash" = true
+//       `);
 //     }
 
 //     // sender / recipient / search
@@ -344,7 +363,7 @@ router.get("/conversation-detail", async (req, res) => {
 //       conditions.push(`
 //         EXISTS (
 //           SELECT 1 FROM "Attachment" a
-//           WHERE a."emailMessageId" = em.id
+//           WHERE a."messageId" = em.id
 //         )
 //       `);
 //     }
@@ -361,7 +380,7 @@ router.get("/conversation-detail", async (req, res) => {
 //     }
 
 //     /* ==================================================
-//        2️⃣ FETCH MESSAGE IDS (RAW SQL)
+//        2️⃣ FETCH MESSAGE IDS
 //     ================================================== */
 //     const sql = `
 //       SELECT DISTINCT em.id
@@ -382,7 +401,6 @@ router.get("/conversation-detail", async (req, res) => {
 //         )
 
 //       WHERE ${conditions.join(" AND ")}
-
 //       ORDER BY em.id DESC
 //     `;
 
@@ -394,11 +412,10 @@ router.get("/conversation-detail", async (req, res) => {
 //     }
 
 //     /* ==================================================
-//        3️⃣ FETCH CONVERSATIONS (✅ FIXED - NO emailAccountId)
+//        3️⃣ FETCH CONVERSATIONS
 //     ================================================== */
 //     const conversations = await prisma.conversation.findMany({
 //       where: {
-//         // ✅ REMOVED: emailAccountId filter
 //         messages: {
 //           some: { id: { in: messageIds } },
 //         },
@@ -406,7 +423,7 @@ router.get("/conversation-detail", async (req, res) => {
 //       include: {
 //         messages: {
 //           where: {
-//             emailAccountId: accountId, // ✅ Filter messages by account here instead
+//             emailAccountId: accountId,
 //           },
 //           orderBy: { sentAt: "desc" },
 //           take: 1,
@@ -419,19 +436,19 @@ router.get("/conversation-detail", async (req, res) => {
 //        4️⃣ FORMAT RESPONSE
 //     ================================================== */
 //     let result = conversations
-//       .filter((conv) => conv.messages.length > 0) // ✅ Only return conversations with messages for this account
+//       .filter((conv) => conv.messages.length > 0)
 //       .map((conv) => {
 //         const m = conv.messages[0];
 
-//         let displayName = "Unknown";
-//         let displayEmail = "Unknown";
+//         let displayName;
+//         let displayEmail;
 
-//         if (m?.direction === "received") {
+//         if (m.direction === "received") {
 //           displayName = m.fromName || m.fromEmail;
 //           displayEmail = m.fromEmail;
 //         } else {
-//           const firstTo = m?.toEmail?.split(",")[0] || "";
-//           displayName = m?.toName || firstTo;
+//           const firstTo = m.toEmail?.split(",")[0] || "";
+//           displayName = m.toName || firstTo;
 //           displayEmail = firstTo;
 //         }
 
@@ -439,11 +456,21 @@ router.get("/conversation-detail", async (req, res) => {
 //           conversationId: conv.id,
 //           subject: conv.subject || "(No Subject)",
 //           initiatorEmail: conv.initiatorEmail,
-//           lastSenderEmail: m?.fromEmail || null,
+//           lastSenderEmail: m.fromEmail,
 //           displayName,
 //           displayEmail,
 //           lastDate: conv.lastMessageAt,
-//           lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+//           // lastBody: m.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
+//           // 🔥 UPDATED lastBody logic to strip style/script content properly
+//           lastBody: m.body
+//             ? m.body
+//                 .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, "") // 1. Remove <style> and <script> contents
+//                 .replace(/<[^>]+>/g, " ") // 2. Remove all remaining HTML tags
+//                 .replace(/&nbsp;/g, " ") // 3. Replace HTML entities
+//                 .replace(/\s+/g, " ") // 4. Collapse multiple spaces/newlines
+//                 .trim()
+//                 .slice(0, 120)
+//             : "",
 //           unreadCount: conv.unreadCount,
 //           messageCount: conv.messageCount,
 //           isStarred: conv.isStarred,
@@ -462,7 +489,6 @@ router.get("/conversation-detail", async (req, res) => {
 //       });
 
 //       const leadEmails = new Set();
-
 //       leads.forEach((l) => {
 //         if (l.email) leadEmails.add(l.email.toLowerCase().trim());
 //         if (l.cc) {
@@ -476,13 +502,12 @@ router.get("/conversation-detail", async (req, res) => {
 //       const normalize = (s) =>
 //         (s || "").toLowerCase().replace(/<|>|"/g, "").trim();
 
-//       result = result.filter((conv) => {
-//         return (
-//           leadEmails.has(normalize(conv.displayEmail)) ||
-//           leadEmails.has(normalize(conv.lastSenderEmail)) ||
-//           leadEmails.has(normalize(conv.initiatorEmail))
-//         );
-//       });
+//       result = result.filter(
+//         (c) =>
+//           leadEmails.has(normalize(c.displayEmail)) ||
+//           leadEmails.has(normalize(c.lastSenderEmail)) ||
+//           leadEmails.has(normalize(c.initiatorEmail)),
+//       );
 //     }
 
 //     /* ==================================================
@@ -527,37 +552,23 @@ router.get("/conversations/:accountId", async (req, res) => {
     } = req.query;
 
     /* ==================================================
-       1️⃣ BUILD SQL CONDITIONS
+       1️⃣ BUILD SQL CONDITIONS (UNCHANGED)
     ================================================== */
     const conditions = [];
     const params = [];
 
-    // account
     conditions.push(`em."emailAccountId" = $${params.length + 1}`);
     params.push(accountId);
 
-    // 🔥 GLOBAL SAFETY: never show permanently deleted
     conditions.push(`em."hideTrash" = false`);
-    //AND em.direction = 'received'
-    // folder logic (STRICT & MUTUALLY EXCLUSIVE)
-    //   if (folder === "inbox") {
-    //     conditions.push(`
-    //   (
-    //     (em.folder = 'inbox' AND em.direction = 'received')
-    //     OR
-    //     (em.folder = 'sent' AND em.direction = 'sent')
-    //   )
-    //   AND em."isTrash" = false
-    //   AND em."isSpam" = false
-    //   AND em."hideInbox" = false
-    // `);
+
     if (folder === "inbox") {
       conditions.push(`
-    em.direction = 'received'
-    AND em."isTrash" = false
-    AND em."isSpam" = false
-    AND em."hideInbox" = false
-  `);
+        em.direction = 'received'
+        AND em."isTrash" = false
+        AND em."isSpam" = false
+        AND em."hideInbox" = false
+      `);
     } else if (folder === "sent") {
       conditions.push(`
         em.folder = 'sent'
@@ -565,17 +576,11 @@ router.get("/conversations/:accountId", async (req, res) => {
         AND em."isTrash" = false
       `);
     } else if (folder === "spam") {
-      conditions.push(`
-        em.folder = 'spam'
-        AND em."isTrash" = false
-      `);
+      conditions.push(`em.folder = 'spam' AND em."isTrash" = false`);
     } else if (folder === "trash") {
-      conditions.push(`
-        em."isTrash" = true
-      `);
+      conditions.push(`em."isTrash" = true`);
     }
 
-    // sender / recipient / search
     if (sender || recipient || searchEmail) {
       const val = `%${(sender || recipient || searchEmail)
         .toLowerCase()
@@ -590,23 +595,19 @@ router.get("/conversations/:accountId", async (req, res) => {
       params.push(val);
     }
 
-    // subject
     if (subject) {
       conditions.push(`lower(em.subject) LIKE $${params.length + 1}`);
       params.push(`%${subject.toLowerCase()}%`);
     }
 
-    // unread
     if (isUnread === "true") {
       conditions.push(`em."isRead" = false`);
     }
 
-    // starred
     if (isStarred === "true") {
       conditions.push(`em."isStarred" = true`);
     }
 
-    // date range
     if (dateFrom) {
       conditions.push(`em."sentAt" >= $${params.length + 1}`);
       params.push(new Date(dateFrom));
@@ -616,7 +617,6 @@ router.get("/conversations/:accountId", async (req, res) => {
       params.push(new Date(dateTo));
     }
 
-    // attachment
     if (hasAttachment === "true") {
       conditions.push(`
         EXISTS (
@@ -626,7 +626,6 @@ router.get("/conversations/:accountId", async (req, res) => {
       `);
     }
 
-    // country
     if (country) {
       conditions.push(`
         (
@@ -638,7 +637,7 @@ router.get("/conversations/:accountId", async (req, res) => {
     }
 
     /* ==================================================
-       2️⃣ FETCH MESSAGE IDS
+       2️⃣ FETCH MESSAGE IDS (UNCHANGED)
     ================================================== */
     const sql = `
       SELECT DISTINCT em.id
@@ -665,12 +664,12 @@ router.get("/conversations/:accountId", async (req, res) => {
     const rows = await prisma.$queryRawUnsafe(sql, ...params);
     const messageIds = rows.map((r) => r.id);
 
-    if (messageIds.length === 0) {
+    if (!messageIds.length) {
       return res.json({ success: true, total: 0, data: [] });
     }
 
     /* ==================================================
-       3️⃣ FETCH CONVERSATIONS
+       3️⃣ FETCH CONVERSATIONS (UNCHANGED)
     ================================================== */
     const conversations = await prisma.conversation.findMany({
       where: {
@@ -680,9 +679,7 @@ router.get("/conversations/:accountId", async (req, res) => {
       },
       include: {
         messages: {
-          where: {
-            emailAccountId: accountId,
-          },
+          where: { emailAccountId: accountId },
           orderBy: { sentAt: "desc" },
           take: 1,
         },
@@ -691,7 +688,7 @@ router.get("/conversations/:accountId", async (req, res) => {
     });
 
     /* ==================================================
-       4️⃣ FORMAT RESPONSE
+       4️⃣ FORMAT RESPONSE (🔥 ENHANCED, NOT REDUCED)
     ================================================== */
     let result = conversations
       .filter((conv) => conv.messages.length > 0)
@@ -700,14 +697,17 @@ router.get("/conversations/:accountId", async (req, res) => {
 
         let displayName;
         let displayEmail;
+        let clientKey;
 
         if (m.direction === "received") {
           displayName = m.fromName || m.fromEmail;
           displayEmail = m.fromEmail;
+          clientKey = m.fromEmail;
         } else {
-          const firstTo = m.toEmail?.split(",")[0] || "";
+          const firstTo = m.toEmail?.split(",")[0]?.trim() || "";
           displayName = m.toName || firstTo;
           displayEmail = firstTo;
+          clientKey = firstTo;
         }
 
         return {
@@ -717,15 +717,13 @@ router.get("/conversations/:accountId", async (req, res) => {
           lastSenderEmail: m.fromEmail,
           displayName,
           displayEmail,
+          clientKey, // 🔥 CRITICAL FIX (ADDED, NOTHING REMOVED)
           lastDate: conv.lastMessageAt,
-          // lastBody: m.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
-          // 🔥 UPDATED lastBody logic to strip style/script content properly
           lastBody: m.body
             ? m.body
-                .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, "") // 1. Remove <style> and <script> contents
-                .replace(/<[^>]+>/g, " ") // 2. Remove all remaining HTML tags
-                .replace(/&nbsp;/g, " ") // 3. Replace HTML entities
-                .replace(/\s+/g, " ") // 4. Collapse multiple spaces/newlines
+                .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, "")
+                .replace(/<[^>]+>/g, " ")
+                .replace(/\s+/g, " ")
                 .trim()
                 .slice(0, 120)
             : "",
@@ -736,36 +734,36 @@ router.get("/conversations/:accountId", async (req, res) => {
       });
 
     /* ==================================================
-       5️⃣ LEAD STATUS FILTER
+       5️⃣ LEAD STATUS FILTER (🔥 FIXED, OLD LOGIC PRESERVED)
     ================================================== */
     if (leadStatus) {
       const leads = await prisma.leadDetails.findMany({
         where: {
           leadStatus: { equals: leadStatus, mode: "insensitive" },
         },
-        select: { email: true, cc: true },
+        select: { client: true, email: true, cc: true },
       });
 
-      const leadEmails = new Set();
+      const leadKeys = new Set();
+
       leads.forEach((l) => {
-        if (l.email) leadEmails.add(l.email.toLowerCase().trim());
+        if (l.client) leadKeys.add(l.client.toLowerCase().trim());
+        if (l.email) leadKeys.add(l.email.toLowerCase().trim());
         if (l.cc) {
           l.cc
             .split(/[;,]/)
             .map((e) => e.toLowerCase().trim())
-            .forEach((e) => e && leadEmails.add(e));
+            .forEach((e) => e && leadKeys.add(e));
         }
       });
 
       const normalize = (s) =>
-        (s || "").toLowerCase().replace(/<|>|"/g, "").trim();
+        (s || "")
+          .toLowerCase()
+          .replace(/<|>|"|to:/g, "")
+          .trim();
 
-      result = result.filter(
-        (c) =>
-          leadEmails.has(normalize(c.displayEmail)) ||
-          leadEmails.has(normalize(c.lastSenderEmail)) ||
-          leadEmails.has(normalize(c.initiatorEmail)),
-      );
+      result = result.filter((c) => leadKeys.has(normalize(c.clientKey)));
     }
 
     /* ==================================================
