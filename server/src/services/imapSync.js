@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import pLimit from "p-limit";
 import fs from "fs";
 import path from "path";
+import { htmlToText } from "html-to-text";
 import { uploadToR2WithHash, generateHash } from "./r2.js";
 import { notifyNewEmail } from "../services/notification.service.js";
 
@@ -64,7 +65,26 @@ async function findConversationId(prisma, parsed) {
 
   return conversation?.id || null;
 }
+function normalizeEmailHtml(html) {
+  if (!html) return "";
 
+  return (
+    html
+      // Remove Outlook-specific junk
+      .replace(/<o:p>.*?<\/o:p>/gi, "")
+      // Normalize block spacing (Outlook fix)
+      .replace(/<p>/gi, '<p style="margin:0;mso-line-height-rule:exactly;">')
+      .replace(
+        /<div>/gi,
+        '<div style="margin:0;mso-line-height-rule:exactly;">',
+      )
+      // Collapse excessive breaks
+      .replace(/<br>\s*<br>/gi, "<br>")
+      // Remove empty blocks
+      .replace(/<p[^>]*>\s*<\/p>/gi, "")
+      .replace(/<div[^>]*>\s*<\/div>/gi, "")
+  );
+}
 /* ======================================================
    🔥 HELPER: CREATE MISSING CONVERSATION (Account-Independent)
 ====================================================== */
@@ -73,7 +93,7 @@ async function createNewConversation(
   parsed,
   messageId,
   fromEmail,
-  toEmail
+  toEmail,
 ) {
   try {
     const subject = parsed.subject || "(No Subject)";
@@ -89,7 +109,7 @@ async function createNewConversation(
 
     if (existing) {
       console.log(
-        `♻️ Conversation ${conversationId} already exists, reusing it`
+        `♻️ Conversation ${conversationId} already exists, reusing it`,
       );
       return existing.id;
     }
@@ -103,8 +123,8 @@ async function createNewConversation(
         toRecipients: toEmail,
         initiatorEmail: fromEmail,
         lastMessageAt: sentAt,
-        messageCount: 1,
-        unreadCount: 1,
+        messageCount: 0,
+        unreadCount: 0,
       },
     });
 
@@ -123,11 +143,15 @@ async function createNewConversation(
    CORE: SAVE EMAIL TO DB
 ====================================================== */
 async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
+  if (!account || !account.id) return;
+
   const messageId =
     parsed.messageId || msg.envelope?.messageId || `uid-${msg.uid}`;
-  const accountId = Number(account.id);
+  const accountId = account.id;
 
-  // 1️⃣ Check if message exists for THIS account
+  /* ======================================================
+     1️⃣ CHECK IF MESSAGE ALREADY EXISTS
+  ====================================================== */
   const exists = await prisma.emailMessage.findUnique({
     where: {
       emailAccountId_messageId: {
@@ -137,12 +161,17 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
     },
   });
 
+  // 🔒 DO NOT let IMAP overwrite SMTP-sent messages
+  if (direction === "sent" && exists) {
+    return;
+  }
+
+  // 🔧 Backfill missing sender name (safe)
   if (exists) {
     const fromObj = parsed.from?.value?.[0];
     const fromName = fromObj?.name || null;
 
     if (fromName && !exists.fromName) {
-      console.log(`🔧 Fixing missing name for message: ${messageId}`);
       await prisma.emailMessage.update({
         where: { id: exists.id },
         data: { fromName },
@@ -151,7 +180,9 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
     return;
   }
 
-  // 2️⃣ Extract Info
+  /* ======================================================
+     2️⃣ EXTRACT CORE FIELDS
+  ====================================================== */
   const fromObj = parsed.from?.value?.[0];
   const fromName = fromObj?.name || null;
   const fromEmail = fromObj?.address || "";
@@ -163,10 +194,22 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
   const ccRecipients = parsed.cc?.value || [];
   const ccEmail = ccRecipients.map((v) => v.address).join(", ") || "";
 
-  // 3️⃣ Find Matching Lead
+  /* ======================================================
+     3️⃣ NORMALIZE HTML (🔥 SPACING FIX)
+  ====================================================== */
+  const rawHtml =
+    parsed.html || parsed.textAsHtml || `<pre>${parsed.text || ""}</pre>`;
+
+  const safeHtml = normalizeEmailHtml(rawHtml);
+  const bodyText = htmlToText(safeHtml, { wordwrap: false });
+
+  /* ======================================================
+     4️⃣ LEAD MATCHING (UNCHANGED LOGIC)
+  ====================================================== */
   let leadDetailId = null;
   try {
     const emailsToMatch = [];
+
     if (fromEmail) emailsToMatch.push(fromEmail.toLowerCase());
     toEmail
       .split(",")
@@ -188,19 +231,35 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
     logErrorToFile(account.email, `Lead match failed: ${err.message}`);
   }
 
-  // 4️⃣ Attachments
-  let attachmentsMeta = [];
+  /* ======================================================
+     5️⃣ ATTACHMENTS (INLINE-SAFE)
+  ====================================================== */
+  const attachmentsMeta = [];
+
   if (parsed.attachments?.length) {
     for (const att of parsed.attachments) {
+      // ✅ INLINE IMAGE (CID) — DO NOT UPLOAD
+      if (att.cid) {
+        attachmentsMeta.push({
+          filename: att.filename || "inline",
+          mimeType: att.contentType,
+          cid: att.cid,
+          isInline: true,
+        });
+        continue;
+      }
+
       if (!att.content) continue;
-      const contentHash = generateHash(att.content);
-      const uniqueKey = `${contentHash}-${accountId}-${Date.now()}`;
+
       try {
+        const contentHash = generateHash(att.content);
+        const uniqueKey = `${contentHash}-${accountId}-${Date.now()}`;
         const storageUrl = await uploadToR2WithHash(
           att.content,
           att.contentType || "application/octet-stream",
-          uniqueKey
+          uniqueKey,
         );
+
         attachmentsMeta.push({
           filename: att.filename || "file",
           mimeType: att.contentType || "application/octet-stream",
@@ -211,13 +270,15 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
       } catch (e) {
         logErrorToFile(
           account.email,
-          `R2 Failed (${att.filename}): ${e.message}`
+          `R2 Failed (${att.filename}): ${e.message}`,
         );
       }
     }
   }
 
-  // 5️⃣ Find/Create Conversation (✅ NO accountId parameter)
+  /* ======================================================
+     6️⃣ FIND / CREATE CONVERSATION
+  ====================================================== */
   let conversationId = await findConversationId(prisma, parsed);
 
   if (!conversationId) {
@@ -227,18 +288,20 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
         parsed,
         messageId,
         fromEmail,
-        toEmail
+        toEmail,
       );
     } catch (err) {
       logErrorToFile(
         account.email,
-        `Failed to create conversation: ${err.message}`
+        `Failed to create conversation: ${err.message}`,
       );
       return;
     }
   }
 
-  // 6️⃣ Save Message
+  /* ======================================================
+     7️⃣ SAVE MESSAGE (CLEAN & SAFE)
+  ====================================================== */
   try {
     await prisma.emailMessage.create({
       data: {
@@ -246,25 +309,28 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
         conversationId,
         messageId,
         subject: parsed.subject || "(No Subject)",
+
         fromEmail,
         fromName,
         toEmail,
         toName,
         ccEmail,
-        body: parsed.html || parsed.textAsHtml || parsed.text,
+
+        bodyHtml: safeHtml,
+        bodyText,
+
         direction,
         folder,
         sentAt: parsed.date || new Date(),
         leadDetailId,
 
-        // ✅ Threading headers (for future reference)
         inReplyTo: parsed.inReplyTo || null,
         references:
           typeof parsed.references === "string"
             ? parsed.references
             : Array.isArray(parsed.references)
-            ? parsed.references.join(" ")
-            : null,
+              ? parsed.references.join(" ")
+              : null,
 
         attachments: attachmentsMeta.length
           ? { create: attachmentsMeta }
@@ -272,6 +338,7 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
       },
     });
 
+    /* 🔔 NOTIFICATION (RECEIVED ONLY) */
     if (direction === "received") {
       try {
         await notifyNewEmail({
@@ -281,29 +348,27 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
           fromEmail,
           subject: parsed.subject || "(No Subject)",
         });
-      } catch (err) {
-        console.error(`⚠️ Notification failed (non-blocking): ${err.message}`);
+      } catch {
+        /* non-blocking */
       }
     }
 
-    // ✅ Update conversation metadata
-    const conversationUpdate = {
+    /* ======================================================
+       8️⃣ UPDATE CONVERSATION META
+    ====================================================== */
+    const updateData = {
       lastMessageAt: parsed.date || new Date(),
       messageCount: { increment: 1 },
     };
 
     if (direction === "received") {
-      conversationUpdate.unreadCount = { increment: 1 };
+      updateData.unreadCount = { increment: 1 };
     }
 
-    await prisma.conversation
-      .update({
-        where: { id: conversationId },
-        data: conversationUpdate,
-      })
-      .catch((e) => {
-        console.warn(`⚠️ Conversation update race condition: ${e.message}`);
-      });
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: updateData,
+    });
   } catch (err) {
     if (err.code !== "P2002") {
       logErrorToFile(account.email, `DB Save Error: ${err.message}`);
@@ -325,7 +390,7 @@ async function syncImap(prisma, account) {
 
   if (!freshAccount) {
     console.log(
-      `⚠️ Aborting sync: Account ${account.email} (ID ${account.id}) was deleted.`
+      `⚠️ Aborting sync: Account ${account.email} (ID ${account.id}) was deleted.`,
     );
     return;
   }
@@ -350,7 +415,7 @@ async function syncImap(prisma, account) {
     });
 
     client.on("error", (err) =>
-      logErrorToFile(account.email, `IMAP Error: ${err.message}`)
+      logErrorToFile(account.email, `IMAP Error: ${err.message}`),
     );
 
     await client.connect();
@@ -390,7 +455,7 @@ async function syncImap(prisma, account) {
                   try {
                     if (!client.usable) return;
                     await new Promise((resolve) =>
-                      setTimeout(resolve, THROTTLE_MS)
+                      setTimeout(resolve, THROTTLE_MS),
                     );
                     const msg = await client.fetchOne(String(uid), {
                       uid: true,
@@ -402,28 +467,30 @@ async function syncImap(prisma, account) {
                     const parsed = await simpleParser(msg.source);
                     const fromAddr =
                       parsed.from?.value?.[0]?.address?.toLowerCase() || "";
-                    const direction =
-                      fromAddr === account.email.toLowerCase()
-                        ? "sent"
-                        : "received";
+
+                    const isFromSelf = fromAddr === account.email.toLowerCase();
+
+                    const direction = isFromSelf ? "sent" : "received";
+                    const isExternal = isFromSelf; // sent from Outlook/Gmail UI
+
                     await saveEmailToDB(
                       prisma,
-                      account,
+                      freshAccount,
                       parsed,
                       msg,
                       direction,
-                      type
+                      type,
                     );
                   } catch (e) {
                     if (e.message.includes("Connection not available"))
                       client.close();
                     logErrorToFile(
                       account.email,
-                      `UID ${uid} Failed: ${e.message}`
+                      `UID ${uid} Failed: ${e.message}`,
                     );
                   }
-                })
-              )
+                }),
+              ),
             );
           }
         }
@@ -446,7 +513,7 @@ export async function runSync(prisma) {
   });
   const limit = pLimit(ACCOUNT_CONCURRENCY);
   await Promise.allSettled(
-    accounts.map((acc) => limit(() => syncImap(prisma, acc)))
+    accounts.map((acc) => limit(() => syncImap(prisma, acc))),
   );
 }
 

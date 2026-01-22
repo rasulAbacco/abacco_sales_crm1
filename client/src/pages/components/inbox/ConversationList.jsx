@@ -71,12 +71,12 @@ export default function ConversationList({
   const toggleSelectConversation = (conversation) => {
     setSelectedConversations((prev) => {
       const exists = prev.some(
-        (c) => c.conversationId === conversation.conversationId
+        (c) => c.conversationId === conversation.conversationId,
       );
 
       if (exists) {
         return prev.filter(
-          (c) => c.conversationId !== conversation.conversationId
+          (c) => c.conversationId !== conversation.conversationId,
         );
       }
 
@@ -128,25 +128,28 @@ export default function ConversationList({
     return cleanName.charAt(0).toUpperCase() || "?";
   };
 
-const handleConversationSelect = async (conversation) => {
-  onConversationSelect(conversation);
-  try {
-    // 🔥 FIX: Use POST and include the ID in the URL path
-    await api.post(
-      `${API_BASE_URL}/api/inbox/conversations/${conversation.conversationId}/read`,
-    );
+  // src/pages/components/inbox/ConversationList.jsx
 
-    setConversations((prevConversations) =>
-      prevConversations.map((conv) =>
-        conv.conversationId === conversation.conversationId
-          ? { ...conv, unreadCount: 0 }
-          : conv,
-      ),
-    );
-  } catch (error) {
-    console.error("Failed to mark as read:", error);
-  }
-};
+  const handleConversationSelect = async (conversation) => {
+    onConversationSelect(conversation);
+
+    try {
+      // ✅ FIX: Pass the ID in the body to prevent slashes from breaking the URL path
+      await api.post(`${API_BASE_URL}/api/inbox/conversations/read`, {
+        conversationId: conversation.conversationId,
+      });
+
+      setConversations((prevConversations) =>
+        prevConversations.map((conv) =>
+          conv.conversationId === conversation.conversationId
+            ? { ...conv, unreadCount: 0 }
+            : conv,
+        ),
+      );
+    } catch (error) {
+      console.error("❌ Failed to mark as read:", error);
+    }
+  };
 
   if (!selectedAccount || !selectedFolder) {
     return (
@@ -208,7 +211,7 @@ const handleConversationSelect = async (conversation) => {
             <p className="text-sm">No conversations found</p>
             {(searchEmail ||
               Object.values(filters).some(
-                (v) => v && v !== "all" && v !== ""
+                (v) => v && v !== "all" && v !== "",
               )) && <p className="text-xs mt-2">Try adjusting your filters</p>}
           </div>
         ) : (
@@ -249,7 +252,7 @@ const handleConversationSelect = async (conversation) => {
                     <input
                       type="checkbox"
                       checked={selectedConversations.some(
-                        (c) => c.conversationId === conversation.conversationId
+                        (c) => c.conversationId === conversation.conversationId,
                       )}
                       onChange={(e) => {
                         e.stopPropagation();

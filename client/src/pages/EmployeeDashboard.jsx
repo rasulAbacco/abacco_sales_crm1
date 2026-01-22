@@ -25,7 +25,7 @@ import {
 
 export default function EmployeeDashboard() {
   const [activeTab, setActiveTab] = useState(
-    localStorage.getItem("employeeActiveTab") || "forwarded-leads"
+    localStorage.getItem("employeeActiveTab") || "forwarded-leads",
   );
   const [isHovered, setIsHovered] = useState(false);
   const [leads, setLeads] = useState([]);

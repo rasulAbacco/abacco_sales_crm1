@@ -16,7 +16,7 @@ import AdminDashboards from "./AdminDashboards";
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState(
-    localStorage.getItem("adminActiveTab") || "all-leads"
+    localStorage.getItem("adminActiveTab") || "all-leads",
   );
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
 
