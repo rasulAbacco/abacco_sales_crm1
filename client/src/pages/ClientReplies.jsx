@@ -52,9 +52,7 @@ export default function ClientReplies() {
             <p className="text-sm text-blue-600 font-medium mb-1">
               {reply.subject}
             </p>
-            <p className="text-sm text-gray-700 line-clamp-3">
-              {reply.body}
-            </p>
+            <p className="text-sm text-gray-700 line-clamp-3">{reply.body}</p>
             <div className="mt-3 flex justify-end">
               <button
                 className="text-sm bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700"

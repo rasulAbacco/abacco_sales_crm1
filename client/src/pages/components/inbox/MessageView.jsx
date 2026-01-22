@@ -605,12 +605,15 @@ export default function MessageView({
   };
 
   const markConversationAsRead = async () => {
-    if (!selectedConversation || !selectedAccount) return;
+    if (!selectedConversation?.conversationId) return;
+
     try {
-      // 🔥 FIX: Match the backend route structure
-      await api.post(
-        `${API_BASE_URL}/api/inbox/conversations/${selectedConversation.conversationId}/read`,
-      );
+      // Architectural Change: IDs are passed in the body, not the URL path
+      await api.post(`${API_BASE_URL}/api/inbox/conversations/read`, {
+        conversationId: selectedConversation.conversationId,
+      });
+
+      // Optional: Update local state immediately if needed to improve UI snappiness
     } catch (error) {
       console.error("❌ Failed to mark conversation as read:", error);
     }
@@ -743,65 +746,11 @@ export default function MessageView({
   // ✅ LEAD MANAGEMENT LOGIC (ALL PRESERVED)
   // ============================================================
 
-  // const handleOpenEditLead = async () => {
-  //   if (!selectedConversation) return;
-
-  //   let targetEmail = "";
-
-  //   if (
-  //     selectedConversation.displayEmail &&
-  //     selectedConversation.displayEmail !== "Unknown"
-  //   ) {
-  //     targetEmail = selectedConversation.displayEmail;
-  //   } else {
-  //     const msg = messages[0];
-  //     if (msg) {
-  //       if (msg.direction === "received") {
-  //         targetEmail = msg.fromEmail;
-  //       } else {
-  //         targetEmail = msg.toEmail ? msg.toEmail.split(",")[0].trim() : "";
-  //       }
-  //     }
-  //   }
-
-  //   const emailMatch = targetEmail.match(/<(.+?)>/);
-  //   const cleanEmail = emailMatch ? emailMatch[1] : targetEmail;
-
-  //   if (!cleanEmail) {
-  //     alert("Could not determine client email to edit.");
-  //     return;
-  //   }
-
-  //   try {
-  //     const res = await api.get(
-  //       `${API_BASE_URL}/api/leads/by-email/${cleanEmail}`,
-  //     );
-
-  //     if (res.data.success && res.data.data) {
-  //       setLeadEditForm(res.data.data);
-  //       setShowLeadEditModal(true);
-  //     } else {
-  //       alert(
-  //         "No existing lead profile found for this email. Please create one in the Leads section first.",
-  //       );
-  //     }
-  //   } catch (error) {
-  //     console.error("Error fetching lead for edit:", error);
-  //     if (error.response && error.response.status === 404) {
-  //       alert(
-  //         "No existing lead profile found for this email. Please create one in the Leads section first.",
-  //       );
-  //     } else {
-  //       alert("Failed to fetch lead details.");
-  //     }
-  //   }
-  // };
   const handleOpenEditLead = async () => {
     if (!selectedConversation) return;
 
     let targetEmail = "";
 
-    // 1. Determine the correct email to search for in the CRM
     if (
       selectedConversation.displayEmail &&
       selectedConversation.displayEmail !== "Unknown"
@@ -832,30 +781,22 @@ export default function MessageView({
       );
 
       if (res.data.success && res.data.data) {
-        const leadData = res.data.data;
-
-        // 🔥 FIX: Ensure 'client' contains the name, not the email
-        // If the database 'client' field is empty or contains an email,
-        // use displayName as a fallback.
-        const clientName =
-          leadData.client && !leadData.client.includes("@")
-            ? leadData.client
-            : selectedConversation.displayName ||
-              leadData.name ||
-              leadData.client;
-
-        setLeadEditForm({
-          ...leadData,
-          client: clientName,
-        });
-
+        setLeadEditForm(res.data.data);
         setShowLeadEditModal(true);
       } else {
-        alert("No existing lead profile found for this email.");
+        alert(
+          "No existing lead profile found for this email. Please create one in the Leads section first.",
+        );
       }
     } catch (error) {
       console.error("Error fetching lead for edit:", error);
-      alert("Failed to fetch lead details.");
+      if (error.response && error.response.status === 404) {
+        alert(
+          "No existing lead profile found for this email. Please create one in the Leads section first.",
+        );
+      } else {
+        alert("Failed to fetch lead details.");
+      }
     }
   };
 
@@ -1199,19 +1140,27 @@ export default function MessageView({
           .join(", ");
       }
     }
+
     const quoted = `
   <br/><br/>
   <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
   <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-    <b>From:</b> ${
-      message.fromName?.trim()
-        ? `${message.fromName} &lt;${message.fromEmail}&gt;`
-        : message.fromEmail
-    }<br/>
-    <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
-    <b>To:</b> ${message.toEmail}<br/>
-    ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
-    <b>Subject:</b> ${message.subject || "(No Subject)"}
+    <b style="font-weight: bold;">From:</b> ${formatSender(
+      message.fromName,
+      message.fromEmail,
+    )}<br/>
+    <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
+      message.sentAt,
+    )}<br/>
+    <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
+    ${
+      message.ccEmail
+        ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
+        : ""
+    }
+    <b style="font-weight: bold;">Subject:</b> ${
+      message.subject || "(No Subject)"
+    }
     <br/><br/>
     ${message.bodyHtml || message.body || ""}
   </div>
@@ -1259,11 +1208,7 @@ export default function MessageView({
     <br/><br/>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
     <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-<b>From:</b> ${
-      message.fromName?.trim()
-        ? `${message.fromName} &lt;${message.fromEmail}&gt;`
-        : message.fromEmail
-    }<br/>
+      <b>From:</b> ${formatSender(message.fromName, message.fromEmail)}<br/>
       <b>Sent:</b> ${formatLongDate(message.sentAt)}<br/>
       <b>To:</b> ${message.toEmail}<br/>
       ${message.ccEmail ? `<b>Cc:</b> ${message.ccEmail}<br/>` : ""}
@@ -1338,9 +1283,7 @@ export default function MessageView({
   const handleForward = (type, message) => {
     if (!message) return;
 
-    const fromHeader = message.fromName?.trim()
-      ? `${message.fromName} &lt;${message.fromEmail}&gt;`
-      : message.fromEmail;
+    const fromHeader = formatHeaderAddress(message.fromName, message.fromEmail);
     const toHeader = message.toEmail;
     const ccHeader = message.ccEmail
       ? message.ccEmail
@@ -1845,15 +1788,15 @@ export default function MessageView({
                             )}
 
                             <div
-                              className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
+                              className="email-body"
                               style={{
-                                fontFamily: "Calibri, sans-serif",
+                                fontFamily: "Calibri, Arial, sans-serif",
                                 fontSize: "11pt",
-                                lineHeight: "1.35",
+                                lineHeight: "1.15",
                                 color: "#000000",
                               }}
                               dangerouslySetInnerHTML={{
-                                __html: DOMPurify.sanitize(message.body || ""),
+                                __html: message.bodyHtml || message.body || "",
                               }}
                             />
 

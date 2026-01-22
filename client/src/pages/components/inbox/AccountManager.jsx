@@ -100,15 +100,15 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
         `${API_BASE_URL}/api/accounts/${accountId}/sender-name`,
         {
           senderName: newName.trim(),
-        }
+        },
       );
 
       if (res.data.success) {
         // Update local state
         setAccounts((prev) =>
           prev.map((acc) =>
-            acc.id === accountId ? { ...acc, senderName: newName.trim() } : acc
-          )
+            acc.id === accountId ? { ...acc, senderName: newName.trim() } : acc,
+          ),
         );
         setShowSuccessMessage("✅ Sender name updated!");
         setTimeout(() => setShowSuccessMessage(""), 2000);
@@ -138,7 +138,7 @@ export default function AddAccountManager({ onClose, onAccountAdded }) {
         },
         {
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
 
       await api.delete(`${API_BASE_URL}/api/accounts/${accountToLogout}`, {
