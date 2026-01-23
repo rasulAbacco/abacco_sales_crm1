@@ -17,27 +17,34 @@ const upload = multer({
 const normalizeEmailHtml = (html) => {
   if (!html) return "";
 
-  return (
-    html
-      // Remove Outlook-specific junk
-      .replace(/<o:p>.*?<\/o:p>/gi, "")
-      // Add default paragraph spacing
-      .replace(
-        /<p>/gi,
-        '<p style="margin:0 0 12px 0;line-height:1.15;font-family:Calibri,Arial,sans-serif;font-size:11pt;">',
-      )
-      .replace(
-        /<div>/gi,
-        '<div style="margin:0;line-height:1.15;font-family:Calibri,Arial,sans-serif;font-size:11pt;">',
-      )
-      // Collapse excessive breaks
-      .replace(/<br>\s*<br>/gi, "<br>")
-      // Remove empty blocks
-      .replace(/<p[^>]*>\s*<\/p>/gi, "")
-      .replace(/<div[^>]*>\s*<\/div>/gi, "")
-      // Ensure there's a wrapper if missing
-      .trim()
+  // 1️⃣ Extract forwarded header block (DO NOT TOUCH)
+  const headerMatch = html.match(
+    /<!-- FORWARDED_HEADER_START -->[\s\S]*?<!-- FORWARDED_HEADER_END -->/i,
   );
+
+  const forwardedHeader = headerMatch ? headerMatch[0] : "";
+
+  // 2️⃣ Remove header from body temporarily
+  let bodyWithoutHeader = html.replace(forwardedHeader, "");
+
+  // 3️⃣ Normalize ONLY user content
+  bodyWithoutHeader = bodyWithoutHeader
+    .replace(/<o:p>.*?<\/o:p>/gi, "")
+    .replace(
+      /<p>/gi,
+      '<p style="margin:0 0 12px 0;line-height:1.15;font-family:Calibri,Arial,sans-serif;font-size:11pt;">',
+    )
+    .replace(
+      /<div>/gi,
+      '<div style="margin:0;line-height:1.15;font-family:Calibri,Arial,sans-serif;font-size:11pt;">',
+    )
+    .replace(/<br>\s*<br>/gi, "<br>")
+    .replace(/<p[^>]*>\s*<\/p>/gi, "")
+    .replace(/<div[^>]*>\s*<\/div>/gi, "")
+    .trim();
+
+  // 4️⃣ Reattach forwarded header at the TOP
+  return `${forwardedHeader}${bodyWithoutHeader}`.trim();
 };
 
 router.post("/send", upload.array("attachments"), async (req, res) => {
@@ -77,7 +84,6 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
     // 🔥 FIX: Fallback to email prefix if no senderName
     const senderName =
       account.senderName ||
-      account.User?.name ||
       authenticatedEmail.split("@")[0];
 
     /* ============================================================

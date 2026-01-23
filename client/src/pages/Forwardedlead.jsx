@@ -841,14 +841,17 @@ export default function Forwardedlead() {
 
     const header = `
 <div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.15;margin:0;padding:0;">
-<div style="border-top:1px solid #E1E1E1;margin:12px 0;"></div>
-<p style="margin:0 0 2px 0;"><b>From:</b> ${fromDisplay}</p>
-<p style="margin:0 0 2px 0;"><b>Sent:</b> ${sent}</p>
-<p style="margin:0 0 2px 0;"><b>To:</b> ${to}</p>
- ${cc ? `<p style="margin:0 0 2px 0;"><b>Cc:</b> ${cc}</p>` : ""}
-<p style="margin:0 0 12px 0;"><b>Subject:</b> ${subject}</p>
-</div>`;
 
+  <!-- single line before From -->
+  <hr style="border:none;border-top:1px solid #E1E1E1;margin:12px 0;" />
+
+  <p style="margin:0 0 2px 0;"><b>From:</b> ${fromDisplay}</p>
+  <p style="margin:0 0 2px 0;"><b>Sent:</b> ${sent}</p>
+  <p style="margin:0 0 2px 0;"><b>To:</b> ${to}</p>
+  ${cc ? `<p style="margin:0 0 2px 0;"><b>Cc:</b> ${cc}</p>` : ""}
+  <p style="margin:0 0 12px 0;"><b>Subject:</b> ${subject}</p>
+
+</div>`;
     return `${header}<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.15;">${formattedBody}</div>`;
   }
 
@@ -887,16 +890,33 @@ export default function Forwardedlead() {
   };
 
   // ✅ Build final email body combining new message and forwarded content
+  //   const buildFinalEmailBody = () => {
+  //     const userHtml = editorRef.current?.innerHTML || "";
+  //     const forwardedHtml = showQuotedText
+  //       ? forwardedEditorRef.current?.innerHTML || forwardedContent
+  //       : "";
+
+  //     return `
+  // <div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.15;">
+  //  ${userHtml}
+  //  ${forwardedHtml ? "<br>" + forwardedHtml : ""}
+  // </div>`.trim();
+  //   };
   const buildFinalEmailBody = () => {
-    const userHtml = editorRef.current?.innerHTML || "";
+    let userHtml = editorRef.current?.innerHTML || "";
     const forwardedHtml = showQuotedText
       ? forwardedEditorRef.current?.innerHTML || forwardedContent
       : "";
 
+    // ✅ Ensure first line always exists (Outlook behavior)
+    if (!userHtml || userHtml.trim() === "") {
+      userHtml = `<p style="margin:0 0 12px 0;line-height:1.15;">&#8203;</p>`;
+    }
+
     return `
 <div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.15;">
- ${userHtml}
- ${forwardedHtml ? "<br>" + forwardedHtml : ""}
+  ${userHtml}
+  ${forwardedHtml ? forwardedHtml : ""}
 </div>`.trim();
   };
 
