@@ -192,7 +192,7 @@ export async function sendScheduledEmail(scheduledMessage) {
         conversationId,
         messageId,
         fromEmail: account.email,
-        fromName: account.senderName || account.User?.name || null,
+        fromName: account.senderName || null,
         toEmail,
         subject: finalSubject,
         body: finalBody,
