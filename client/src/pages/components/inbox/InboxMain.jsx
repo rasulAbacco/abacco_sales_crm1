@@ -8,6 +8,11 @@ import ScheduleModal from "./Enhancedschedulemodal.jsx";
 import { api } from "../../../pages/api.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+// 🔥 NORMALIZE conversation object shape (CRITICAL)
+const normalizeConversation = (conv) => ({
+  ...conv,
+  leadDetailId: conv?.leadDetailId ?? null,
+});
 
 export default function InboxMain() {
   // Sidebar state
@@ -130,23 +135,26 @@ export default function InboxMain() {
       });
 
       const formattedResults = Array.from(uniqueConversations.values()).map(
-        (msg) => ({
-          conversationId: msg.conversationId,
-          subject: msg.subject || "(No Subject)",
-          initiatorEmail: msg.fromEmail,
-          lastSenderEmail: msg.fromEmail,
-          displayEmail:
-            msg.direction === "sent"
-              ? `To: ${msg.toEmail?.split(",")[0]}`
-              : msg.fromEmail,
-          lastDate: msg.sentAt,
-          lastBody: msg.body
-            ? msg.body.replace(/<[^>]*>/g, "").substring(0, 100)
-            : "",
-          unreadCount: 0,
-          messageCount: 1,
-          isStarred: false,
-        }),
+        (msg) =>
+          normalizeConversation({
+            conversationId: msg.conversationId,
+            subject: msg.subject || "(No Subject)",
+            leadDetailId:
+              msg.conversation?.leadDetailId ?? msg.leadDetailId ?? null,
+            initiatorEmail: msg.fromEmail,
+            lastSenderEmail: msg.fromEmail,
+            displayEmail:
+              msg.direction === "sent"
+                ? `To: ${msg.toEmail?.split(",")[0]}`
+                : msg.fromEmail,
+            lastDate: msg.sentAt,
+            lastBody: msg.body
+              ? msg.body.replace(/<[^>]*>/g, "").substring(0, 100)
+              : "",
+            unreadCount: 0,
+            messageCount: 1,
+            isStarred: false,
+          }),
       );
 
       setConversations(formattedResults);
@@ -181,7 +189,10 @@ export default function InboxMain() {
         { params },
       );
 
-      setConversations(res.data?.data || []);
+      // 🔥 FIX: Explicitly map leadDetailId from the conversation object
+      const rawData = res.data?.data || [];
+      const mappedData = rawData.map(normalizeConversation);
+      setConversations(mappedData);
     } catch (error) {
       console.error("Failed to fetch conversations:", error);
       setConversations([]);
@@ -204,8 +215,10 @@ export default function InboxMain() {
           }
         }
 
-        return {
+        return normalizeConversation({
           conversationId: msg.conversationId,
+          leadDetailId:
+            msg.conversation?.leadDetailId ?? msg.leadDetailId ?? null,
           subject: msg.subject || "(No subject)",
           displayName: actualEmail,
           displayEmail: actualEmail,
@@ -216,7 +229,7 @@ export default function InboxMain() {
           isScheduled: true,
           scheduledMessageId: msg.id,
           scheduledMessageData: msg,
-        };
+        });
       });
 
       setConversations(formatted);
@@ -252,19 +265,31 @@ export default function InboxMain() {
 
   const handleAccountSelect = (account) => {
     setSelectedAccount(account);
-    setSelectedConversation(null);
+    setSelectedConversation(null); // ✅ This is fine - we're changing accounts
     setShowMobileConversations(true);
     changeView("inbox");
   };
-
   const handleFolderSelect = (folder) => {
     setSelectedFolder(folder);
-    setSelectedConversation(null);
+    setSelectedConversation(null); // ✅ This is fine - we're changing folders
     setShowMobileConversations(true);
     changeView("inbox");
   };
 
+  // const handleConversationSelect = (conversation) => {
+  //   setSelectedConversation(conversation);
+  // };
   const handleConversationSelect = (conversation) => {
+    // ✅ CRITICAL DEBUG: Log what we receive
+    console.log("📬 InboxMain received conversation:", {
+      conversationId: conversation.conversationId,
+      leadDetailId: conversation.leadDetailId,
+      subject: conversation.subject,
+      hasLeadLink: !!conversation.leadDetailId,
+      allKeys: Object.keys(conversation),
+    });
+
+    // ✅ CRITICAL: Set the COMPLETE object
     setSelectedConversation(conversation);
   };
 
@@ -327,6 +352,43 @@ export default function InboxMain() {
     if (activeView === "today") {
       fetchTodayFollowUps();
     }
+  };
+
+  const handleOpenEditLead = async () => {
+    console.log("✏️ Edit Lead clicked (REAL)");
+
+    if (!selectedConversation?.conversationId) {
+      alert("No conversation selected");
+      return;
+    }
+
+    let leadId = selectedConversation.leadDetailId ?? null;
+
+    if (!leadId) {
+      const encodedId = encodeURIComponent(selectedConversation.conversationId);
+
+      const linkRes = await api.get(
+        `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
+      );
+
+      leadId =
+        linkRes.data?.data?.leadDetailId ?? linkRes.data?.leadDetailId ?? null;
+
+      if (leadId) {
+        setSelectedConversation((prev) =>
+          prev ? { ...prev, leadDetailId: leadId } : prev,
+        );
+      }
+    }
+
+    if (!leadId) {
+      alert("This conversation is not linked to any CRM lead.");
+      return;
+    }
+
+    const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
+    setLeadEditForm(res.data.data);
+    setShowLeadEditModal(true);
   };
 
   return (

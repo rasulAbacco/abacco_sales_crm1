@@ -80,6 +80,7 @@ export default function ConversationList({
         );
       }
 
+      // 🔥 FIX: Pass the FULL conversation object
       return [...prev, conversation];
     });
   };
@@ -119,30 +120,40 @@ export default function ConversationList({
       : cleanText;
   };
 
-  // 🔥 NEW: Helper to get a clean avatar letter (ignores quotes/symbols)
   const getAvatarLetter = (name) => {
     if (!name) return "?";
-    // Remove any character that is NOT a letter or number from the start
-    // e.g., "'Abacco Tech'" -> "Abacco Tech" -> "A"
     const cleanName = name.replace(/^[^a-zA-Z0-9]+/, "");
     return cleanName.charAt(0).toUpperCase() || "?";
   };
 
+  // 🔥 CRITICAL FIX: Ensure we pass the COMPLETE conversation object
+  // src/pages/components/inbox/ConversationList.jsx
+
   // src/pages/components/inbox/ConversationList.jsx
 
   const handleConversationSelect = async (conversation) => {
-    onConversationSelect(conversation);
+    console.log("🟢 ConversationList click →", {
+      conversationId: conversation.conversationId,
+      leadDetailId: conversation.leadDetailId,
+      fullConversation: conversation,
+    });
+
+    // 1. Pass the FULL object (including leadDetailId) to the parent
+    onConversationSelect({
+      ...conversation,
+      leadDetailId: conversation.leadDetailId ?? null,
+    });
 
     try {
-      // ✅ FIX: Pass the ID in the body to prevent slashes from breaking the URL path
       await api.post(`${API_BASE_URL}/api/inbox/conversations/read`, {
         conversationId: conversation.conversationId,
       });
 
-      setConversations((prevConversations) =>
-        prevConversations.map((conv) =>
+      // 2. Use spread operator to keep ALL database fields in the list state
+      setConversations((prev) =>
+        prev.map((conv) =>
           conv.conversationId === conversation.conversationId
-            ? { ...conv, unreadCount: 0 }
+            ? { ...conv, unreadCount: 0 } // ✅ Keeping leadDetailId here
             : conv,
         ),
       );
@@ -231,6 +242,7 @@ export default function ConversationList({
               <div
                 key={conversationId}
                 onClick={() => {
+                  // 🔥 CRITICAL: Pass the COMPLETE conversation object
                   handleConversationSelect(conversation);
                 }}
                 className={`px-4 py-3 border-b border-gray-100 transition-colors
@@ -267,7 +279,6 @@ export default function ConversationList({
                     {hasMultipleParticipants ? (
                       <Users className="w-5 h-5" />
                     ) : (
-                      // 🔥 FIX: Use the clean letter generator
                       getAvatarLetter(clientEmail)
                     )}
                   </div>
@@ -289,8 +300,8 @@ export default function ConversationList({
                             </span>
                           )}
                         </span>
-                        {/* 🔥 NEW: CRM Indicator Badge */}
-                        {conversation.isCrmLead && (
+                        {/* 🔥 CRM Indicator - Uses leadDetailId from conversation */}
+                        {conversation.leadDetailId && (
                           <span
                             className="flex-shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 uppercase tracking-tighter"
                             title="This lead exists in your CRM"

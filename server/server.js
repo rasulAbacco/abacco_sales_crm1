@@ -50,7 +50,7 @@ app.use(
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-  })
+  }),
 );
 
 console.log("🌍 Allowed CORS Origins:", CLIENT_ORIGIN);
@@ -88,7 +88,7 @@ app.use(
   express.static(UPLOAD_DIR, {
     extensions: ["jpg", "png", "jpeg", "gif", "pdf", "svg", "webp"],
     index: false,
-  })
+  }),
 );
 
 /* ==========================================================
@@ -294,7 +294,9 @@ cron.schedule("0 * * * *", async () => {
     });
 
     if (result.count > 0) {
-      console.log(`✅ Automated Cleanup: Successfully deleted ${result.count} expired notifications.`);
+      console.log(
+        `✅ Automated Cleanup: Successfully deleted ${result.count} expired notifications.`,
+      );
     }
   } catch (err) {
     console.error("❌ Background Cleanup Error:", err.message);

@@ -56,14 +56,27 @@ async function findConversationId(prisma, parsed) {
   if (threadIdsToCheck.length === 0) return null;
 
   // ✅ Search across ALL accounts (no emailAccountId filter)
-  const conversation = await prisma.conversation.findFirst({
+  // ✅ FIX: resolve conversation via EmailMessage (ROOT-safe)
+  const msg = await prisma.emailMessage.findFirst({
     where: {
-      id: { in: threadIdsToCheck },
+      OR: [
+        { messageId: { in: threadIdsToCheck } },
+        { inReplyTo: { in: threadIdsToCheck } },
+        {
+          references: {
+            contains: threadIdsToCheck[threadIdsToCheck.length - 1],
+          },
+        },
+      ],
+      conversationId: { not: null },
     },
-    select: { id: true },
+    select: { conversationId: true },
+    orderBy: { sentAt: "asc" }, // root message wins
   });
 
-  return conversation?.id || null;
+  const conversationId = msg?.conversationId || null;
+
+return conversationId;
 }
 function normalizeEmailHtml(html) {
   if (!html) return "";
@@ -300,6 +313,20 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
   }
 
   /* ======================================================
+   🔥 BACKFILL LEAD FROM CONVERSATION (CRITICAL FIX)
+====================================================== */
+  if (!leadDetailId && conversationId) {
+    const conv = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { leadDetailId: true },
+    });
+
+    if (conv?.leadDetailId) {
+      leadDetailId = conv.leadDetailId;
+    }
+  }
+
+  /* ======================================================
      7️⃣ SAVE MESSAGE (CLEAN & SAFE)
   ====================================================== */
   try {
@@ -367,7 +394,12 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
 
     await prisma.conversation.update({
       where: { id: conversationId },
-      data: updateData,
+      data: {
+        ...updateData,
+        ...(leadDetailId
+          ? { leadDetailId } // 🔥 PERMANENT LINK
+          : {}),
+      },
     });
   } catch (err) {
     if (err.code !== "P2002") {

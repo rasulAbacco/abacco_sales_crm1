@@ -511,6 +511,7 @@ const OutlookEditor = forwardRef(({ initialContent, placeholder }, ref) => {
 // ==========================================
 // MAIN MESSAGE VIEW COMPONENT
 // ==========================================
+console.log("🔥 MessageView.jsx LOADED FROM THIS FILE");
 export default function MessageView({
   selectedAccount,
   selectedConversation,
@@ -746,59 +747,173 @@ export default function MessageView({
   // ✅ LEAD MANAGEMENT LOGIC (ALL PRESERVED)
   // ============================================================
 
+  // const handleOpenEditLead = async () => {
+  //   if (!selectedConversation) return;
+
+  //   let targetEmail = "";
+
+  //   if (
+  //     selectedConversation.displayEmail &&
+  //     selectedConversation.displayEmail !== "Unknown"
+  //   ) {
+  //     targetEmail = selectedConversation.displayEmail;
+  //   } else {
+  //     const msg = messages[0];
+  //     if (msg) {
+  //       if (msg.direction === "received") {
+  //         targetEmail = msg.fromEmail;
+  //       } else {
+  //         targetEmail = msg.toEmail ? msg.toEmail.split(",")[0].trim() : "";
+  //       }
+  //     }
+  //   }
+
+  //   const emailMatch = targetEmail.match(/<(.+?)>/);
+  //   const cleanEmail = emailMatch ? emailMatch[1] : targetEmail;
+
+  //   if (!cleanEmail) {
+  //     alert("Could not determine client email to edit.");
+  //     return;
+  //   }
+
+  //   try {
+  //     const res = await api.get(
+  //       `${API_BASE_URL}/api/leads/by-email/${cleanEmail}`,
+  //     );
+
+  //     if (res.data.success && res.data.data) {
+  //       setLeadEditForm(res.data.data);
+  //       setShowLeadEditModal(true);
+  //     } else {
+  //       alert(
+  //         "No existing lead profile found for this email. Please create one in the Leads section first.",
+  //       );
+  //     }
+  //   } catch (error) {
+  //     console.error("Error fetching lead for edit:", error);
+  //     if (error.response && error.response.status === 404) {
+  //       alert(
+  //         "No existing lead profile found for this email. Please create one in the Leads section first.",
+  //       );
+  //     } else {
+  //       alert("Failed to fetch lead details.");
+  //     }
+  //   }
+  // };
+
   const handleOpenEditLead = async () => {
-    if (!selectedConversation) return;
-
-    let targetEmail = "";
-
-    if (
-      selectedConversation.displayEmail &&
-      selectedConversation.displayEmail !== "Unknown"
-    ) {
-      targetEmail = selectedConversation.displayEmail;
-    } else {
-      const msg = messages[0];
-      if (msg) {
-        if (msg.direction === "received") {
-          targetEmail = msg.fromEmail;
-        } else {
-          targetEmail = msg.toEmail ? msg.toEmail.split(",")[0].trim() : "";
-        }
-      }
-    }
-
-    const emailMatch = targetEmail.match(/<(.+?)>/);
-    const cleanEmail = emailMatch ? emailMatch[1] : targetEmail;
-
-    if (!cleanEmail) {
-      alert("Could not determine client email to edit.");
+    // 🛑 HARD GUARD
+    if (!selectedConversation?.conversationId) {
+      alert("No conversation selected");
       return;
     }
 
-    try {
-      const res = await api.get(
-        `${API_BASE_URL}/api/leads/by-email/${cleanEmail}`,
-      );
+    console.log("✏️ Edit Lead clicked", {
+      conversationId: selectedConversation.conversationId,
+      leadDetailId: selectedConversation.leadDetailId,
+    });
 
-      if (res.data.success && res.data.data) {
-        setLeadEditForm(res.data.data);
-        setShowLeadEditModal(true);
-      } else {
-        alert(
-          "No existing lead profile found for this email. Please create one in the Leads section first.",
+    let leadId = selectedConversation.leadDetailId ?? null;
+
+    try {
+      // 1️⃣ Try from local state first
+      if (!leadId) {
+        console.log("🔍 leadDetailId missing, resolving via conversation-link");
+
+        const encodedId = encodeURIComponent(
+          selectedConversation.conversationId,
+        );
+
+        const linkRes = await api.get(
+          `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
+        );
+
+        // 🔥 Normalize ALL possible response shapes
+        leadId =
+          linkRes.data?.data?.leadDetailId ??
+          linkRes.data?.leadDetailId ??
+          null;
+
+        if (!leadId) {
+          console.warn(
+            "⚠️ conversation-link returned no leadDetailId",
+            linkRes.data,
+          );
+          alert("This conversation is not linked to any CRM lead.");
+          return;
+        }
+
+        console.log("✅ leadDetailId resolved:", leadId);
+
+        // 🔥 Persist resolved ID in UI state (CRITICAL)
+        setSelectedConversation((prev) =>
+          prev ? { ...prev, leadDetailId: leadId } : prev,
         );
       }
-    } catch (error) {
-      console.error("Error fetching lead for edit:", error);
-      if (error.response && error.response.status === 404) {
-        alert(
-          "No existing lead profile found for this email. Please create one in the Leads section first.",
-        );
-      } else {
-        alert("Failed to fetch lead details.");
+
+      // 2️⃣ Fetch lead data
+      const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
+
+      if (!res.data?.success || !res.data?.data) {
+        throw new Error("Lead fetch succeeded but data missing");
       }
+
+      // 3️⃣ Open modal
+      setLeadEditForm(res.data.data);
+      setShowLeadEditModal(true);
+    } catch (err) {
+      console.error("❌ handleOpenEditLead failed:", {
+        err,
+        conversation: selectedConversation,
+        resolvedLeadId: leadId,
+      });
+
+      alert("Failed to load lead details. Please try again.");
     }
   };
+
+  // ... (Rest of the file remains the same)
+
+  const handleSaveLead = async () => {
+    if (!leadEditForm.id) return;
+
+    try {
+      // Utilize the specific ID-based update route
+      const res = await api.put(
+        `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
+        leadEditForm,
+      );
+
+      if (res.data.success) {
+        alert("✅ Lead updated successfully!");
+        if (leadEditForm.country) setCountry(leadEditForm.country); // Sync UI
+        setShowLeadEditModal(false);
+      }
+    } catch (error) {
+      console.error("❌ Error updating lead:", error);
+      alert("Failed to save lead updates.");
+    }
+  };
+
+  // const handleOpenEditLead = async () => {
+  //   try {
+  //     const leadDetailId = 15; // 🔥 hard test
+
+  //     const res = await api.get(`${API_BASE_URL}/api/leads/${leadDetailId}`);
+
+  //     console.log("Lead API response:", res.data);
+
+  //     if (res.data.success && res.data.data) {
+  //       setLeadEditForm(res.data.data); // ✅ REQUIRED
+  //       setShowLeadEditModal(true); // ✅ REQUIRED
+  //     } else {
+  //       alert("Lead not found");
+  //     }
+  //   } catch (err) {
+  //     console.error(err);
+  //     alert("API error");
+  //   }
+  // };
 
   const handleLeadFormChange = (field, value) => {
     setLeadEditForm((prev) => ({
@@ -807,27 +922,27 @@ export default function MessageView({
     }));
   };
 
-  const handleSaveLead = async () => {
-    if (!leadEditForm.id) return;
+  // const handleSaveLead = async () => {
+  //   if (!leadEditForm.id) return;
 
-    try {
-      const res = await api.put(
-        `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
-        leadEditForm,
-      );
+  //   try {
+  //     const res = await api.put(
+  //       `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
+  //       leadEditForm,
+  //     );
 
-      if (res.data.success) {
-        alert("Lead updated successfully!");
-        setShowLeadEditModal(false);
-        if (leadEditForm.country !== country) {
-          setCountry(leadEditForm.country);
-        }
-      }
-    } catch (error) {
-      console.error("Error updating lead:", error);
-      alert("Failed to update lead details.");
-    }
-  };
+  //     if (res.data.success) {
+  //       alert("Lead updated successfully!");
+  //       setShowLeadEditModal(false);
+  //       if (leadEditForm.country !== country) {
+  //         setCountry(leadEditForm.country);
+  //       }
+  //     }
+  //   } catch (error) {
+  //     console.error("Error updating lead:", error);
+  //     alert("Failed to update lead details.");
+  //   }
+  // };
 
   // ============================================================
   // 🔥 FETCH ACCOUNTS AND TEMPLATES (ALL PRESERVED)
@@ -1074,6 +1189,125 @@ export default function MessageView({
   // REPLY HANDLERS (ALL PRESERVED)
   // ============================================================
 
+  //   const handleReply = (type, message) => {
+  //     if (!message) return;
+
+  //     if (scheduledDraft && scheduledDraft.status === "pending") {
+  //       handleReplyWithScheduledDraft(type, message);
+  //       return;
+  //     }
+
+  //     setReplyingToMessageId(message.id);
+  //     setReplyMode(type);
+
+  //     const prefix = message.subject?.toLowerCase().startsWith("re:")
+  //       ? ""
+  //       : "Re: ";
+  //     const cleanSubject =
+  //       message.subject?.replace(/^(re:\s*)+/gi, "").trim() || "(No Subject)";
+  //     const newSubject = `${prefix}${cleanSubject}`;
+  //     const myEmail = selectedAccount.email.toLowerCase();
+
+  //     let to = "";
+  //     let cc = "";
+
+  //     if (message.direction === "received") {
+  //       to = message.fromEmail;
+
+  //       if (type === "replyAll") {
+  //         const ccList = [];
+
+  //         if (message.toEmail) {
+  //           const originalTos = message.toEmail.split(",").map((e) => e.trim());
+  //           originalTos.forEach((email) => {
+  //             const normalized = email.toLowerCase();
+  //             if (
+  //               normalized !== myEmail &&
+  //               normalized !== message.fromEmail.toLowerCase()
+  //             ) {
+  //               ccList.push(email);
+  //             }
+  //           });
+  //         }
+
+  //         if (message.ccEmail) {
+  //           const originalCcs = message.ccEmail.split(",").map((e) => e.trim());
+  //           originalCcs.forEach((email) => {
+  //             const normalized = email.toLowerCase();
+  //             if (
+  //               normalized !== myEmail &&
+  //               normalized !== message.fromEmail.toLowerCase()
+  //             ) {
+  //               ccList.push(email);
+  //             }
+  //           });
+  //         }
+
+  //         cc = [...new Set(ccList)].join(", ");
+  //       }
+  //     } else if (message.direction === "sent") {
+  //       to = message.toEmail;
+  //       if (type === "replyAll" && message.ccEmail) {
+  //         cc = message.ccEmail
+  //           .split(",")
+  //           .map((e) => e.trim())
+  //           .filter((e) => e.toLowerCase() !== myEmail)
+  //           .join(", ");
+  //       }
+  //     }
+
+  //     const quoted = `
+  //   <br/><br/>
+  //   <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
+  //   <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+  //     <b style="font-weight: bold;">From:</b> ${formatSender(
+  //       message.fromName,
+  //       message.fromEmail,
+  //     )}<br/>
+  //     <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
+  //       message.sentAt,
+  //     )}<br/>
+  //     <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
+  //     ${
+  //       message.ccEmail
+  //         ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
+  //         : ""
+  //     }
+  //     <b style="font-weight: bold;">Subject:</b> ${
+  //       message.subject || "(No Subject)"
+  //     }
+  //     <br/><br/>
+  //     ${message.bodyHtml || message.body || ""}
+  //   </div>
+  // `;
+
+  //     const defaultAccount = accounts.find(
+  //       (acc) => acc.id === selectedAccount?.id,
+  //     );
+  //     setSelectedFromAccount(defaultAccount);
+
+  //     setReplyData({
+  //       from: selectedAccount.email,
+  //       to,
+  //       cc,
+  //       subject: newSubject,
+  //       body: "",
+  //     });
+
+  //     setTimeout(() => {
+  //       if (editorRef.current) {
+  //         editorRef.current.innerHTML = `<div><br/></div>${quoted}`;
+  //         editorRef.current.focus();
+
+  //         const range = document.createRange();
+  //         const sel = window.getSelection();
+  //         range.setStart(editorRef.current, 0);
+  //         range.collapse(true);
+  //         sel.removeAllRanges();
+  //         sel.addRange(range);
+  //       }
+  //     }, 100);
+  //   };
   const handleReply = (type, message) => {
     if (!message) return;
 
@@ -1085,94 +1319,110 @@ export default function MessageView({
     setReplyingToMessageId(message.id);
     setReplyMode(type);
 
+    /* ======================================================
+     SUBJECT (UNCHANGED)
+  ====================================================== */
     const prefix = message.subject?.toLowerCase().startsWith("re:")
       ? ""
       : "Re: ";
     const cleanSubject =
       message.subject?.replace(/^(re:\s*)+/gi, "").trim() || "(No Subject)";
     const newSubject = `${prefix}${cleanSubject}`;
-    const myEmail = selectedAccount.email.toLowerCase();
 
-    let to = "";
-    let cc = "";
-
-    if (message.direction === "received") {
-      to = message.fromEmail;
-
-      if (type === "replyAll") {
-        const ccList = [];
-
-        if (message.toEmail) {
-          const originalTos = message.toEmail.split(",").map((e) => e.trim());
-          originalTos.forEach((email) => {
-            const normalized = email.toLowerCase();
-            if (
-              normalized !== myEmail &&
-              normalized !== message.fromEmail.toLowerCase()
-            ) {
-              ccList.push(email);
-            }
-          });
-        }
-
-        if (message.ccEmail) {
-          const originalCcs = message.ccEmail.split(",").map((e) => e.trim());
-          originalCcs.forEach((email) => {
-            const normalized = email.toLowerCase();
-            if (
-              normalized !== myEmail &&
-              normalized !== message.fromEmail.toLowerCase()
-            ) {
-              ccList.push(email);
-            }
-          });
-        }
-
-        cc = [...new Set(ccList)].join(", ");
-      }
-    } else if (message.direction === "sent") {
-      to = message.toEmail;
-      if (type === "replyAll" && message.ccEmail) {
-        cc = message.ccEmail
-          .split(",")
-          .map((e) => e.trim())
-          .filter((e) => e.toLowerCase() !== myEmail)
-          .join(", ");
-      }
-    }
-
-    const quoted = `
-  <br/><br/>
-  <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
-  <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-    <b style="font-weight: bold;">From:</b> ${formatSender(
-      message.fromName,
-      message.fromEmail,
-    )}<br/>
-    <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
-      message.sentAt,
-    )}<br/>
-    <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
-    ${
-      message.ccEmail
-        ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
-        : ""
-    }
-    <b style="font-weight: bold;">Subject:</b> ${
-      message.subject || "(No Subject)"
-    }
-    <br/><br/>
-    ${message.bodyHtml || message.body || ""}
-  </div>
-`;
-
+    /* ======================================================
+     FROM ACCOUNT (🔥 FIXED)
+  ====================================================== */
     const defaultAccount = accounts.find(
       (acc) => acc.id === selectedAccount?.id,
     );
     setSelectedFromAccount(defaultAccount);
 
+    const normalize = (e) => e?.replace(/[<>"]/g, "").trim().toLowerCase();
+
+    const fromEmail = normalize(defaultAccount.email);
+
+    let to = "";
+    let cc = "";
+
+    /* ======================================================
+     RESOLVE CLIENT EMAIL (🔥 CORE FIX)
+  ====================================================== */
+    const clientEmail =
+      message.direction === "received"
+        ? normalize(message.fromEmail)
+        : normalize(message.toEmail?.split(",")[0]);
+
+    /* ======================================================
+     REPLY
+  ====================================================== */
+    if (type === "reply") {
+      to = clientEmail;
+      cc = "";
+    }
+
+    /* ======================================================
+     REPLY-ALL
+  ====================================================== */
+    if (type === "replyAll") {
+      to = clientEmail;
+
+      let ccCandidates = [];
+
+      if (message.direction === "received") {
+        // Outlook behavior: TO + CC
+        ccCandidates = [
+          ...(message.toEmail || "").split(","),
+          ...(message.ccEmail || "").split(","),
+        ];
+      } else {
+        // Outlook behavior: ONLY original CC
+        ccCandidates = (message.ccEmail || "").split(",");
+      }
+
+      cc = [
+        ...new Set(
+          ccCandidates
+            .map(normalize)
+            .filter(
+              (email) => email && email !== clientEmail && email !== fromEmail,
+            ),
+        ),
+      ].join(", ");
+    }
+
+    /* ======================================================
+     QUOTED HTML (UNCHANGED)
+  ====================================================== */
+    const quoted = `
+    <br/><br/>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
+    <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+      <b style="font-weight: bold;">From:</b> ${formatSender(
+        message.fromName,
+        message.fromEmail,
+      )}<br/>
+      <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
+        message.sentAt,
+      )}<br/>
+      <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
+      ${
+        message.ccEmail
+          ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
+          : ""
+      }
+      <b style="font-weight: bold;">Subject:</b> ${
+        message.subject || "(No Subject)"
+      }
+      <br/><br/>
+      ${message.bodyHtml || message.body || ""}
+    </div>
+  `;
+
+    /* ======================================================
+     STATE + EDITOR (UNCHANGED)
+  ====================================================== */
     setReplyData({
-      from: selectedAccount.email,
+      from: defaultAccount.email,
       to,
       cc,
       subject: newSubject,
@@ -1224,29 +1474,39 @@ export default function MessageView({
       : "";
 
     if (type === "replyAll") {
-      const myEmail = selectedAccount.email.toLowerCase();
-      const ccList = cc ? cc.split(",").map((e) => normalizeEmail(e)) : [];
+      const fromEmail = normalizeEmail(
+        selectedFromAccount?.email || selectedAccount.email,
+      ).toLowerCase();
 
-      const pushIfValid = (email) => {
-        const normalized = normalizeEmail(email).toLowerCase();
-        if (
-          normalized &&
-          normalized !== myEmail &&
-          normalized !== message.fromEmail?.toLowerCase()
-        ) {
-          ccList.push(normalized);
-        }
-      };
+      const clientEmail =
+        message.direction === "received"
+          ? normalizeEmail(message.fromEmail).toLowerCase()
+          : normalizeEmail(message.toEmail?.split(",")[0]).toLowerCase();
 
-      if (message.toEmail) {
-        message.toEmail.split(",").forEach(pushIfValid);
+      let ccCandidates = [];
+
+      if (message.direction === "received") {
+        // Outlook: TO + CC
+        ccCandidates = [
+          ...(message.toEmail || "").split(","),
+          ...(message.ccEmail || "").split(","),
+        ];
+      } else {
+        // Outlook: ONLY CC
+        ccCandidates = (message.ccEmail || "").split(",");
       }
 
-      if (message.ccEmail) {
-        message.ccEmail.split(",").forEach(pushIfValid);
-      }
+      const ccList = [
+        ...new Set(
+          ccCandidates
+            .map((e) => normalizeEmail(e)?.toLowerCase())
+            .filter(
+              (email) => email && email !== fromEmail && email !== clientEmail,
+            ),
+        ),
+      ];
 
-      cc = [...new Set(ccList)].join(", ");
+      cc = ccList.join(", ");
     }
 
     const defaultAccount = accounts.find(
@@ -1386,8 +1646,11 @@ export default function MessageView({
       emailAccountId: selectedFromAccount.id,
       fromEmail: selectedFromAccount.email,
       from: selectedFromAccount.email,
+      // 🔥 THIS IS THE KEY FIX
       to: cleanEmails(replyData.to),
       cc: cleanEmails(replyData.cc) || null,
+      // to: cleanEmails(replyData.to),
+      // cc: cleanEmails(replyData.cc) || null,
       subject: replyData.subject,
       body: bodyContent,
       attachments: attachments.map((att) => ({
@@ -1508,7 +1771,9 @@ export default function MessageView({
     );
   }
 
-  const latestMessage = messages.length > 0 ? messages[0] : null;
+  // const latestMessage = messages.length > 0 ? messages[0] : null;
+  const latestMessage =
+    messages.length > 0 ? messages[messages.length - 1] : null;
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -1553,10 +1818,11 @@ export default function MessageView({
           <div className="flex items-center gap-2">
             <button
               onClick={handleOpenEditLead}
-              className="p-2 hover:bg-indigo-50 rounded-lg transition-colors group"
-              title="Edit Lead Info"
+              disabled={!selectedConversation?.conversationId}
+              className="p-2 rounded hover:bg-gray-100 disabled:opacity-50"
+              title="Edit Lead"
             >
-              <Pencil className="w-4 h-4 text-gray-600 group-hover:text-indigo-600" />
+              <Pencil className="w-4 h-4 text-gray-600" />
             </button>
 
             {selectedFolder === "spam" && (

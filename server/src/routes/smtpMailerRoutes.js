@@ -57,6 +57,7 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
       emailAccountId,
       conversationId,
       inReplyToId,
+      leadDetailId, // 🔥 ADD THIS
     } = req.body;
 
     // 1️⃣ Validation
@@ -82,9 +83,7 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
     const authenticatedEmail = account.smtpUser || account.email;
 
     // 🔥 FIX: Fallback to email prefix if no senderName
-    const senderName =
-      account.senderName ||
-      authenticatedEmail.split("@")[0];
+    const senderName = account.senderName || authenticatedEmail.split("@")[0];
 
     /* ============================================================
        3️⃣ CONVERSATION LOGIC (🔥 FIXED - USE MESSAGE-ID FORMAT)
@@ -113,7 +112,6 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
         });
       }
     }
-
     // B) Find by recipient email
     if (!finalConversationId) {
       const existing = await prisma.conversation.findFirst({
@@ -121,6 +119,10 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
           OR: [{ toRecipients: to }, { participants: { contains: to } }],
         },
         orderBy: { lastMessageAt: "desc" },
+        select: {
+          id: true,
+          leadDetailId: true, // 🔥 IMPORTANT
+        },
       });
 
       if (existing) {
@@ -131,6 +133,11 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
           data: {
             lastMessageAt: new Date(),
             messageCount: { increment: 1 },
+
+            // 🔥 ATTACH LEAD ONLY IF NOT ALREADY ATTACHED
+            ...(leadDetailId && !existing.leadDetailId
+              ? { leadDetailId: Number(leadDetailId) }
+              : {}),
           },
         });
       }
@@ -157,6 +164,7 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
           lastMessageAt: new Date(),
           messageCount: 1,
           unreadCount: 0,
+          leadDetailId: leadDetailId ? Number(leadDetailId) : null, // 🔥 ADD
         },
       });
     }
@@ -253,6 +261,7 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
         sentAt: new Date(),
         folder: "sent",
         isRead: true,
+    leadDetailId: leadDetailId ? Number(leadDetailId) : null, // 🔥 ADD THIS
 
         attachments:
           attachmentRecords.length > 0

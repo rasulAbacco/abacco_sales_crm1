@@ -659,29 +659,31 @@ export default function Forwardedlead() {
     setExpandedRows((prev) => ({ ...prev, [index]: !prev[index] }));
 
   // Open Compose Inline
-  const handleComposeClick = (lead, index) => {
-    if (composeRow === index) {
-      setComposeRow(null);
-      setComposeData(null);
-    } else {
-      setComposeRow(index);
-      setComposeData({
-        from: accounts[0]?.email || "",
-        emailAccountId: accounts[0]?.id || null,
-        to: lead.email || "",
-        cc: lead.cc || "",
-        subject: `Follow-up: ${lead.subject || "Regarding our discussion"}`,
-        body:
-          lead.response && lead.response.trim().length > 0
-            ? `Hi ${lead.email || "there"},\n\nThanks for your response:\n"${
-                lead.response
-              }"\n\nBest regards,\n`
-            : `Hi ${
-                lead.email || "there"
-              },\n\nHope you're doing well.\nFollowing up regarding our previous message.\n\nBest regards,\n`,
-      });
-    }
-  };
+ const handleComposeClick = (lead, index) => {
+  if (composeRow === index) {
+    setComposeRow(null);
+    setComposeData(null);
+  } else {
+    setComposeRow(index);
+    setComposeData({
+      from: accounts[0]?.email || "",
+      emailAccountId: accounts[0]?.id || null,
+      to: lead.email || "",
+      cc: lead.cc || "",
+      subject: `Follow-up: ${lead.subject || "Regarding our discussion"}`,
+      body:
+        lead.response && lead.response.trim().length > 0
+          ? `Hi ${lead.email || "there"},\n\nThanks for your response:\n"${
+              lead.response
+            }"\n\nBest regards,\n`
+          : `Hi ${
+              lead.email || "there"
+            },\n\nHope you're doing well.\nFollowing up regarding our previous message.\n\nBest regards,\n`,
+
+      leadDetailId: lead.id, // 🔥 REQUIRED FIX
+    });
+  }
+};
 
   const handleSendEmail = async (payload) => {
     if (!payload.emailAccountId) {
@@ -873,6 +875,7 @@ export default function Forwardedlead() {
       subject: `Fwd: ${lead.subject || "No Subject"}`,
       body: "",
       attachments: [],
+      leadDetailId: lead.id,
     });
 
     const structured = buildForwardBlock(lead);

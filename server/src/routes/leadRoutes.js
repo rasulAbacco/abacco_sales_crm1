@@ -7,6 +7,75 @@ const router = express.Router();
 /* ==========================================================
    ✅ 1️⃣ Forward Lead
    ========================================================== */
+// router.post("/forward", async (req, res) => {
+//   try {
+//     const {
+//       id,
+//       date,
+//       client,
+//       email,
+//       cc,
+//       phone,
+//       subject,
+//       body,
+//       response,
+//       leadType,
+//       brand,
+//       country,
+//       userId,
+//     } = req.body;
+
+//     if (!userId || !client || !email) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "Missing required fields." });
+//     }
+
+//     // ✅ Create new LeadDetails record
+//     const newLeadDetail = await prisma.leadDetails.create({
+//       data: {
+//         date: new Date(date),
+//         client,
+//         email,
+//         cc,
+//         phone,
+//         subject,
+//         body,
+//         response,
+//         leadType,
+//         leadStatus: "New",
+//         brand,
+//         country,
+//         user: { connect: { id: Number(userId) } },
+//       },
+//     });
+
+//     // ✅ Optionally update SalesLead as forwarded
+//     await prisma.salesLead.update({
+//       where: { id: Number(id) },
+//       data: { leadStatus: "Forwarded" },
+//     });
+//     // 🔔 SEND NOTIFICATION TO EMPLOYEE
+//     await notifyLeadForwarded({
+//       employeeUserId: Number(userId), // 👈 employee receiving lead
+//       leadId: newLeadDetail.id, // 👈 forwarded lead id
+//       leadClient: client, // 👈 client name
+//       adminName: req.user?.name || "Admin", // 👈 admin name
+//     });
+
+//     res.json({
+//       success: true,
+//       message: "Lead forwarded successfully.",
+//       data: newLeadDetail,
+//     });
+//   } catch (error) {
+//     console.error("❌ Error in /leads/forward:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: error.message || "Server error while forwarding lead.",
+//     });
+//   }
+// });
 router.post("/forward", async (req, res) => {
   try {
     const {
@@ -31,10 +100,10 @@ router.post("/forward", async (req, res) => {
         .json({ success: false, message: "Missing required fields." });
     }
 
-    // ✅ Create new LeadDetails record
+    // 1️⃣ Create new LeadDetails record (SOURCE OF TRUTH)
     const newLeadDetail = await prisma.leadDetails.create({
       data: {
-        date: new Date(date),
+        date: date ? new Date(date) : new Date(),
         client,
         email,
         cc,
@@ -50,27 +119,60 @@ router.post("/forward", async (req, res) => {
       },
     });
 
-    // ✅ Optionally update SalesLead as forwarded
-    await prisma.salesLead.update({
-      where: { id: Number(id) },
-      data: { leadStatus: "Forwarded" },
-    });
-    // 🔔 SEND NOTIFICATION TO EMPLOYEE
-    await notifyLeadForwarded({
-      employeeUserId: Number(userId), // 👈 employee receiving lead
-      leadId: newLeadDetail.id, // 👈 forwarded lead id
-      leadClient: client, // 👈 client name
-      adminName: req.user?.name || "Admin", // 👈 admin name
+    // 2️⃣ 🔥 LINK EMAIL MESSAGES → LEAD (ONE-TIME)
+    await prisma.emailMessage.updateMany({
+      where: {
+        OR: [
+          { fromEmail: email },
+          { toEmail: { contains: email } },
+          { ccEmail: { contains: email } },
+        ],
+        leadDetailId: null,
+      },
+      data: {
+        leadDetailId: newLeadDetail.id,
+      },
     });
 
-    res.json({
+    // 3️⃣ 🔥 BACKFILL CONVERSATIONS USING MESSAGE LINKS
+    await prisma.conversation.updateMany({
+      where: {
+        messages: {
+          some: {
+            leadDetailId: newLeadDetail.id,
+          },
+        },
+        leadDetailId: null,
+      },
+      data: {
+        leadDetailId: newLeadDetail.id,
+      },
+    });
+
+    // 4️⃣ Optionally update SalesLead as forwarded
+    if (id) {
+      await prisma.salesLead.update({
+        where: { id: Number(id) },
+        data: { leadStatus: "Forwarded" },
+      });
+    }
+
+    // 5️⃣ 🔔 SEND NOTIFICATION
+    await notifyLeadForwarded({
+      employeeUserId: Number(userId),
+      leadId: newLeadDetail.id,
+      leadClient: client,
+      adminName: req.user?.name || "Admin",
+    });
+
+    return res.json({
       success: true,
-      message: "Lead forwarded successfully.",
+      message: "Lead forwarded successfully and linked to conversations.",
       data: newLeadDetail,
     });
   } catch (error) {
     console.error("❌ Error in /leads/forward:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message || "Server error while forwarding lead.",
     });
@@ -232,49 +334,43 @@ router.get("/followups", async (req, res) => {
     });
   }
 });
+// GET lead by ID — SOURCE OF TRUTH
+router.get("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
 
-/* ==========================================================
-   ✳️ NEW: Get Single Lead by Email (for Edit Modal)
-   ========================================================== */
-// router.get("/by-email/:email", async (req, res) => {
-//   try {
-//     const { email } = req.params;
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Lead ID is required",
+      });
+    }
 
-//     if (!email || !email.trim()) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email parameter is required.",
-//       });
-//     }
+    const lead = await prisma.leadDetails.findUnique({
+      where: { id: Number(id) },
+    });
 
-//     const normalizedEmail = email.trim().toLowerCase();
+    if (!lead) {
+      return res.status(404).json({
+        success: false,
+        message: "Lead not found",
+      });
+    }
 
-//     const lead = await prisma.leadDetails.findFirst({
-//       where: { email: normalizedEmail },
-//       orderBy: { date: "desc" },
-//     });
+    return res.json({
+      success: true,
+      data: lead,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching lead by ID:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error fetching lead",
+      error: error.message,
+    });
+  }
+});
 
-//     if (!lead) {
-//       return res.status(404).json({
-//         success: false,
-//         message: `No lead found for ${normalizedEmail}`,
-//       });
-//     }
-
-//     res.json({
-//       success: true,
-//       message: "Lead fetched successfully.",
-//       data: lead,
-//     });
-//   } catch (error) {
-//     console.error("❌ Error fetching lead by email:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Server error while fetching lead by email.",
-//       error: error.message,
-//     });
-//   }
-// });
 /* ==========================================================
    ✳️ 6️⃣ NEW: Get Single Lead by Email (Used by Edit Modal)
    ========================================================== */
