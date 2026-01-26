@@ -427,7 +427,7 @@ export default function FollowUpPlanner() {
     setMessageForm({
       from: defaultAcc.email || "",
       emailAccountId: defaultAcc.id || "",
-      to: lead.email || "",
+      to: lead.client || "", // ✅ client email
       ccList: ccList,
       cc: "",
       subject: lead.subject || "",

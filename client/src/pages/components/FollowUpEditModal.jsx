@@ -69,12 +69,15 @@ export default function FollowUpEditModal({
                 Client Email
               </label>
               <input
-                type="email"
+                type="text"
                 value={editForm.client || ""}
                 onChange={(e) => onChange("client", e.target.value)}
-                placeholder="client@example.com"
+                placeholder="client1@example.com, client2@example.com"
                 className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                You can add multiple emails separated by commas
+              </p>
             </div>
 
             <div>
@@ -261,6 +264,18 @@ export default function FollowUpEditModal({
                 className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Country
+            </label>
+            <input
+              type="text"
+              value={editForm.country || ""}
+              onChange={(e) => onChange("country", e.target.value)}
+              placeholder="e.g. India, USA, Germany"
+              className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
           </div>
         </div>
 
