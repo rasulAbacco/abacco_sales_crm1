@@ -564,7 +564,7 @@ router.get("/conversations/:accountId", async (req, res) => {
         },
         // ✅ ADD THESE TWO LINES
         ...(folder === "inbox" && { hideInbox: false }),
-        ...(folder === "trash" && { hideTrash: false }),y
+        ...(folder === "trash" && { hideTrash: false }),
       },
       include: {
         messages: {
