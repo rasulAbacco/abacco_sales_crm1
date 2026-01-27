@@ -817,107 +817,107 @@ export default function MessageView({
   //     alert("Failed to load lead details. Please try again.");
   //   }
   // };
- const handleOpenEditLead = async () => {
-   // 🛑 HARD GUARD
-   if (!selectedConversation?.conversationId) {
-     alert("No conversation selected");
-     return;
-   }
+  const handleOpenEditLead = async () => {
+    // 🛑 HARD GUARD
+    if (!selectedConversation?.conversationId) {
+      alert("No conversation selected");
+      return;
+    }
 
-   console.log("✏️ Edit Lead clicked", {
-     conversationId: selectedConversation.conversationId,
-     leadDetailId: selectedConversation.leadDetailId,
-   });
+    console.log("✏️ Edit Lead clicked", {
+      conversationId: selectedConversation.conversationId,
+      leadDetailId: selectedConversation.leadDetailId,
+    });
 
-   let leadId = selectedConversation.leadDetailId ?? null;
+    let leadId = selectedConversation.leadDetailId ?? null;
 
-   try {
-     // 1️⃣ Resolve leadDetailId if missing
-     if (!leadId) {
-       console.log("🔍 leadDetailId missing, resolving via conversation-link");
+    try {
+      // 1️⃣ Resolve leadDetailId if missing
+      if (!leadId) {
+        console.log("🔍 leadDetailId missing, resolving via conversation-link");
 
-       const encodedId = encodeURIComponent(
-         selectedConversation.conversationId,
-       );
+        const encodedId = encodeURIComponent(
+          selectedConversation.conversationId,
+        );
 
-       const linkRes = await api.get(
-         `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
-       );
+        const linkRes = await api.get(
+          `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
+        );
 
-       leadId =
-         linkRes.data?.data?.leadDetailId ?? linkRes.data?.leadDetailId ?? null;
+        leadId =
+          linkRes.data?.data?.leadDetailId ??
+          linkRes.data?.leadDetailId ??
+          null;
 
-       if (!leadId) {
-         alert("This conversation is not linked to any CRM lead.");
-         return;
-       }
+        if (!leadId) {
+          alert("This conversation is not linked to any CRM lead.");
+          return;
+        }
 
-       // Persist resolved ID
-       setSelectedConversation((prev) =>
-         prev ? { ...prev, leadDetailId: leadId } : prev,
-       );
-     }
+        // Persist resolved ID
+        setSelectedConversation((prev) =>
+          prev ? { ...prev, leadDetailId: leadId } : prev,
+        );
+      }
 
-     // 2️⃣ Fetch lead data (SOURCE OF TRUTH)
-     const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
+      // 2️⃣ Fetch lead data (SOURCE OF TRUTH)
+      const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
 
-     if (!res.data?.success || !res.data?.data) {
-       throw new Error("Lead fetch succeeded but data missing");
-     }
+      if (!res.data?.success || !res.data?.data) {
+        throw new Error("Lead fetch succeeded but data missing");
+      }
 
-     const leadData = res.data.data;
+      const leadData = res.data.data;
 
-     // =====================================================
-     // 🔥 FOLLOW-UP NORMALIZATION (THIS WAS MISSING)
-     // =====================================================
+      // =====================================================
+      // 🔥 FOLLOW-UP NORMALIZATION (THIS WAS MISSING)
+      // =====================================================
 
-     let followUpDate = "";
-     let day = "";
+      let followUpDate = "";
+      let day = "";
 
-     // ✅ Priority 1: followUpHistory (LATEST ENTRY)
-     if (
-       Array.isArray(leadData.followUpHistory) &&
-       leadData.followUpHistory.length > 0
-     ) {
-       const lastFollowUp =
-         leadData.followUpHistory[leadData.followUpHistory.length - 1];
+      // ✅ Priority 1: followUpHistory (LATEST ENTRY)
+      if (
+        Array.isArray(leadData.followUpHistory) &&
+        leadData.followUpHistory.length > 0
+      ) {
+        const lastFollowUp =
+          leadData.followUpHistory[leadData.followUpHistory.length - 1];
 
-       followUpDate = lastFollowUp.date || "";
-       day = lastFollowUp.day || "";
-     }
-     // ✅ Priority 2: direct columns fallback
-     else if (leadData.followUpDate) {
-       followUpDate = new Date(leadData.followUpDate)
-         .toISOString()
-         .split("T")[0];
+        followUpDate = lastFollowUp.date || "";
+        day = lastFollowUp.day || "";
+      }
+      // ✅ Priority 2: direct columns fallback
+      else if (leadData.followUpDate) {
+        followUpDate = new Date(leadData.followUpDate)
+          .toISOString()
+          .split("T")[0];
 
-       day =
-         leadData.day ||
-         new Date(leadData.followUpDate).toLocaleDateString("en-US", {
-           weekday: "long",
-         });
-     }
+        day =
+          leadData.day ||
+          new Date(leadData.followUpDate).toLocaleDateString("en-US", {
+            weekday: "long",
+          });
+      }
 
-     // 3️⃣ Set edit form (UI-ready)
-     setLeadEditForm({
-       ...leadData,
+      // 3️⃣ Set edit form (UI-ready)
+      setLeadEditForm({
+        ...leadData,
 
-       // ✅ REQUIRED for <input type="date">
-       followUpDate,
+        // ✅ REQUIRED for <input type="date">
+        followUpDate,
 
-       // ✅ Read-only field, auto-calculated
-       day,
-     });
+        // ✅ Read-only field, auto-calculated
+        day,
+      });
 
-     // 4️⃣ Open modal
-     setShowLeadEditModal(true);
-   } catch (err) {
-     console.error("❌ handleOpenEditLead failed:", err);
-     alert("Failed to load lead details. Please try again.");
-   }
- };
-
-
+      // 4️⃣ Open modal
+      setShowLeadEditModal(true);
+    } catch (err) {
+      console.error("❌ handleOpenEditLead failed:", err);
+      alert("Failed to load lead details. Please try again.");
+    }
+  };
 
   // const handleSaveLead = async () => {
   //   if (!leadEditForm.id) return;

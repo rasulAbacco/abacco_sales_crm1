@@ -857,7 +857,8 @@ export default function Forwardedlead() {
     return `${header}<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.15;">${formattedBody}</div>`;
   }
 
-  // const handleOpenComposePopup = (lead) => {
+
+  // const handleOpenComposePopup = async (lead) => {
   //   const ccList =
   //     lead.cc && typeof lead.cc === "string"
   //       ? lead.cc
@@ -866,18 +867,36 @@ export default function Forwardedlead() {
   //           .filter((c) => c !== "")
   //       : [];
 
+  //   // 🔥 NEW: fetch original message attachments
+  //   let forwardedAttachments = [];
+  //   try {
+  //     const res = await fetch(
+  //       `${API_BASE_URL}/api/email-messages/${lead.messageId}/attachments`,
+  //     );
+  //     const json = await res.json();
+
+  //     if (json.success && Array.isArray(json.data)) {
+  //       forwardedAttachments = json.data;
+  //     }
+  //   } catch (err) {
+  //     console.error("❌ Failed to load forwarded attachments", err);
+  //   }
+
   //   setComposeData({
   //     from: accounts[0]?.email || "",
   //     emailAccountId: accounts[0]?.id || null,
   //     to: lead.client || "",
   //     cc: "",
-  //     ccList: ccList,
+  //     ccList,
   //     subject: `Fwd: ${lead.subject || "No Subject"}`,
   //     body: "",
-  //     attachments: [],
+
+  //     // 🔥 IMPORTANT
+  //     forwardedAttachments, // ← original email attachments
   //     leadDetailId: lead.id,
   //   });
 
+  //   // existing forwarded message HTML
   //   const structured = buildForwardBlock(lead);
   //   setForwardedContent(structured);
   //   setShowQuotedText(true);
@@ -891,58 +910,51 @@ export default function Forwardedlead() {
   //     }
   //   }, 100);
   // };
-  const handleOpenComposePopup = async (lead) => {
-    const ccList =
-      lead.cc && typeof lead.cc === "string"
-        ? lead.cc
-            .split(",")
-            .map((c) => c.trim())
-            .filter((c) => c !== "")
-        : [];
+const handleOpenComposePopup = async (lead) => {
+  const ccList =
+    lead.cc
+      ?.split(",")
+      .map((c) => c.trim())
+      .filter(Boolean) || [];
 
-    // 🔥 NEW: fetch original message attachments
-    let forwardedAttachments = [];
-    try {
-      const res = await fetch(
-        `${API_BASE_URL}/api/email-messages/${lead.messageId}/attachments`,
-      );
+  let forwardedAttachments = [];
+
+  // 🔥 SAFE: attachments must NEVER block compose
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/inbox/conversations/${lead.conversationId}/messages`,
+    );
+
+    if (res.ok) {
       const json = await res.json();
-
-      if (json.success && Array.isArray(json.data)) {
-        forwardedAttachments = json.data;
-      }
-    } catch (err) {
-      console.error("❌ Failed to load forwarded attachments", err);
+      forwardedAttachments = (json.data || []).flatMap(
+        (msg) => msg.attachments || [],
+      );
     }
+  } catch (e) {
+    console.warn("⚠️ Attachments skipped", e);
+  }
 
-    setComposeData({
-      from: accounts[0]?.email || "",
-      emailAccountId: accounts[0]?.id || null,
-      to: lead.client || "",
-      cc: "",
-      ccList,
-      subject: `Fwd: ${lead.subject || "No Subject"}`,
-      body: "",
+  setComposeData({
+    from: accounts[0]?.email || "",
+    emailAccountId: accounts[0]?.id || null,
+    to: lead.client || "",
+    cc: "",
+    ccList,
+    subject: `Fwd: ${lead.subject || "No Subject"}`,
+    body: "",
+    forwardedAttachments, // ✅ optional
+    leadDetailId: lead.id,
+  });
 
-      // 🔥 IMPORTANT
-      forwardedAttachments, // ← original email attachments
-      leadDetailId: lead.id,
-    });
+  setForwardedContent(buildForwardBlock(lead));
+  setShowQuotedText(true);
+  setShowComposePopup(true);
 
-    // existing forwarded message HTML
-    const structured = buildForwardBlock(lead);
-    setForwardedContent(structured);
-    setShowQuotedText(true);
-
-    setShowComposePopup(true);
-
-    setTimeout(() => {
-      if (editorRef.current) {
-        editorRef.current.innerHTML = "";
-        editorRef.current.focus();
-      }
-    }, 100);
-  };
+  setTimeout(() => {
+    editorRef.current?.focus();
+  }, 100);
+};
 
   // ✅ Build final email body combining new message and forwarded content
   //   const buildFinalEmailBody = () => {

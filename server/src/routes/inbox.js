@@ -427,20 +427,7 @@ router.get("/conversations/:accountId", async (req, res) => {
     params.push(accountId);
 
     // 🔥 GLOBAL SAFETY: never show permanently deleted
-    conditions.push(`em."hideTrash" = false`);
-    //AND em.direction = 'received'
-    // folder logic (STRICT & MUTUALLY EXCLUSIVE)
-    //   if (folder === "inbox") {
-    //     conditions.push(`
-    //   (
-    //     (em.folder = 'inbox' AND em.direction = 'received')
-    //     OR
-    //     (em.folder = 'sent' AND em.direction = 'sent')
-    //   )
-    //   AND em."isTrash" = false
-    //   AND em."isSpam" = false
-    //   AND em."hideInbox" = false
-    // `);
+    // conditions.push(`em."hideTrash" = false`);
     if (folder === "inbox") {
       conditions.push(`
     em.direction = 'received'
@@ -461,8 +448,9 @@ router.get("/conversations/:accountId", async (req, res) => {
       `);
     } else if (folder === "trash") {
       conditions.push(`
-        em."isTrash" = true
-      `);
+    em."isTrash" = true
+    AND em."hideTrash" = false
+  `);
     }
 
     // sender / recipient / search
@@ -574,6 +562,9 @@ router.get("/conversations/:accountId", async (req, res) => {
         messages: {
           some: { id: { in: messageIds } },
         },
+        // ✅ ADD THESE TWO LINES
+        ...(folder === "inbox" && { hideInbox: false }),
+        ...(folder === "trash" && { hideTrash: false }),y
       },
       include: {
         messages: {
@@ -2168,18 +2159,53 @@ router.patch("/restore-conversation", async (req, res) => {
 });
 
 // PERMANENT HIDE: Remove from Trash folder
+// router.patch("/permanent-delete-conversation", async (req, res) => {
+//   try {
+//     const { conversationId, accountId } = req.body;
+//     const updated = await prisma.emailMessage.updateMany({
+//       where: { conversationId, emailAccountId: Number(accountId) },
+//       data: {
+//         hideTrash: true, // 🔥 Mark as permanently hidden
+//         hideInbox: true, // Ensure it stays hidden from primary view
+//       },
+//     });
+//     res.json({ success: true, updatedCount: updated.count });
+//   } catch (err) {
+//     res.status(500).json({ success: false });
+//   }
+// });
 router.patch("/permanent-delete-conversation", async (req, res) => {
   try {
     const { conversationId, accountId } = req.body;
-    const updated = await prisma.emailMessage.updateMany({
-      where: { conversationId, emailAccountId: Number(accountId) },
+
+    if (!conversationId) {
+      return res.status(400).json({ success: false });
+    }
+
+    // 1️⃣ Hide ALL messages forever
+    await prisma.emailMessage.updateMany({
+      where: {
+        conversationId,
+        emailAccountId: Number(accountId),
+      },
       data: {
-        hideTrash: true, // 🔥 Mark as permanently hidden
-        hideInbox: true, // Ensure it stays hidden from primary view
+        hideTrash: true,
+        hideInbox: true,
       },
     });
-    res.json({ success: true, updatedCount: updated.count });
+
+    // 2️⃣ Hide the conversation itself
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        hideTrash: true,
+        hideInbox: true,
+      },
+    });
+
+    return res.json({ success: true });
   } catch (err) {
+    console.error("❌ permanent delete error:", err);
     res.status(500).json({ success: false });
   }
 });
