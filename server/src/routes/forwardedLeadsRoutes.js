@@ -153,13 +153,13 @@ router.get("/assigned/:userId", async (req, res) => {
         country: true,
         result: true,
         agentName: true, // ✅ Add agentName
-        website: true,   // ✅ Add website
+        website: true, // ✅ Add website
         SalesLead: {
-          select: { link: true } // ✅ Add link from SalesLead
+          select: { link: true }, // ✅ Add link from SalesLead
         },
         user: {
-          select: { name: true }
-        }
+          select: { name: true },
+        },
       },
       orderBy: { date: "desc" },
     });
@@ -178,9 +178,9 @@ router.get("/assigned/:userId", async (req, res) => {
     });
 
     // Map to include link (flatten SalesLead.link)
-    const leadsWithLink = leadsToShow.map(lead => ({
+    const leadsWithLink = leadsToShow.map((lead) => ({
       ...lead,
-      link: lead.SalesLead?.link || null
+      link: lead.SalesLead?.link || null,
     }));
 
     res.json({
@@ -197,7 +197,6 @@ router.get("/assigned/:userId", async (req, res) => {
     });
   }
 });
-
 
 /* ==========================================================
    ✅ 3️⃣  Update a forwarded lead (status, brand, salesperson, result)

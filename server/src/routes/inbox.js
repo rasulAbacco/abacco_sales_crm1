@@ -271,266 +271,110 @@ router.get("/conversation-detail", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+router.get("/conversation-link", async (req, res) => {
+  const { conversationId } = req.query;
 
-// router.get("/conversations/:accountId", async (req, res) => {
-//   try {
-//     const accountId = Number(req.params.accountId);
-//     if (!accountId) {
-//       return res
-//         .status(400)
-//         .json({ success: false, message: "Invalid accountId" });
-//     }
+  if (!conversationId) {
+    return res.status(400).json({
+      success: false,
+      message: "conversationId is required",
+    });
+  }
 
-//     const {
-//       folder = "inbox",
-//       sender,
-//       recipient,
-//       subject,
-//       isUnread,
-//       isStarred,
-//       dateFrom,
-//       dateTo,
-//       hasAttachment,
-//       country,
-//       leadStatus,
-//       searchEmail,
-//     } = req.query;
+  // 1️⃣ Load conversation
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { id: true, leadDetailId: true },
+  });
 
-//     /* ==================================================
-//        1️⃣ BUILD SQL CONDITIONS
-//     ================================================== */
-//     const conditions = [];
-//     const params = [];
+  // 2️⃣ If already linked, return it
+  if (conversation?.leadDetailId) {
+    return res.json({
+      success: true,
+      data: { leadDetailId: conversation.leadDetailId },
+    });
+  }
 
-//     // account
-//     conditions.push(`em."emailAccountId" = $${params.length + 1}`);
-//     params.push(accountId);
+  // 3️⃣ Fallback: find from EmailMessage
+  const msg = await prisma.emailMessage.findFirst({
+    where: {
+      conversationId,
+      leadDetailId: { not: null },
+    },
+    orderBy: { sentAt: "desc" },
+    select: { leadDetailId: true },
+  });
 
-//     // folder
-//     if (folder === "inbox") {
-//       conditions.push(`
-//         em.folder = 'inbox'
-//         AND em.direction = 'received'
-//         AND em."isTrash" = false
-//         AND em."isSpam" = false
-//         AND em."hideInbox" = false
-//       `);
-//     } else if (folder === "sent") {
-//       conditions.push(`
-//         em.folder = 'sent'
-//         AND em.direction = 'sent'
-//         AND em."isTrash" = false
-//       `);
-//     } else if (folder === "spam") {
-//       conditions.push(`em.folder = 'spam'`);
-//     } else if (folder === "trash") {
-//       conditions.push(`em."isTrash" = true`);
-//     }
+  // 4️⃣ If still not found → truly no lead
+  if (!msg?.leadDetailId) {
+    return res.json({
+      success: true,
+      data: null,
+    });
+  }
 
-//     // sender / recipient / search
-//     if (sender || recipient || searchEmail) {
-//       const val = `%${(sender || recipient || searchEmail)
-//         .toLowerCase()
-//         .trim()}%`;
-//       conditions.push(`
-//         (
-//           lower(em."fromEmail") LIKE $${params.length + 1}
-//           OR lower(em."toEmail") LIKE $${params.length + 1}
-//           OR lower(em."ccEmail") LIKE $${params.length + 1}
-//         )
-//       `);
-//       params.push(val);
-//     }
+  // 5️⃣ 🔥 BACKFILL Conversation (THIS IS THE KEY)
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { leadDetailId: msg.leadDetailId },
+  });
 
-//     // subject
-//     if (subject) {
-//       conditions.push(`lower(em.subject) LIKE $${params.length + 1}`);
-//       params.push(`%${subject.toLowerCase()}%`);
-//     }
+  // 6️⃣ Return repaired ID
+  return res.json({
+    success: true,
+    data: { leadDetailId: msg.leadDetailId },
+  });
+});
 
-//     // unread
-//     if (isUnread === "true") {
-//       conditions.push(`em."isRead" = false`);
-//     }
+// ✅ ADD THIS: Matches the exact frontend call with query params
+router.get("/conversation-detail/lead", async (req, res) => {
+  try {
+    const { conversationId } = req.query; // Extracts ID from ?conversationId=...
 
-//     // starred
-//     if (isStarred === "true") {
-//       conditions.push(`em."isStarred" = true`);
-//     }
+    if (!conversationId) {
+      return res.status(400).json({ success: false, message: "Missing ID" });
+    }
 
-//     // date range
-//     if (dateFrom) {
-//       conditions.push(`em."sentAt" >= $${params.length + 1}`);
-//       params.push(new Date(dateFrom));
-//     }
-//     if (dateTo) {
-//       conditions.push(`em."sentAt" <= $${params.length + 1}`);
-//       params.push(new Date(dateTo));
-//     }
+    // Decode the ID to handle the < > brackets correctly
+    const decodedId = decodeURIComponent(conversationId);
 
-//     // attachment
-//     if (hasAttachment === "true") {
-//       conditions.push(`
-//         EXISTS (
-//           SELECT 1 FROM "Attachment" a
-//           WHERE a."emailMessageId" = em.id
-//         )
-//       `);
-//     }
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: decodedId },
+      select: { leadDetailId: true },
+    });
 
-//     // country
-//     if (country) {
-//       conditions.push(`
-//         (
-//           lem.country = $${params.length + 1}
-//           OR lem_fallback.country = $${params.length + 1}
-//         )
-//       `);
-//       params.push(country);
-//     }
+    console.log(
+      `🔎 DB Search for: ${decodedId} -> Found Lead ID: ${conversation?.leadDetailId}`,
+    );
 
-//     /* ==================================================
-//        2️⃣ FETCH MESSAGE IDS (RAW SQL)
-//     ================================================== */
-//     const sql = `
-//       SELECT DISTINCT em.id
-//       FROM "EmailMessage" em
+    return res.json({
+      success: true,
+      leadDetailId: conversation?.leadDetailId || null,
+    });
+  } catch (err) {
+    console.error("❌ Lead Link Fetch Error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+router.get("/conversation/:conversationId/lead", async (req, res) => {
+  try {
+    // 🔥 FIX: Decode the ID because Message-IDs contain < > brackets
+    const conversationId = decodeURIComponent(req.params.conversationId);
 
-//       LEFT JOIN "LeadDetails" ld
-//         ON ld.id = em."leadDetailId"
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { leadDetailId: true },
+    });
 
-//       LEFT JOIN "LeadEmailMeta" lem
-//         ON lem."leadDetailId" = ld.id
-
-//       LEFT JOIN "LeadEmailMeta" lem_fallback
-//         ON (
-//           lower(em."fromEmail") = lower(lem_fallback.email)
-//           OR lower(em."toEmail") LIKE '%' || lower(lem_fallback.email) || '%'
-//           OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.email) || '%'
-//           OR lower(em."ccEmail") LIKE '%' || lower(lem_fallback.cc) || '%'
-//         )
-
-//       WHERE ${conditions.join(" AND ")}
-
-//       ORDER BY em.id DESC
-//     `;
-
-//     const rows = await prisma.$queryRawUnsafe(sql, ...params);
-//     const messageIds = rows.map((r) => r.id);
-
-//     if (messageIds.length === 0) {
-//       return res.json({ success: true, total: 0, data: [] });
-//     }
-
-//     /* ==================================================
-//        3️⃣ FETCH CONVERSATIONS (✅ FIXED - NO emailAccountId)
-//     ================================================== */
-//     const conversations = await prisma.conversation.findMany({
-//       where: {
-//         // ✅ REMOVED: emailAccountId filter
-//         messages: {
-//           some: { id: { in: messageIds } },
-//         },
-//       },
-//       include: {
-//         messages: {
-//           where: {
-//             emailAccountId: accountId, // ✅ Filter messages by account here instead
-//           },
-//           orderBy: { sentAt: "desc" },
-//           take: 1,
-//         },
-//       },
-//       orderBy: { lastMessageAt: "desc" },
-//     });
-
-//     /* ==================================================
-//        4️⃣ FORMAT RESPONSE
-//     ================================================== */
-//     let result = conversations
-//       .filter((conv) => conv.messages.length > 0) // ✅ Only return conversations with messages for this account
-//       .map((conv) => {
-//         const m = conv.messages[0];
-
-//         let displayName = "Unknown";
-//         let displayEmail = "Unknown";
-
-//         if (m?.direction === "received") {
-//           displayName = m.fromName || m.fromEmail;
-//           displayEmail = m.fromEmail;
-//         } else {
-//           const firstTo = m?.toEmail?.split(",")[0] || "";
-//           displayName = m?.toName || firstTo;
-//           displayEmail = firstTo;
-//         }
-
-//         return {
-//           conversationId: conv.id,
-//           subject: conv.subject || "(No Subject)",
-//           initiatorEmail: conv.initiatorEmail,
-//           lastSenderEmail: m?.fromEmail || null,
-//           displayName,
-//           displayEmail,
-//           lastDate: conv.lastMessageAt,
-//           lastBody: m?.body?.replace(/<[^>]+>/g, " ").slice(0, 120) || "",
-//           unreadCount: conv.unreadCount,
-//           messageCount: conv.messageCount,
-//           isStarred: conv.isStarred,
-//         };
-//       });
-
-//     /* ==================================================
-//        5️⃣ LEAD STATUS FILTER
-//     ================================================== */
-//     if (leadStatus) {
-//       const leads = await prisma.leadDetails.findMany({
-//         where: {
-//           leadStatus: { equals: leadStatus, mode: "insensitive" },
-//         },
-//         select: { email: true, cc: true },
-//       });
-
-//       const leadEmails = new Set();
-
-//       leads.forEach((l) => {
-//         if (l.email) leadEmails.add(l.email.toLowerCase().trim());
-//         if (l.cc) {
-//           l.cc
-//             .split(/[;,]/)
-//             .map((e) => e.toLowerCase().trim())
-//             .forEach((e) => e && leadEmails.add(e));
-//         }
-//       });
-
-//       const normalize = (s) =>
-//         (s || "").toLowerCase().replace(/<|>|"/g, "").trim();
-
-//       result = result.filter((conv) => {
-//         return (
-//           leadEmails.has(normalize(conv.displayEmail)) ||
-//           leadEmails.has(normalize(conv.lastSenderEmail)) ||
-//           leadEmails.has(normalize(conv.initiatorEmail))
-//         );
-//       });
-//     }
-
-//     /* ==================================================
-//        6️⃣ RETURN
-//     ================================================== */
-//     return res.json({
-//       success: true,
-//       total: result.length,
-//       data: result,
-//     });
-//   } catch (err) {
-//     console.error("🔥 Inbox conversations error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to load conversations",
-//       error: err.message,
-//     });
-//   }
-// });
+    return res.json({
+      success: true,
+      leadDetailId: conversation?.leadDetailId || null,
+    });
+  } catch (err) {
+    console.error("❌ Lead ID fetch error:", err);
+    res.status(500).json({ success: false, leadDetailId: null });
+  }
+});
 router.get("/conversations/:accountId", async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
@@ -553,6 +397,7 @@ router.get("/conversations/:accountId", async (req, res) => {
       country,
       leadStatus,
       searchEmail,
+      followUpHistoryDate, // ✅ ADD THIS LINE
     } = req.query;
 
     /* ==================================================
@@ -656,15 +501,15 @@ router.get("/conversations/:accountId", async (req, res) => {
     }
 
     // country
-    if (country) {
-      conditions.push(`
-        (
-          lem.country = $${params.length + 1}
-          OR lem_fallback.country = $${params.length + 1}
-        )
-      `);
-      params.push(country);
-    }
+    // if (country) {
+    //   conditions.push(`
+    //     (
+    //       lem.country = $${params.length + 1}
+    //       OR lem_fallback.country = $${params.length + 1}
+    //     )
+    //   `);
+    //   params.push(country);
+    // }
 
     /* ==================================================
        2️⃣ FETCH MESSAGE IDS
@@ -718,6 +563,29 @@ router.get("/conversations/:accountId", async (req, res) => {
       },
       orderBy: { lastMessageAt: "desc" },
     });
+    // 🔥 BACKFILL leadDetailId INTO Conversation
+    for (const conv of conversations) {
+      if (!conv.leadDetailId) {
+        const msg = await prisma.emailMessage.findFirst({
+          where: {
+            conversationId: conv.id,
+            leadDetailId: { not: null },
+          },
+          select: { leadDetailId: true },
+          orderBy: { sentAt: "desc" },
+        });
+
+        if (msg?.leadDetailId) {
+          await prisma.conversation.update({
+            where: { id: conv.id },
+            data: { leadDetailId: msg.leadDetailId },
+          });
+
+          // ✅ CRITICAL: mutate runtime object
+          conv.leadDetailId = msg.leadDetailId;
+        }
+      }
+    }
 
     /* ==================================================
        4️⃣ FORMAT RESPONSE
@@ -742,6 +610,7 @@ router.get("/conversations/:accountId", async (req, res) => {
         return {
           conversationId: conv.id,
           subject: conv.subject || "(No Subject)",
+          leadDetailId: conv.leadDetailId, // 🔥🔥🔥 THIS IS THE FIX
           initiatorEmail: conv.initiatorEmail,
           lastSenderEmail: m.fromEmail,
           displayName,
@@ -763,37 +632,116 @@ router.get("/conversations/:accountId", async (req, res) => {
           isStarred: conv.isStarred,
         };
       });
+    /* ==================================================
+   🌍 COUNTRY FILTER (FINAL & CORRECT)
+================================================== */
+    if (country) {
+      const leads = await prisma.leadDetails.findMany({
+        where: {
+          country: {
+            equals: country,
+            mode: "insensitive",
+          },
+        },
+        select: { id: true },
+      });
+
+      const leadIdSet = new Set(leads.map((l) => l.id));
+
+      result = result.filter(
+        (conv) => conv.leadDetailId && leadIdSet.has(conv.leadDetailId),
+      );
+    }
 
     /* ==================================================
        5️⃣ LEAD STATUS FILTER
     ================================================== */
+    // if (leadStatus) {
+    //   const leads = await prisma.leadDetails.findMany({
+    //     where: {
+    //       leadStatus: { equals: leadStatus, mode: "insensitive" },
+    //     },
+    //     select: { email: true, cc: true },
+    //   });
+
+    //   const leadEmails = new Set();
+    //   leads.forEach((l) => {
+    //     if (l.email) leadEmails.add(l.email.toLowerCase().trim());
+    //     if (l.cc) {
+    //       l.cc
+    //         .split(/[;,]/)
+    //         .map((e) => e.toLowerCase().trim())
+    //         .forEach((e) => e && leadEmails.add(e));
+    //     }
+    //   });
+
+    //   const normalize = (s) =>
+    //     (s || "").toLowerCase().replace(/<|>|"/g, "").trim();
+
+    //   result = result.filter(
+    //     (c) =>
+    //       leadEmails.has(normalize(c.displayEmail)) ||
+    //       leadEmails.has(normalize(c.lastSenderEmail)) ||
+    //       leadEmails.has(normalize(c.initiatorEmail)),
+    //   );
+    // }
+    /* ==================================================
+   5️⃣ LEAD STATUS FILTER (FAST & SAFE)
+================================================== */
     if (leadStatus) {
       const leads = await prisma.leadDetails.findMany({
         where: {
-          leadStatus: { equals: leadStatus, mode: "insensitive" },
+          leadStatus: {
+            equals: leadStatus,
+            mode: "insensitive",
+          },
         },
-        select: { email: true, cc: true },
+        select: { id: true },
       });
 
-      const leadEmails = new Set();
-      leads.forEach((l) => {
-        if (l.email) leadEmails.add(l.email.toLowerCase().trim());
-        if (l.cc) {
-          l.cc
-            .split(/[;,]/)
-            .map((e) => e.toLowerCase().trim())
-            .forEach((e) => e && leadEmails.add(e));
-        }
-      });
-
-      const normalize = (s) =>
-        (s || "").toLowerCase().replace(/<|>|"/g, "").trim();
+      const leadIdSet = new Set(leads.map((l) => l.id));
 
       result = result.filter(
-        (c) =>
-          leadEmails.has(normalize(c.displayEmail)) ||
-          leadEmails.has(normalize(c.lastSenderEmail)) ||
-          leadEmails.has(normalize(c.initiatorEmail)),
+        (conv) => conv.leadDetailId && leadIdSet.has(conv.leadDetailId),
+      );
+    }
+    /* ==================================================
+   📜 FOLLOW-UP HISTORY DATE FILTER
+================================================== */
+    if (followUpHistoryDate) {
+      const leads = await prisma.leadDetails.findMany({
+        where: {
+          followUpHistory: {
+            not: null,
+          },
+        },
+        select: {
+          id: true,
+          followUpHistory: true,
+        },
+      });
+
+      const matchedLeadIds = new Set();
+
+      for (const lead of leads) {
+        try {
+          const history = Array.isArray(lead.followUpHistory)
+            ? lead.followUpHistory
+            : [];
+
+          const hasMatch = history.some((h) => h?.date === followUpHistoryDate);
+
+          if (hasMatch) {
+            matchedLeadIds.add(lead.id);
+          }
+        } catch (e) {
+          // ignore malformed JSON safely
+        }
+      }
+
+      // 🔥 CRITICAL: If no matches, result becomes EMPTY
+      result = result.filter(
+        (conv) => conv.leadDetailId && matchedLeadIds.has(conv.leadDetailId),
       );
     }
 
@@ -1273,33 +1221,28 @@ router.get("/messages/:accountId", async (req, res) => {
 /* 🌍 GET: Countries */
 router.get("/countries", async (req, res) => {
   try {
-    const countries = await prisma.leadEmailMeta.findMany({
+    const countries = await prisma.leadDetails.findMany({
       where: {
-        country: {
-          not: null,
-        },
+        country: { not: null },
       },
       select: {
         country: true,
       },
       distinct: ["country"],
+      orderBy: {
+        country: "asc",
+      },
     });
 
-    const countryList = countries
-      .map((c) => c.country)
-      .filter(Boolean)
-      .sort();
-
-    return res.json({
+    res.json({
       success: true,
-      data: countryList,
+      data: countries.map((c) => c.country).filter(Boolean),
     });
   } catch (err) {
     console.error("❌ Error fetching countries:", err);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Failed to fetch countries",
-      error: err.message,
     });
   }
 });
@@ -1429,61 +1372,125 @@ router.get("/stats/:accountId", async (req, res) => {
 /* ============================================================
    📤 POST Routes
    ============================================================ */
-
-/* 📤 POST: Reply to Email (FIXED – saves fromName) */
 router.post("/reply", async (req, res) => {
   try {
     const {
       emailAccountId,
-      to,
+      to, // 🔥 ACCEPT TO FROM UI
       cc,
-      subject,
       body,
       attachments = [],
       replyToMessageId,
     } = req.body;
 
-    // 🔹 1️⃣ Fetch Email Account + User (THIS IS STEP 1)
+    /* =====================================================
+       0️⃣ VALIDATION
+    ===================================================== */
+    if (!emailAccountId || !replyToMessageId || !body) {
+      return res.status(400).json({
+        success: false,
+        message: "emailAccountId, replyToMessageId and body are required",
+      });
+    }
+
+    /* =====================================================
+       1️⃣ FETCH EMAIL ACCOUNT
+    ===================================================== */
     const account = await prisma.emailAccount.findUnique({
       where: { id: Number(emailAccountId) },
     });
 
     if (!account) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Account not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Email account not found",
+      });
     }
 
     const senderName = account.senderName || null;
-    const authEmail = account.smtpUser || account.email;
+    const authEmail = (account.smtpUser || account.email).toLowerCase().trim();
 
-    // 🔹 2️⃣ Fetch original message for threading
-    let originalMessage = null;
-    let conversationId = null;
-    let inReplyTo = null;
-    let references = null;
+    /* =====================================================
+       🔧 HELPERS
+    ===================================================== */
+    const extractEmail = (val) => {
+      if (!val) return null;
+      const match = val.match(/<([^>]+)>/);
+      return (match ? match[1] : val).trim().toLowerCase();
+    };
 
-    if (replyToMessageId) {
-      originalMessage = await prisma.emailMessage.findUnique({
-        where: { id: Number(replyToMessageId) },
+    const cleanList = (val) =>
+      val ? val.split(",").map(extractEmail).filter(Boolean) : [];
+
+    /* =====================================================
+       2️⃣ FETCH ORIGINAL MESSAGE
+    ===================================================== */
+    const originalMessage = await prisma.emailMessage.findUnique({
+      where: { id: Number(replyToMessageId) },
+    });
+
+    if (!originalMessage) {
+      return res.status(404).json({
+        success: false,
+        message: "Original message not found",
       });
-
-      if (originalMessage) {
-        conversationId = originalMessage.conversationId;
-        inReplyTo = originalMessage.messageId;
-        references = originalMessage.references
-          ? `${originalMessage.references} ${originalMessage.messageId}`
-          : originalMessage.messageId;
-      }
     }
 
-    // 🔹 3️⃣ Create SMTP transporter
+    const conversationId = originalMessage.conversationId;
+
+    const inReplyTo = originalMessage.messageId;
+    const references = originalMessage.references
+      ? `${originalMessage.references} ${originalMessage.messageId}`
+      : originalMessage.messageId;
+
+    /* =====================================================
+       3️⃣ DEFAULT CLIENT EMAIL (FALLBACK ONLY)
+    ===================================================== */
+    let fallbackClientEmail =
+      originalMessage.direction === "received"
+        ? extractEmail(originalMessage.fromEmail)
+        : extractEmail(originalMessage.toEmail?.split(",")[0]);
+
+    if (!fallbackClientEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to resolve fallback client email",
+      });
+    }
+
+    /* =====================================================
+       4️⃣ FINAL TO / CC RESOLUTION (🔥 FIX)
+    ===================================================== */
+    const finalToList = cleanList(to);
+    const finalTo =
+      finalToList.length > 0 ? finalToList.join(", ") : fallbackClientEmail;
+
+    const finalCc = cleanList(cc)
+      .filter((e) => e !== authEmail && !finalToList.includes(e))
+      .join(", ");
+
+    /* =====================================================
+       5️⃣ SUBJECT
+    ===================================================== */
+    const baseSubject = originalMessage.subject || "";
+    const finalSubject = baseSubject.toLowerCase().startsWith("re:")
+      ? baseSubject
+      : `Re: ${baseSubject}`;
+
+    /* =====================================================
+       6️⃣ BODY
+    ===================================================== */
+    const normalizedBody = normalizeEmailHtml(body);
+
+    /* =====================================================
+       7️⃣ SMTP
+    ===================================================== */
     const transporter = nodemailer.createTransport({
       host: account.smtpHost,
       port: account.smtpPort || 465,
       secure: (account.smtpPort || 465) === 465,
       auth: {
-        user: account.smtpUser || account.email,
+        user: authEmail,
         pass: account.encryptedPass,
       },
     });
@@ -1491,87 +1498,63 @@ router.post("/reply", async (req, res) => {
     const smtpAttachments = attachments.map((file) => ({
       filename: file.filename || file.name,
       path: file.url,
-      contentType: file.type || file.mimeType,
+      contentType: file.mimeType || file.type,
     }));
 
-    const finalSubject =
-      subject && subject.startsWith("Re:") ? subject : `Re: ${subject || ""}`;
-
-    // 🔹 4️⃣ Generate Message-ID
     const replyMessageId = `<${Date.now()}.${Math.random()
       .toString(36)
-      .substring(2)}@${account.email.split("@")[1]}>`;
-    const smtpFrom = senderName ? `"${senderName}" <${authEmail}>` : authEmail;
-    const normalizedBody = normalizeEmailHtml(body);
+      .slice(2)}@${authEmail.split("@")[1]}>`;
 
-    // 🔹 5️⃣ Send mail
+    const smtpFrom = senderName ? `"${senderName}" <${authEmail}>` : authEmail;
+
+    /* =====================================================
+       8️⃣ SEND MAIL
+    ===================================================== */
     await transporter.sendMail({
       from: smtpFrom,
-      to,
-      cc: cc || undefined,
+      to: finalTo, // ✅ UI OVERRIDES
+      cc: finalCc || undefined,
       subject: finalSubject,
-      html: normalizedBody, // ✅ REPLACED
+      html: normalizedBody,
       attachments: smtpAttachments,
       messageId: replyMessageId,
-      headers: inReplyTo
-        ? {
-            "In-Reply-To": inReplyTo,
-            References: references,
-          }
-        : {},
+      headers: {
+        "In-Reply-To": inReplyTo,
+        References: references,
+      },
     });
-    // 🔥 UPDATE ONLY IF THIS WAS A SCHEDULED MESSAGE
-    if (req.body.scheduledMessageId) {
-      await prisma.scheduledMessage.update({
-        where: {
-          id: Number(req.body.scheduledMessageId),
-        },
-        data: {
-          status: "sent",
-          isFollowedUp: true,
-          updatedAt: new Date(),
-        },
-      });
-    }
 
-    // 🔹 6️⃣ Save reply in DB (🔥 FIX HERE)
+    /* =====================================================
+       9️⃣ SAVE MESSAGE
+    ===================================================== */
     const savedReply = await prisma.emailMessage.create({
       data: {
         emailAccountId: Number(emailAccountId),
         conversationId,
+
         messageId: replyMessageId,
-
         fromEmail: authEmail,
-        fromName: senderName, // ✅ FIXED
+        fromName: senderName,
 
-        toEmail: to,
-        ccEmail: cc || null,
+        toEmail: finalTo,
+        ccEmail: finalCc || null,
+
         subject: finalSubject,
-        body: normalizedBody, // ✅ REPLACED
+        body: normalizedBody,
+
         direction: "sent",
         sentAt: new Date(),
-        folder: "inbox", // 🔥 KEY FIX
-        // folder: "sent",
+        folder: "sent",
         isRead: true,
+
         inReplyTo,
         references,
-
-        attachments:
-          attachments.length > 0
-            ? {
-                create: attachments.map((file) => ({
-                  filename: file.filename || file.name,
-                  mimeType: file.mimeType || file.type,
-                  size: file.size || null,
-                  storageUrl: file.url,
-                })),
-              }
-            : undefined,
       },
-      include: { attachments: true },
     });
 
-    // 🔹 7️⃣ Update conversation metadata
+    /* =====================================================
+       🔟 UPDATE CONVERSATION
+    ===================================================== */
     if (conversationId) {
       await prisma.conversation.update({
         where: { id: conversationId },
@@ -1601,155 +1584,213 @@ router.post("/reply-all", async (req, res) => {
   try {
     const {
       emailAccountId,
-      replyToId,
+      replyToMessageId,
       conversationId,
-      fromEmail,
+      to, // 🔥 accept from UI
+      cc, // 🔥 accept from UI
       body,
       attachments = [],
-      scheduledMessageId,
     } = req.body;
 
-    if (!emailAccountId || !fromEmail || !body) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Missing fields" });
-    }
-
-    /* 1️⃣ Find original message */
-    let original = null;
-
-    if (replyToId) {
-      original = await prisma.emailMessage.findUnique({
-        where: { id: Number(replyToId) },
+    /* =====================================================
+       0️⃣ VALIDATION
+    ===================================================== */
+    if (!emailAccountId || !body || (!replyToMessageId && !conversationId)) {
+      return res.status(400).json({
+        success: false,
+        message: "emailAccountId, body and reply target are required",
       });
     }
 
-    if (!original && conversationId) {
-      original = await prisma.emailMessage.findFirst({
+    /* =====================================================
+       1️⃣ FETCH EMAIL ACCOUNT
+    ===================================================== */
+    const account = await prisma.emailAccount.findUnique({
+      where: { id: Number(emailAccountId) },
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: "Email account not found",
+      });
+    }
+
+    const senderName = account.senderName || null;
+    const authEmail = (account.smtpUser || account.email).toLowerCase().trim();
+
+    /* =====================================================
+       🔧 HELPERS
+    ===================================================== */
+    const extractEmail = (val) => {
+      if (!val) return null;
+      const match = val.match(/<([^>]+)>/);
+      return (match ? match[1] : val).trim().toLowerCase();
+    };
+
+    const cleanList = (val) =>
+      val ? val.split(",").map(extractEmail).filter(Boolean) : [];
+
+    /* =====================================================
+       2️⃣ FETCH ORIGINAL MESSAGE
+    ===================================================== */
+    let originalMessage = null;
+
+    if (replyToMessageId) {
+      originalMessage = await prisma.emailMessage.findUnique({
+        where: { id: Number(replyToMessageId) },
+      });
+    }
+
+    if (!originalMessage && conversationId) {
+      originalMessage = await prisma.emailMessage.findFirst({
         where: { conversationId },
         orderBy: { sentAt: "desc" },
       });
     }
 
-    if (!original) {
+    if (!originalMessage) {
       return res.status(400).json({
         success: false,
         message: "Original message not found",
       });
     }
 
-    /* 2️⃣ Account */
-    const account = await prisma.emailAccount.findUnique({
-      where: { id: Number(emailAccountId) },
-      include: { User: { select: { name: true } } },
-    });
+    const convId = originalMessage.conversationId;
 
-    if (!account) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Account not found" });
+    /* =====================================================
+       3️⃣ THREAD HEADERS
+    ===================================================== */
+    const inReplyTo = originalMessage.messageId;
+    const references = originalMessage.references
+      ? `${originalMessage.references} ${originalMessage.messageId}`
+      : originalMessage.messageId;
+
+    /* =====================================================
+       4️⃣ BACKEND DEFAULT RECIPIENTS (FALLBACK ONLY)
+    ===================================================== */
+    const fallbackClientEmail =
+      originalMessage.direction === "received"
+        ? extractEmail(originalMessage.fromEmail)
+        : extractEmail(originalMessage.toEmail?.split(",")[0]);
+
+    if (!fallbackClientEmail || fallbackClientEmail === authEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid fallback client email",
+      });
     }
 
-    const senderName = account.senderName || null;
-    const authEmail = account.smtpUser || account.email;
+    const fallbackToList = [fallbackClientEmail];
 
-    /* 3️⃣ Build reply-all recipients */
-    const normalize = (e) => e?.toLowerCase().trim();
+    const fallbackCcSet = new Set(
+      [
+        ...(originalMessage.toEmail || "").split(","),
+        ...(originalMessage.ccEmail || "").split(","),
+      ]
+        .map(extractEmail)
+        .filter((e) => e && e !== authEmail && e !== fallbackClientEmail),
+    );
 
-    const sender = normalize(original.fromEmail);
-    const toList = (original.toEmail || "").split(",").map(normalize);
-    const ccList = (original.ccEmail || "").split(",").map(normalize);
+    /* =====================================================
+       5️⃣ FINAL TO / CC (🔥 UI OVERRIDES)
+    ===================================================== */
+    const uiToList = cleanList(to);
+    const uiCcList = cleanList(cc);
 
-    const exclude = normalize(authEmail);
+    const finalToList = uiToList.length > 0 ? uiToList : fallbackToList;
 
-    const all = [sender, ...toList, ...ccList]
-      .filter(Boolean)
-      .filter((e) => e !== exclude);
+    const finalCcList =
+      uiCcList.length > 0
+        ? uiCcList.filter((e) => e !== authEmail && !finalToList.includes(e))
+        : [...fallbackCcSet];
 
-    const unique = [...new Set(all)];
+    const finalTo = finalToList.join(", ");
+    const finalCc = finalCcList.join(", ");
 
-    const smtpTo = sender;
-    const smtpCc = unique.filter((e) => e !== smtpTo);
+    /* =====================================================
+       6️⃣ SUBJECT + BODY
+    ===================================================== */
+    const baseSubject = originalMessage.subject || "";
+    const finalSubject = baseSubject.toLowerCase().startsWith("re:")
+      ? baseSubject
+      : `Re: ${baseSubject}`;
 
-    /* 4️⃣ SMTP */
+    const normalizedBody = normalizeEmailHtml(body);
+
+    /* =====================================================
+       7️⃣ SMTP
+    ===================================================== */
     const transporter = nodemailer.createTransport({
       host: account.smtpHost,
       port: account.smtpPort || 465,
       secure: (account.smtpPort || 465) === 465,
-      auth: { user: authEmail, pass: account.encryptedPass },
+      auth: {
+        user: authEmail,
+        pass: account.encryptedPass,
+      },
     });
 
-    /* 5️⃣ Body + subject */
-    const finalSubject = original.subject?.startsWith("Re:")
-      ? original.subject
-      : `Re: ${original.subject || ""}`;
-
-    const quoted = `
-      <br><br>
-      <div style="border-left:3px solid #ccc;padding-left:10px;">
-        <b>On ${original.sentAt.toLocaleString()}, ${original.fromEmail} wrote:</b><br>
-        ${original.body || ""}
-      </div>
-    `;
-
-    const finalBody = body + quoted;
-
-    /* 6️⃣ Message-ID */
-    const msgId = `<${Date.now()}.${Math.random()
+    const replyMessageId = `<${Date.now()}.${Math.random()
       .toString(36)
       .slice(2)}@${authEmail.split("@")[1]}>`;
-    const smtpFrom = senderName ? `"${senderName}" <${authEmail}>` : authEmail;
-    const normalizedBody = normalizeEmailHtml(finalBody);
 
-    /* 7️⃣ Send */
+    const smtpFrom = senderName ? `"${senderName}" <${authEmail}>` : authEmail;
+
+    /* =====================================================
+       8️⃣ SEND MAIL
+    ===================================================== */
     await transporter.sendMail({
       from: smtpFrom,
-      to: smtpTo,
-      cc: smtpCc.join(", "),
+      to: finalTo, // ✅ UI OR FALLBACK
+      cc: finalCc || undefined, // ✅ UI OR FALLBACK
       subject: finalSubject,
       html: normalizedBody,
-      messageId: msgId,
+      messageId: replyMessageId,
       headers: {
-        "In-Reply-To": original.messageId,
-        References: original.references
-          ? `${original.references} ${original.messageId}`
-          : original.messageId,
+        "In-Reply-To": inReplyTo,
+        References: references,
       },
       attachments: attachments.map((f) => ({
         filename: f.filename || f.name,
         path: f.url,
+        contentType: f.mimeType || f.type,
       })),
     });
 
-    /* 8️⃣ Save message (THIS IS THE FIX) */
+    /* =====================================================
+       9️⃣ SAVE MESSAGE
+    ===================================================== */
     const saved = await prisma.emailMessage.create({
       data: {
         emailAccountId: Number(emailAccountId),
-        conversationId: original.conversationId,
+        conversationId: convId,
 
-        messageId: msgId,
+        messageId: replyMessageId,
         fromEmail: authEmail,
         fromName: senderName,
 
-        toEmail: smtpTo, // ✅ EXACT
-        ccEmail: smtpCc.join(", "), // ✅ EXACT
+        toEmail: finalTo,
+        ccEmail: finalCc || null,
 
         subject: finalSubject,
-        body: normalizedBody, // ✅ REPLACED
+        body: normalizedBody,
+
         direction: "sent",
         sentAt: new Date(),
-        folder: "inbox",
+        folder: "sent",
         isRead: true,
 
-        inReplyTo: original.messageId,
-        references: original.references
-          ? `${original.references} ${original.messageId}`
-          : original.messageId,
+        inReplyTo,
+        references,
       },
     });
 
+    /* =====================================================
+       🔟 UPDATE CONVERSATION
+    ===================================================== */
     await prisma.conversation.update({
-      where: { id: original.conversationId },
+      where: { id: convId },
       data: {
         lastMessageAt: new Date(),
         messageCount: { increment: 1 },
@@ -1758,225 +1799,15 @@ router.post("/reply-all", async (req, res) => {
 
     return res.json({ success: true, data: saved });
   } catch (err) {
-    console.error("Reply-All error:", err);
-    res.status(500).json({ success: false });
+    console.error("❌ Reply-All error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to send reply-all",
+      details: err.message,
+    });
   }
 });
 
-// router.post("/forward", async (req, res) => {
-//   try {
-//     const {
-//       emailAccountId,
-//       forwardMessageId,
-//       messageId, // ✅ fallback support
-//       conversationId, // ✅ fallback support
-//       fromEmail,
-//       to,
-//       cc,
-//       body,
-//       attachments = [],
-//       scheduledMessageId,
-//     } = req.body;
-
-//     if (!emailAccountId || !to) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "emailAccountId and to are required",
-//       });
-//     }
-
-//     /* ============================================================
-//        1️⃣ FIND ORIGINAL MESSAGE (SAFE + FALLBACKS)
-//     ============================================================ */
-//     let original = null;
-//     const originalId = forwardMessageId || messageId;
-
-//     // Prefer explicit message id
-//     if (originalId) {
-//       original = await prisma.emailMessage.findUnique({
-//         where: { id: Number(originalId) },
-//       });
-//     }
-
-//     // Fallback: latest message in conversation
-//     if (!original && conversationId) {
-//       original = await prisma.emailMessage.findFirst({
-//         where: { conversationId },
-//         orderBy: { sentAt: "desc" },
-//       });
-//     }
-
-//     if (!original) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Original message not found for forward",
-//       });
-//     }
-
-//     /* ============================================================
-//        2️⃣ FETCH ACCOUNT + USER
-//     ============================================================ */
-//     const account = await prisma.emailAccount.findUnique({
-//       where: { id: Number(emailAccountId) },
-//       include: { User: { select: { name: true } } },
-//     });
-
-//     if (!account) {
-//       return res
-//         .status(404)
-//         .json({ success: false, message: "Account not found" });
-//     }
-
-//     const senderName = account.User?.name || null;
-//     const authenticatedEmail = account.smtpUser || account.email;
-
-//     /* ============================================================
-//        3️⃣ CREATE NEW CONVERSATION (OUTLOOK STYLE)
-//     ============================================================ */
-//     const newConversationId = crypto.randomUUID();
-
-//     const finalSubject = original.subject?.startsWith("Fwd:")
-//       ? original.subject
-//       : `Fwd: ${original.subject || ""}`;
-
-//     await prisma.conversation.create({
-//       data: {
-//         id: newConversationId,
-//         subject: finalSubject,
-
-//         // ✅ Conversation = grouping only
-//         initiatorEmail: authenticatedEmail,
-//         participants: authenticatedEmail,
-
-//         lastMessageAt: new Date(),
-//         messageCount: 1,
-//         unreadCount: 0,
-//       },
-//     });
-
-//     /* ============================================================
-//        4️⃣ SMTP TRANSPORTER
-//     ============================================================ */
-//     const transporter = nodemailer.createTransport({
-//       host: account.smtpHost,
-//       port: account.smtpPort || 465,
-//       secure: (account.smtpPort || 465) === 465,
-//       auth: {
-//         user: authenticatedEmail,
-//         pass: account.encryptedPass,
-//       },
-//       tls: { rejectUnauthorized: false },
-//     });
-
-//     /* ============================================================
-//        5️⃣ BUILD FORWARDED BODY
-//     ============================================================ */
-//     const senderDisplay = original.fromName
-//       ? `${original.fromName} &lt;${original.fromEmail}&gt;`
-//       : original.fromEmail;
-
-//     const forwardedBody = `
-//       ${body || ""}
-//       <br><br>
-//       <hr />
-//       <div>
-//         <b>From:</b> ${senderDisplay}<br>
-//         <b>Sent:</b> ${original.sentAt.toLocaleString()}<br>
-//         <b>To:</b> ${original.toEmail}<br>
-//         ${original.ccEmail ? `<b>Cc:</b> ${original.ccEmail}<br>` : ""}
-//         <b>Subject:</b> ${original.subject || ""}
-//       </div>
-//       <br>
-//       ${original.body || ""}
-//     `;
-
-//     /* ============================================================
-//        6️⃣ GENERATE MESSAGE-ID
-//     ============================================================ */
-//     const forwardMessageIdValue = `<${Date.now()}.${Math.random()
-//       .toString(36)
-//       .substring(2)}@${authenticatedEmail.split("@")[1]}>`;
-
-//     /* ============================================================
-//        7️⃣ SEND EMAIL
-//     ============================================================ */
-//     await transporter.sendMail({
-//       from: `"${senderName || ""}" <${authenticatedEmail}>`,
-//       to,
-//       cc,
-//       subject: finalSubject,
-//       html: forwardedBody,
-//       messageId: forwardMessageIdValue,
-//       attachments: attachments.map((file) => ({
-//         filename: file.filename || file.name,
-//         path: file.url,
-//         contentType: file.type || file.mimeType,
-//       })),
-//     });
-
-//     /* ============================================================
-//        8️⃣ UPDATE SCHEDULED MESSAGE (OPTIONAL)
-//     ============================================================ */
-//     if (scheduledMessageId) {
-//       await prisma.scheduledMessage.update({
-//         where: { id: Number(scheduledMessageId) },
-//         data: {
-//           status: "sent",
-//           isFollowedUp: true,
-//           updatedAt: new Date(),
-//         },
-//       });
-//     }
-
-//     /* ============================================================
-//        9️⃣ SAVE FORWARDED EMAIL (NEW CONVERSATION)
-//     ============================================================ */
-//     const savedForward = await prisma.emailMessage.create({
-//       data: {
-//         emailAccountId: Number(emailAccountId),
-//         conversationId: newConversationId,
-//         messageId: forwardMessageIdValue,
-
-//         fromEmail: authenticatedEmail,
-//         fromName: senderName,
-
-//         toEmail: to,
-//         ccEmail: cc || null,
-//         subject: finalSubject,
-//         body: forwardedBody,
-//         direction: "sent",
-//         sentAt: new Date(),
-//         folder: "inbox",
-//         isRead: true,
-
-//         attachments:
-//           attachments.length > 0
-//             ? {
-//                 create: attachments.map((file) => ({
-//                   filename: file.filename || file.name,
-//                   mimeType: file.mimeType || file.type,
-//                   size: file.size || null,
-//                   storageUrl: file.url,
-//                 })),
-//               }
-//             : undefined,
-//       },
-//     });
-
-//     return res.json({
-//       success: true,
-//       message: "Forward sent successfully (new conversation)",
-//       data: savedForward,
-//     });
-//   } catch (err) {
-//     console.error("❌ Forward Error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Forward failed",
-//       error: err.message,
-//     });
-//   }
-// });
 router.post("/forward", async (req, res) => {
   try {
     const {
@@ -1995,7 +1826,9 @@ router.post("/forward", async (req, res) => {
         .json({ success: false, message: "Missing fields" });
     }
 
-    /* 1️⃣ Find original */
+    /* ===============================
+       1️⃣ Find original message
+    =============================== */
     let original = null;
 
     if (forwardMessageId) {
@@ -2016,11 +1849,24 @@ router.post("/forward", async (req, res) => {
         .status(400)
         .json({ success: false, message: "Original not found" });
     }
-
-    /* 2️⃣ Account */
+    /* ===============================
+   🔥 1️⃣.5 RESOLVE LEAD (ADD HERE)
+=============================== */
+    const leadSource = await prisma.emailMessage.findFirst({
+      where: {
+        conversationId: original.conversationId,
+        leadDetailId: { not: null },
+      },
+      select: { leadDetailId: true },
+      orderBy: { sentAt: "desc" },
+    });
+    /* ===============================
+       2️⃣ Fetch account
+    =============================== */
     const account = await prisma.emailAccount.findUnique({
       where: { id: Number(emailAccountId) },
     });
+
     if (!account) {
       return res.status(404).json({
         success: false,
@@ -2029,9 +1875,11 @@ router.post("/forward", async (req, res) => {
     }
 
     const senderName = account.senderName || null;
-    const authEmail = account.smtpUser || account.email;
+    const authEmail = (account.smtpUser || account.email).toLowerCase();
 
-    /* 3️⃣ NEW conversation */
+    /* ===============================
+       3️⃣ NEW conversation
+    =============================== */
     const newConversationId = crypto.randomUUID();
 
     const finalSubject = original.subject?.startsWith("Fwd:")
@@ -2042,12 +1890,13 @@ router.post("/forward", async (req, res) => {
       data: {
         id: newConversationId,
         subject: finalSubject,
+        leadDetailId: leadSource?.leadDetailId || null,
 
         initiatorEmail: authEmail,
         participants: authEmail,
 
-        toRecipients: to, // ✅ REQUIRED
-        ccRecipients: cc || null, // ✅ SAFE
+        toRecipients: to,
+        ccRecipients: cc || null,
 
         lastMessageAt: new Date(),
         messageCount: 1,
@@ -2055,7 +1904,9 @@ router.post("/forward", async (req, res) => {
       },
     });
 
-    /* 4️⃣ SMTP */
+    /* ===============================
+       4️⃣ SMTP
+    =============================== */
     const transporter = nodemailer.createTransport({
       host: account.smtpHost,
       port: account.smtpPort || 465,
@@ -2069,50 +1920,61 @@ router.post("/forward", async (req, res) => {
       <b>From:</b> ${original.fromEmail}<br>
       <b>Sent:</b> ${original.sentAt.toLocaleString()}<br>
       <b>Subject:</b> ${original.subject}<br><br>
-      ${original.body}
+      ${original.body || ""}
     `;
+
+    const normalizedBody = normalizeEmailHtml(forwardedBody);
 
     const msgId = `<${Date.now()}.${Math.random()
       .toString(36)
       .slice(2)}@${authEmail.split("@")[1]}>`;
-    const smtpFrom = senderName ? `"${senderName}" <${authEmail}>` : authEmail;
-    const normalizedBody = normalizeEmailHtml(forwardedBody);
 
-    /* 5️⃣ Send */
+    const smtpFrom = senderName ? `"${senderName}" <${authEmail}>` : authEmail;
+
+    /* ===============================
+       5️⃣ SEND MAIL
+    =============================== */
     await transporter.sendMail({
       from: smtpFrom,
-      to,
+      to, // ✅ EXACT as provided
       cc: cc || undefined,
       subject: finalSubject,
       html: normalizedBody,
       messageId: msgId,
+      attachments: attachments.map((f) => ({
+        filename: f.filename || f.name,
+        path: f.url,
+      })),
     });
 
-    /* 6️⃣ Save */
+    /* ===============================
+       6️⃣ SAVE MESSAGE
+    =============================== */
     const saved = await prisma.emailMessage.create({
       data: {
         emailAccountId: Number(emailAccountId),
         conversationId: newConversationId,
+        leadDetailId: leadSource?.leadDetailId || null, // 🔥 MISSING FIX
 
         messageId: msgId,
         fromEmail: authEmail,
         fromName: senderName,
 
-        toEmail: to, // ✅ ONLY NEW
+        toEmail: to,
         ccEmail: cc || null,
 
         subject: finalSubject,
-        body: normalizedBody, // ✅ REPLACED
+        body: normalizedBody,
         direction: "sent",
         sentAt: new Date(),
-        folder: "inbox",
+        folder: "sent", // ✅ SENT (not inbox)
         isRead: true,
       },
     });
 
     return res.json({ success: true, data: saved });
   } catch (err) {
-    console.error("Forward error:", err);
+    console.error("❌ Forward error:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -2358,6 +2220,125 @@ router.post("/move-to-inbox", async (req, res) => {
       success: false,
       message: "Failed to move messages to inbox",
     });
+  }
+});
+
+// ============================================================
+// 🗑️ DELETE SINGLE MESSAGE (MOVE TO TRASH)
+// ============================================================
+router.post("/message/:messageId/trash", async (req, res) => {
+  try {
+    const messageId = Number(req.params.messageId);
+    if (!messageId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid messageId" });
+    }
+
+    await prisma.emailMessage.update({
+      where: { id: messageId },
+      data: {
+        isTrash: true,
+        hideInbox: true,
+        hideTrash: false,
+        folder: "trash",
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Message moved to trash",
+    });
+  } catch (err) {
+    console.error("❌ MESSAGE DELETE ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete message",
+    });
+  }
+});
+// ============================================================
+// ♻️ RESTORE MESSAGE (SAFE)
+// ============================================================
+router.post("/message/:messageId/restore", async (req, res) => {
+  try {
+    const messageId = Number(req.params.messageId);
+
+    const msg = await prisma.emailMessage.findUnique({
+      where: { id: messageId },
+      select: {
+        direction: true,
+        folder: true,
+      },
+    });
+
+    if (!msg) {
+      return res.status(404).json({ success: false });
+    }
+
+    let restoreFolder = "inbox";
+    if (msg.direction === "sent") restoreFolder = "sent";
+    else if (msg.folder === "spam") restoreFolder = "spam";
+
+    await prisma.emailMessage.update({
+      where: { id: messageId },
+      data: {
+        isTrash: false,
+        isSpam: false,
+        hideTrash: false,
+        hideInbox: false,
+        folder: restoreFolder,
+      },
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("❌ RESTORE ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+// ============================================================
+// 🔒 PERMANENT DELETE (FLAG-ONLY, NO ROW DELETION)
+// ============================================================
+router.put("/message/:messageId/permanent", async (req, res) => {
+  try {
+    const messageId = Number(req.params.messageId);
+    if (!messageId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid messageId" });
+    }
+
+    // Safety: message must exist
+    const msg = await prisma.emailMessage.findUnique({
+      where: { id: messageId },
+      select: { id: true },
+    });
+
+    if (!msg) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Message not found" });
+    }
+
+    // 🔥 FLAG-ONLY PERMANENT DELETE
+    await prisma.emailMessage.update({
+      where: { id: messageId },
+      data: {
+        isTrash: true,
+        hideTrash: true, // 🔒 permanently hidden
+        hideInbox: true, // 🔒 hidden everywhere
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Message permanently deleted",
+    });
+  } catch (err) {
+    console.error("❌ PERMANENT DELETE ERROR:", err);
+    return res.status(500).json({ success: false });
   }
 });
 

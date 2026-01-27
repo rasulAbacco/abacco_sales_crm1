@@ -679,6 +679,8 @@ export default function Forwardedlead() {
             : `Hi ${
                 lead.email || "there"
               },\n\nHope you're doing well.\nFollowing up regarding our previous message.\n\nBest regards,\n`,
+
+        leadDetailId: lead.id, // 🔥 REQUIRED FIX
       });
     }
   };
@@ -841,18 +843,55 @@ export default function Forwardedlead() {
 
     const header = `
 <div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.15;margin:0;padding:0;">
-<div style="border-top:1px solid #E1E1E1;margin:12px 0;"></div>
-<p style="margin:0 0 2px 0;"><b>From:</b> ${fromDisplay}</p>
-<p style="margin:0 0 2px 0;"><b>Sent:</b> ${sent}</p>
-<p style="margin:0 0 2px 0;"><b>To:</b> ${to}</p>
- ${cc ? `<p style="margin:0 0 2px 0;"><b>Cc:</b> ${cc}</p>` : ""}
-<p style="margin:0 0 12px 0;"><b>Subject:</b> ${subject}</p>
-</div>`;
 
+  <!-- single line before From -->
+  <hr style="border:none;border-top:1px solid #E1E1E1;margin:12px 0;" />
+
+  <p style="margin:0 0 2px 0;"><b>From:</b> ${fromDisplay}</p>
+  <p style="margin:0 0 2px 0;"><b>Sent:</b> ${sent}</p>
+  <p style="margin:0 0 2px 0;"><b>To:</b> ${to}</p>
+  ${cc ? `<p style="margin:0 0 2px 0;"><b>Cc:</b> ${cc}</p>` : ""}
+  <p style="margin:0 0 12px 0;"><b>Subject:</b> ${subject}</p>
+
+</div>`;
     return `${header}<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.15;">${formattedBody}</div>`;
   }
 
-  const handleOpenComposePopup = (lead) => {
+  // const handleOpenComposePopup = (lead) => {
+  //   const ccList =
+  //     lead.cc && typeof lead.cc === "string"
+  //       ? lead.cc
+  //           .split(",")
+  //           .map((c) => c.trim())
+  //           .filter((c) => c !== "")
+  //       : [];
+
+  //   setComposeData({
+  //     from: accounts[0]?.email || "",
+  //     emailAccountId: accounts[0]?.id || null,
+  //     to: lead.client || "",
+  //     cc: "",
+  //     ccList: ccList,
+  //     subject: `Fwd: ${lead.subject || "No Subject"}`,
+  //     body: "",
+  //     attachments: [],
+  //     leadDetailId: lead.id,
+  //   });
+
+  //   const structured = buildForwardBlock(lead);
+  //   setForwardedContent(structured);
+  //   setShowQuotedText(true);
+
+  //   setShowComposePopup(true);
+
+  //   setTimeout(() => {
+  //     if (editorRef.current) {
+  //       editorRef.current.innerHTML = "";
+  //       editorRef.current.focus();
+  //     }
+  //   }, 100);
+  // };
+  const handleOpenComposePopup = async (lead) => {
     const ccList =
       lead.cc && typeof lead.cc === "string"
         ? lead.cc
@@ -861,17 +900,36 @@ export default function Forwardedlead() {
             .filter((c) => c !== "")
         : [];
 
+    // 🔥 NEW: fetch original message attachments
+    let forwardedAttachments = [];
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/email-messages/${lead.messageId}/attachments`,
+      );
+      const json = await res.json();
+
+      if (json.success && Array.isArray(json.data)) {
+        forwardedAttachments = json.data;
+      }
+    } catch (err) {
+      console.error("❌ Failed to load forwarded attachments", err);
+    }
+
     setComposeData({
       from: accounts[0]?.email || "",
       emailAccountId: accounts[0]?.id || null,
       to: lead.client || "",
       cc: "",
-      ccList: ccList,
+      ccList,
       subject: `Fwd: ${lead.subject || "No Subject"}`,
       body: "",
-      attachments: [],
+
+      // 🔥 IMPORTANT
+      forwardedAttachments, // ← original email attachments
+      leadDetailId: lead.id,
     });
 
+    // existing forwarded message HTML
     const structured = buildForwardBlock(lead);
     setForwardedContent(structured);
     setShowQuotedText(true);
@@ -887,16 +945,34 @@ export default function Forwardedlead() {
   };
 
   // ✅ Build final email body combining new message and forwarded content
+  //   const buildFinalEmailBody = () => {
+  //     const userHtml = editorRef.current?.innerHTML || "";
+  //     const forwardedHtml = showQuotedText
+  //       ? forwardedEditorRef.current?.innerHTML || forwardedContent
+  //       : "";
+
+  //     return `
+  // <div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.15;">
+  //  ${userHtml}
+  //  ${forwardedHtml ? "<br>" + forwardedHtml : ""}
+  // </div>`.trim();
+  //   };
   const buildFinalEmailBody = () => {
-    const userHtml = editorRef.current?.innerHTML || "";
-    const forwardedHtml = showQuotedText
-      ? forwardedEditorRef.current?.innerHTML || forwardedContent
-      : "";
+    let userHtml = editorRef.current?.innerHTML || "";
+
+    // 🔥 ALWAYS include forwarded content
+    const forwardedHtml =
+      forwardedEditorRef.current?.innerHTML || forwardedContent || "";
+
+    // Outlook-style empty first line
+    if (!userHtml || userHtml.trim() === "") {
+      userHtml = `<p style="margin:0 0 12px 0;line-height:1.15;">&#8203;</p>`;
+    }
 
     return `
 <div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.15;">
- ${userHtml}
- ${forwardedHtml ? "<br>" + forwardedHtml : ""}
+  ${userHtml}
+  ${forwardedHtml}
 </div>`.trim();
   };
 

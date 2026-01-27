@@ -69,12 +69,15 @@ export default function FollowUpEditModal({
                 Client Email
               </label>
               <input
-                type="email"
+                type="text"
                 value={editForm.client || ""}
                 onChange={(e) => onChange("client", e.target.value)}
-                placeholder="client@example.com"
+                placeholder="client1@example.com, client2@example.com"
                 className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                You can add multiple emails separated by commas
+              </p>
             </div>
 
             <div>
@@ -262,39 +265,75 @@ export default function FollowUpEditModal({
               />
             </div>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Country
+            </label>
+            <input
+              type="text"
+              value={editForm.country || ""}
+              onChange={(e) => onChange("country", e.target.value)}
+              placeholder="e.g. India, USA, Germany"
+              className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
         </div>
 
         {/* Follow-up */}
+        {/* Follow-Up Section */}
         <div>
           <h3 className="text-sm font-semibold text-indigo-900 border-b border-indigo-200 pb-2 mb-3">
             Follow-Up
           </h3>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Follow-Up Date
-              </label>
-              <input
-                type="date"
-                value={editForm.followUpDate || ""}
-                onChange={(e) => onChange("followUpDate", e.target.value)}
-                className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
+          {/*
+    Helper: Convert date → weekday
+  */}
+          {/*
+    NOTE: You can move this helper outside the component if preferred
+  */}
+          {(() => {
+            const getDayFromDate = (dateStr) => {
+              if (!dateStr) return "";
+              const date = new Date(dateStr);
+              return date.toLocaleDateString("en-US", { weekday: "long" });
+            };
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Day
-              </label>
-              <input
-                type="text"
-                value={editForm.day || ""}
-                readOnly
-                className="w-full border px-3 py-2 rounded-lg bg-gray-50 text-gray-600"
-              />
-            </div>
-          </div>
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Follow-Up Date */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Follow-Up Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editForm.followUpDate || ""}
+                    onChange={(e) => {
+                      const dateValue = e.target.value;
+
+                      onChange("followUpDate", dateValue);
+                      onChange("day", getDayFromDate(dateValue)); // 🔥 AUTO DAY
+                    }}
+                    className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {/* Day (Auto) */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Day
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.day || ""}
+                    readOnly
+                    className="w-full border px-3 py-2 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Action Buttons */}

@@ -152,6 +152,7 @@ model Conversation {
   lastMessageAt  DateTime
   messageCount   Int      @default(1)
   unreadCount    Int      @default(0)
+  leadDetailId   Int? // 🔥 ADD THIS
 
   // Flags
   isStarred    Boolean   @default(false)

@@ -511,6 +511,7 @@ const OutlookEditor = forwardRef(({ initialContent, placeholder }, ref) => {
 // ==========================================
 // MAIN MESSAGE VIEW COMPONENT
 // ==========================================
+console.log("🔥 MessageView.jsx LOADED FROM THIS FILE");
 export default function MessageView({
   selectedAccount,
   selectedConversation,
@@ -746,57 +747,238 @@ export default function MessageView({
   // ✅ LEAD MANAGEMENT LOGIC (ALL PRESERVED)
   // ============================================================
 
-  const handleOpenEditLead = async () => {
-    if (!selectedConversation) return;
+  // const handleOpenEditLead = async () => {
+  //   // 🛑 HARD GUARD
+  //   if (!selectedConversation?.conversationId) {
+  //     alert("No conversation selected");
+  //     return;
+  //   }
 
-    let targetEmail = "";
+  //   console.log("✏️ Edit Lead clicked", {
+  //     conversationId: selectedConversation.conversationId,
+  //     leadDetailId: selectedConversation.leadDetailId,
+  //   });
 
-    if (
-      selectedConversation.displayEmail &&
-      selectedConversation.displayEmail !== "Unknown"
-    ) {
-      targetEmail = selectedConversation.displayEmail;
-    } else {
-      const msg = messages[0];
-      if (msg) {
-        if (msg.direction === "received") {
-          targetEmail = msg.fromEmail;
-        } else {
-          targetEmail = msg.toEmail ? msg.toEmail.split(",")[0].trim() : "";
-        }
-      }
-    }
+  //   let leadId = selectedConversation.leadDetailId ?? null;
 
-    const emailMatch = targetEmail.match(/<(.+?)>/);
-    const cleanEmail = emailMatch ? emailMatch[1] : targetEmail;
+  //   try {
+  //     // 1️⃣ Try from local state first
+  //     if (!leadId) {
+  //       console.log("🔍 leadDetailId missing, resolving via conversation-link");
 
-    if (!cleanEmail) {
-      alert("Could not determine client email to edit.");
-      return;
-    }
+  //       const encodedId = encodeURIComponent(
+  //         selectedConversation.conversationId,
+  //       );
+
+  //       const linkRes = await api.get(
+  //         `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
+  //       );
+
+  //       // 🔥 Normalize ALL possible response shapes
+  //       leadId =
+  //         linkRes.data?.data?.leadDetailId ??
+  //         linkRes.data?.leadDetailId ??
+  //         null;
+
+  //       if (!leadId) {
+  //         console.warn(
+  //           "⚠️ conversation-link returned no leadDetailId",
+  //           linkRes.data,
+  //         );
+  //         alert("This conversation is not linked to any CRM lead.");
+  //         return;
+  //       }
+
+  //       console.log("✅ leadDetailId resolved:", leadId);
+
+  //       // 🔥 Persist resolved ID in UI state (CRITICAL)
+  //       setSelectedConversation((prev) =>
+  //         prev ? { ...prev, leadDetailId: leadId } : prev,
+  //       );
+  //     }
+
+  //     // 2️⃣ Fetch lead data
+  //     const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
+
+  //     if (!res.data?.success || !res.data?.data) {
+  //       throw new Error("Lead fetch succeeded but data missing");
+  //     }
+
+  //     // 3️⃣ Open modal
+  //     setLeadEditForm(res.data.data);
+  //     setShowLeadEditModal(true);
+  //   } catch (err) {
+  //     console.error("❌ handleOpenEditLead failed:", {
+  //       err,
+  //       conversation: selectedConversation,
+  //       resolvedLeadId: leadId,
+  //     });
+
+  //     alert("Failed to load lead details. Please try again.");
+  //   }
+  // };
+ const handleOpenEditLead = async () => {
+   // 🛑 HARD GUARD
+   if (!selectedConversation?.conversationId) {
+     alert("No conversation selected");
+     return;
+   }
+
+   console.log("✏️ Edit Lead clicked", {
+     conversationId: selectedConversation.conversationId,
+     leadDetailId: selectedConversation.leadDetailId,
+   });
+
+   let leadId = selectedConversation.leadDetailId ?? null;
+
+   try {
+     // 1️⃣ Resolve leadDetailId if missing
+     if (!leadId) {
+       console.log("🔍 leadDetailId missing, resolving via conversation-link");
+
+       const encodedId = encodeURIComponent(
+         selectedConversation.conversationId,
+       );
+
+       const linkRes = await api.get(
+         `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
+       );
+
+       leadId =
+         linkRes.data?.data?.leadDetailId ?? linkRes.data?.leadDetailId ?? null;
+
+       if (!leadId) {
+         alert("This conversation is not linked to any CRM lead.");
+         return;
+       }
+
+       // Persist resolved ID
+       setSelectedConversation((prev) =>
+         prev ? { ...prev, leadDetailId: leadId } : prev,
+       );
+     }
+
+     // 2️⃣ Fetch lead data (SOURCE OF TRUTH)
+     const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
+
+     if (!res.data?.success || !res.data?.data) {
+       throw new Error("Lead fetch succeeded but data missing");
+     }
+
+     const leadData = res.data.data;
+
+     // =====================================================
+     // 🔥 FOLLOW-UP NORMALIZATION (THIS WAS MISSING)
+     // =====================================================
+
+     let followUpDate = "";
+     let day = "";
+
+     // ✅ Priority 1: followUpHistory (LATEST ENTRY)
+     if (
+       Array.isArray(leadData.followUpHistory) &&
+       leadData.followUpHistory.length > 0
+     ) {
+       const lastFollowUp =
+         leadData.followUpHistory[leadData.followUpHistory.length - 1];
+
+       followUpDate = lastFollowUp.date || "";
+       day = lastFollowUp.day || "";
+     }
+     // ✅ Priority 2: direct columns fallback
+     else if (leadData.followUpDate) {
+       followUpDate = new Date(leadData.followUpDate)
+         .toISOString()
+         .split("T")[0];
+
+       day =
+         leadData.day ||
+         new Date(leadData.followUpDate).toLocaleDateString("en-US", {
+           weekday: "long",
+         });
+     }
+
+     // 3️⃣ Set edit form (UI-ready)
+     setLeadEditForm({
+       ...leadData,
+
+       // ✅ REQUIRED for <input type="date">
+       followUpDate,
+
+       // ✅ Read-only field, auto-calculated
+       day,
+     });
+
+     // 4️⃣ Open modal
+     setShowLeadEditModal(true);
+   } catch (err) {
+     console.error("❌ handleOpenEditLead failed:", err);
+     alert("Failed to load lead details. Please try again.");
+   }
+ };
+
+
+
+  // const handleSaveLead = async () => {
+  //   if (!leadEditForm.id) return;
+
+  //   try {
+  //     // Utilize the specific ID-based update route
+  //     const res = await api.put(
+  //       `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
+  //       leadEditForm,
+  //     );
+
+  //     if (res.data.success) {
+  //       alert("✅ Lead updated successfully!");
+  //       if (leadEditForm.country) setCountry(leadEditForm.country); // Sync UI
+  //       setShowLeadEditModal(false);
+  //     }
+  //   } catch (error) {
+  //     console.error("❌ Error updating lead:", error);
+  //     alert("Failed to save lead updates.");
+  //   }
+  // };
+  const handleSaveLead = async () => {
+    if (!leadEditForm.id) return;
+
+    // ✅ Convert dd-mm-yyyy → Date
+    const parseDMY = (value) => {
+      if (!value) return null;
+      const [dd, mm, yyyy] = value.split("-");
+      return new Date(`${yyyy}-${mm}-${dd}`);
+    };
+
+    const followUpDate = parseDMY(leadEditForm.followUpDate);
+
+    const payload = {
+      ...leadEditForm,
+
+      // 🔥 NORMALIZATION (THIS IS THE KEY)
+      followUpDate,
+      isFollowedUp: !!followUpDate,
+      day: followUpDate
+        ? followUpDate.toLocaleDateString("en-US", { weekday: "long" })
+        : null,
+      followUpHistory: leadEditForm.followUpHistory ?? [],
+    };
+
+    console.log("🚀 Saving Lead Payload:", payload);
 
     try {
-      const res = await api.get(
-        `${API_BASE_URL}/api/leads/by-email/${cleanEmail}`,
+      const res = await api.put(
+        `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
+        payload,
       );
 
-      if (res.data.success && res.data.data) {
-        setLeadEditForm(res.data.data);
-        setShowLeadEditModal(true);
-      } else {
-        alert(
-          "No existing lead profile found for this email. Please create one in the Leads section first.",
-        );
+      if (res.data.success) {
+        alert("✅ Lead updated successfully!");
+        if (payload.country) setCountry(payload.country);
+        setShowLeadEditModal(false);
       }
     } catch (error) {
-      console.error("Error fetching lead for edit:", error);
-      if (error.response && error.response.status === 404) {
-        alert(
-          "No existing lead profile found for this email. Please create one in the Leads section first.",
-        );
-      } else {
-        alert("Failed to fetch lead details.");
-      }
+      console.error("❌ Error updating lead:", error);
+      alert("Failed to save lead updates.");
     }
   };
 
@@ -805,28 +987,6 @@ export default function MessageView({
       ...prev,
       [field]: value,
     }));
-  };
-
-  const handleSaveLead = async () => {
-    if (!leadEditForm.id) return;
-
-    try {
-      const res = await api.put(
-        `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
-        leadEditForm,
-      );
-
-      if (res.data.success) {
-        alert("Lead updated successfully!");
-        setShowLeadEditModal(false);
-        if (leadEditForm.country !== country) {
-          setCountry(leadEditForm.country);
-        }
-      }
-    } catch (error) {
-      console.error("Error updating lead:", error);
-      alert("Failed to update lead details.");
-    }
   };
 
   // ============================================================
@@ -1014,6 +1174,9 @@ export default function MessageView({
       setExpandedMessages({ [latestId]: true });
     }
   }, [messages]);
+  // 🔥 Undo delete UI state
+  const [undoMessage, setUndoMessage] = useState(null);
+  const undoTimeoutRef = useRef(null);
 
   // ============================================================
   // ACTION HANDLERS (ALL PRESERVED)
@@ -1069,11 +1232,108 @@ export default function MessageView({
     );
     if (res.data.success) onBack();
   };
+  // ============================================================
+  // ✅ MESSAGE MANAGEMENT LOGIC (ALL PRESERVED)
+  // ============================================================
+  const handleDeleteMessage = async (messageId) => {
+    if (!messageId) return;
+
+    const deletedMsg = messages.find((m) => m.id === messageId);
+    if (!deletedMsg) return;
+
+    try {
+      await api.post(`${API_BASE_URL}/api/inbox/message/${messageId}/trash`);
+
+      // Remove from UI
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+
+      // 🔥 Show undo snackbar
+      setUndoMessage(deletedMsg);
+
+      // Auto-hide undo after 7s
+      if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+      undoTimeoutRef.current = setTimeout(() => {
+        setUndoMessage(null);
+      }, 7000);
+    } catch (err) {
+      console.error("❌ Failed to delete message:", err);
+    }
+  };
+
+  const handleUndoDelete = async () => {
+    if (!undoMessage) return;
+
+    try {
+      await api.post(
+        `${API_BASE_URL}/api/inbox/message/${undoMessage.id}/restore`,
+      );
+
+      // Restore message in UI
+      setMessages((prev) => [...prev, undoMessage]);
+      setUndoMessage(null);
+    } catch (err) {
+      console.error("❌ Undo failed:", err);
+    }
+  };
+  const handlePermanentDeleteMessage = async (messageId) => {
+    if (!window.confirm("Delete this message forever? This cannot be undone."))
+      return;
+
+    try {
+      await api.delete(
+        `${API_BASE_URL}/api/inbox/message/${messageId}/permanent`,
+      );
+
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    } catch (err) {
+      console.error("❌ Permanent delete failed:", err);
+    }
+  };
+  const handleRestoreSingleMessage = async (messageId) => {
+    try {
+      await api.post(`${API_BASE_URL}/api/inbox/message/${messageId}/restore`);
+
+      // Remove from Trash UI
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    } catch (err) {
+      console.error("❌ Failed to restore message:", err);
+    }
+  };
+  // ------------------------------------
+  // CONFIRM HELPERS (ADD HERE)
+  // ------------------------------------
+  const confirmAction = (message) => {
+    return window.confirm(message);
+  };
+
+  const onDeleteClick = (id) => {
+    const ok = confirmAction(
+      "Move this message to Trash?\n\nYou can restore it later from Trash.",
+    );
+    if (!ok) return;
+
+    handleDeleteMessage(id);
+  };
+
+  const onRestoreClick = (id) => {
+    const ok = confirmAction("Move this message back to Inbox?");
+    if (!ok) return;
+
+    handleRestoreSingleMessage(id);
+  };
+
+  const onPermanentDeleteClick = (id) => {
+    const ok = confirmAction(
+      "Delete this message forever?\n\nThis action cannot be undone.",
+    );
+    if (!ok) return;
+
+    handlePermanentDeleteMessage(id);
+  };
 
   // ============================================================
   // REPLY HANDLERS (ALL PRESERVED)
   // ============================================================
-
   const handleReply = (type, message) => {
     if (!message) return;
 
@@ -1085,94 +1345,110 @@ export default function MessageView({
     setReplyingToMessageId(message.id);
     setReplyMode(type);
 
+    /* ======================================================
+     SUBJECT (UNCHANGED)
+  ====================================================== */
     const prefix = message.subject?.toLowerCase().startsWith("re:")
       ? ""
       : "Re: ";
     const cleanSubject =
       message.subject?.replace(/^(re:\s*)+/gi, "").trim() || "(No Subject)";
     const newSubject = `${prefix}${cleanSubject}`;
-    const myEmail = selectedAccount.email.toLowerCase();
 
-    let to = "";
-    let cc = "";
-
-    if (message.direction === "received") {
-      to = message.fromEmail;
-
-      if (type === "replyAll") {
-        const ccList = [];
-
-        if (message.toEmail) {
-          const originalTos = message.toEmail.split(",").map((e) => e.trim());
-          originalTos.forEach((email) => {
-            const normalized = email.toLowerCase();
-            if (
-              normalized !== myEmail &&
-              normalized !== message.fromEmail.toLowerCase()
-            ) {
-              ccList.push(email);
-            }
-          });
-        }
-
-        if (message.ccEmail) {
-          const originalCcs = message.ccEmail.split(",").map((e) => e.trim());
-          originalCcs.forEach((email) => {
-            const normalized = email.toLowerCase();
-            if (
-              normalized !== myEmail &&
-              normalized !== message.fromEmail.toLowerCase()
-            ) {
-              ccList.push(email);
-            }
-          });
-        }
-
-        cc = [...new Set(ccList)].join(", ");
-      }
-    } else if (message.direction === "sent") {
-      to = message.toEmail;
-      if (type === "replyAll" && message.ccEmail) {
-        cc = message.ccEmail
-          .split(",")
-          .map((e) => e.trim())
-          .filter((e) => e.toLowerCase() !== myEmail)
-          .join(", ");
-      }
-    }
-
-    const quoted = `
-  <br/><br/>
-  <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
-  <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
-    <b style="font-weight: bold;">From:</b> ${formatSender(
-      message.fromName,
-      message.fromEmail,
-    )}<br/>
-    <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
-      message.sentAt,
-    )}<br/>
-    <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
-    ${
-      message.ccEmail
-        ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
-        : ""
-    }
-    <b style="font-weight: bold;">Subject:</b> ${
-      message.subject || "(No Subject)"
-    }
-    <br/><br/>
-    ${message.bodyHtml || message.body || ""}
-  </div>
-`;
-
+    /* ======================================================
+     FROM ACCOUNT (🔥 FIXED)
+  ====================================================== */
     const defaultAccount = accounts.find(
       (acc) => acc.id === selectedAccount?.id,
     );
     setSelectedFromAccount(defaultAccount);
 
+    const normalize = (e) => e?.replace(/[<>"]/g, "").trim().toLowerCase();
+
+    const fromEmail = normalize(defaultAccount.email);
+
+    let to = "";
+    let cc = "";
+
+    /* ======================================================
+     RESOLVE CLIENT EMAIL (🔥 CORE FIX)
+  ====================================================== */
+    const clientEmail =
+      message.direction === "received"
+        ? normalize(message.fromEmail)
+        : normalize(message.toEmail?.split(",")[0]);
+
+    /* ======================================================
+     REPLY
+  ====================================================== */
+    if (type === "reply") {
+      to = clientEmail;
+      cc = "";
+    }
+
+    /* ======================================================
+     REPLY-ALL
+  ====================================================== */
+    if (type === "replyAll") {
+      to = clientEmail;
+
+      let ccCandidates = [];
+
+      if (message.direction === "received") {
+        // Outlook behavior: TO + CC
+        ccCandidates = [
+          ...(message.toEmail || "").split(","),
+          ...(message.ccEmail || "").split(","),
+        ];
+      } else {
+        // Outlook behavior: ONLY original CC
+        ccCandidates = (message.ccEmail || "").split(",");
+      }
+
+      cc = [
+        ...new Set(
+          ccCandidates
+            .map(normalize)
+            .filter(
+              (email) => email && email !== clientEmail && email !== fromEmail,
+            ),
+        ),
+      ].join(", ");
+    }
+
+    /* ======================================================
+     QUOTED HTML (UNCHANGED)
+  ====================================================== */
+    const quoted = `
+    <br/><br/>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;" />
+    <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+      <b style="font-weight: bold;">From:</b> ${formatSender(
+        message.fromName,
+        message.fromEmail,
+      )}<br/>
+      <b style="font-weight: bold;">Sent:</b> ${formatLongDate(
+        message.sentAt,
+      )}<br/>
+      <b style="font-weight: bold;">To:</b> ${message.toEmail}<br/>
+      ${
+        message.ccEmail
+          ? `<b style="font-weight: bold;">Cc:</b> ${message.ccEmail}<br/>`
+          : ""
+      }
+      <b style="font-weight: bold;">Subject:</b> ${
+        message.subject || "(No Subject)"
+      }
+      <br/><br/>
+      ${message.bodyHtml || message.body || ""}
+    </div>
+  `;
+
+    /* ======================================================
+     STATE + EDITOR (UNCHANGED)
+  ====================================================== */
     setReplyData({
-      from: selectedAccount.email,
+      from: defaultAccount.email,
       to,
       cc,
       subject: newSubject,
@@ -1224,29 +1500,39 @@ export default function MessageView({
       : "";
 
     if (type === "replyAll") {
-      const myEmail = selectedAccount.email.toLowerCase();
-      const ccList = cc ? cc.split(",").map((e) => normalizeEmail(e)) : [];
+      const fromEmail = normalizeEmail(
+        selectedFromAccount?.email || selectedAccount.email,
+      ).toLowerCase();
 
-      const pushIfValid = (email) => {
-        const normalized = normalizeEmail(email).toLowerCase();
-        if (
-          normalized &&
-          normalized !== myEmail &&
-          normalized !== message.fromEmail?.toLowerCase()
-        ) {
-          ccList.push(normalized);
-        }
-      };
+      const clientEmail =
+        message.direction === "received"
+          ? normalizeEmail(message.fromEmail).toLowerCase()
+          : normalizeEmail(message.toEmail?.split(",")[0]).toLowerCase();
 
-      if (message.toEmail) {
-        message.toEmail.split(",").forEach(pushIfValid);
+      let ccCandidates = [];
+
+      if (message.direction === "received") {
+        // Outlook: TO + CC
+        ccCandidates = [
+          ...(message.toEmail || "").split(","),
+          ...(message.ccEmail || "").split(","),
+        ];
+      } else {
+        // Outlook: ONLY CC
+        ccCandidates = (message.ccEmail || "").split(",");
       }
 
-      if (message.ccEmail) {
-        message.ccEmail.split(",").forEach(pushIfValid);
-      }
+      const ccList = [
+        ...new Set(
+          ccCandidates
+            .map((e) => normalizeEmail(e)?.toLowerCase())
+            .filter(
+              (email) => email && email !== fromEmail && email !== clientEmail,
+            ),
+        ),
+      ];
 
-      cc = [...new Set(ccList)].join(", ");
+      cc = ccList.join(", ");
     }
 
     const defaultAccount = accounts.find(
@@ -1386,8 +1672,11 @@ export default function MessageView({
       emailAccountId: selectedFromAccount.id,
       fromEmail: selectedFromAccount.email,
       from: selectedFromAccount.email,
+      // 🔥 THIS IS THE KEY FIX
       to: cleanEmails(replyData.to),
       cc: cleanEmails(replyData.cc) || null,
+      // to: cleanEmails(replyData.to),
+      // cc: cleanEmails(replyData.cc) || null,
       subject: replyData.subject,
       body: bodyContent,
       attachments: attachments.map((att) => ({
@@ -1508,7 +1797,9 @@ export default function MessageView({
     );
   }
 
-  const latestMessage = messages.length > 0 ? messages[0] : null;
+  // const latestMessage = messages.length > 0 ? messages[0] : null;
+  const latestMessage =
+    messages.length > 0 ? messages[messages.length - 1] : null;
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -1553,10 +1844,11 @@ export default function MessageView({
           <div className="flex items-center gap-2">
             <button
               onClick={handleOpenEditLead}
-              className="p-2 hover:bg-indigo-50 rounded-lg transition-colors group"
-              title="Edit Lead Info"
+              disabled={!selectedConversation?.conversationId}
+              className="p-2 rounded hover:bg-gray-100 disabled:opacity-50"
+              title="Edit Lead"
             >
-              <Pencil className="w-4 h-4 text-gray-600 group-hover:text-indigo-600" />
+              <Pencil className="w-4 h-4 text-gray-600" />
             </button>
 
             {selectedFolder === "spam" && (
@@ -1686,14 +1978,66 @@ export default function MessageView({
                                 )}
                               </div>
                               <div className="text-xs text-gray-500 space-y-0.5">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold uppercase text-[9px] text-gray-400">
-                                    To:
-                                  </span>
-                                  <span className="truncate">
-                                    {message.toEmail}
-                                  </span>
+                                {/* TO + DELETE ROW */}
+                                <div className="flex items-center gap-2 justify-between">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="font-semibold uppercase text-[9px] text-gray-400">
+                                      To:
+                                    </span>
+                                    <span className="truncate">
+                                      {message.toEmail}
+                                    </span>
+                                  </div>
+
+                                  {/* 🗑️ Single Message Delete */}
+                                  {selectedFolder === "trash" ? (
+                                    <div className="flex items-center gap-2">
+                                      {/* ♻️ Restore SINGLE message */}
+                                      <RotateCcw
+                                        className="w-3.5 h-3.5 text-blue-600 hover:text-blue-800 cursor-pointer"
+                                        title="Restore this message"
+                                        onClick={() => {
+                                          const ok = window.confirm(
+                                            "Move this message back to Inbox?",
+                                          );
+                                          if (!ok) return;
+                                          handleRestoreSingleMessage(
+                                            message.id,
+                                          );
+                                        }}
+                                      />
+
+                                      {/* ❌ Permanent delete SINGLE message */}
+                                      <Trash2
+                                        className="w-3.5 h-3.5 text-red-600 hover:text-red-800 cursor-pointer"
+                                        title="Delete forever"
+                                        onClick={() => {
+                                          const ok = window.confirm(
+                                            "Delete this message forever?\n\nThis action cannot be undone.",
+                                          );
+                                          if (!ok) return;
+                                          handlePermanentDeleteMessage(
+                                            message.id,
+                                          );
+                                        }}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <Trash2
+                                      className="w-3.5 h-3.5 text-gray-400 hover:text-red-600 cursor-pointer"
+                                      title="Delete this message"
+                                      onClick={() => {
+                                        const ok = window.confirm(
+                                          "Move this message to Trash?\n\nYou can restore it later from Trash.",
+                                        );
+                                        if (!ok) return;
+                                        handleDeleteMessage(message.id);
+                                      }}
+                                    />
+                                  )}
                                 </div>
+
+                                {/* CC */}
                                 {message.ccEmail && (
                                   <div className="flex items-center gap-2">
                                     <span className="bg-gray-100 text-gray-600 px-1 rounded-sm text-[9px] font-bold">
@@ -1704,6 +2048,8 @@ export default function MessageView({
                                     </span>
                                   </div>
                                 )}
+
+                                {/* DATE */}
                                 <div className="text-[10px] text-gray-400 mt-1">
                                   {formatDate(message.sentAt)}
                                 </div>

@@ -427,7 +427,7 @@ export default function FollowUpPlanner() {
     setMessageForm({
       from: defaultAcc.email || "",
       emailAccountId: defaultAcc.id || "",
-      to: lead.email || "",
+      to: lead.client || "", // ✅ client email
       ccList: ccList,
       cc: "",
       subject: lead.subject || "",
@@ -1834,11 +1834,15 @@ export default function FollowUpPlanner() {
                     Client Email
                   </label>
                   <input
-                    type="email"
+                    type="text" // 🔥 changed from email → text
+                    placeholder="client@email.com, other@email.com"
                     value={editForm.client || ""}
                     onChange={(e) => handleChange("client", e.target.value)}
                     className="w-full border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    You can add multiple emails separated by commas
+                  </p>
                 </div>
 
                 <div>
