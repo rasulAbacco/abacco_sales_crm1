@@ -84,6 +84,13 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
 
     // 🔥 FIX: Fallback to email prefix if no senderName
     const senderName = account.senderName || authenticatedEmail.split("@")[0];
+    // 🧪 DEBUG (TEMPORARY – REMOVE AFTER FIX)
+    console.log("SMTP CONFIG", {
+      host: account.smtpHost,
+      port: account.smtpPort,
+      user: authenticatedEmail,
+      hasPass: !!account.encryptedPass,
+    });
 
     /* ============================================================
        3️⃣ CONVERSATION LOGIC (🔥 FIXED - USE MESSAGE-ID FORMAT)
@@ -175,16 +182,34 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
     const smtpPort = Number(account.smtpPort) || 465;
     const isSecure = smtpPort === 465;
 
-    const transporter = nodemailer.createTransport({
-      host: account.smtpHost,
-      port: smtpPort,
-      secure: isSecure,
-      auth: {
-        user: authenticatedEmail,
-        pass: account.encryptedPass,
-      },
-      tls: { rejectUnauthorized: false },
-    });
+    // const transporter = nodemailer.createTransport({
+    //   host: account.smtpHost,
+    //   port: smtpPort,
+    //   secure: isSecure,
+    //   auth: {
+    //     user: authenticatedEmail,
+    //     pass: account.encryptedPass,
+    //   },
+    //   tls: { rejectUnauthorized: false },
+    // });
+const transporter = nodemailer.createTransport({
+  host: account.smtpHost,
+  port: smtpPort,
+
+  // 🔥 CRITICAL FOR PORT 587
+  secure: false, // must be false for 587
+  requireTLS: true, // 👈 REQUIRED on Render
+
+  auth: {
+    user: authenticatedEmail,
+    pass: account.encryptedPass,
+  },
+
+  tls: {
+    servername: "smtp.gmail.com",
+    rejectUnauthorized: true,
+  },
+});
 
     /* ==============================
        5️⃣ PREPARE ATTACHMENTS
@@ -261,7 +286,7 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
         sentAt: new Date(),
         folder: "sent",
         isRead: true,
-    leadDetailId: leadDetailId ? Number(leadDetailId) : null, // 🔥 ADD THIS
+        leadDetailId: leadDetailId ? Number(leadDetailId) : null, // 🔥 ADD THIS
 
         attachments:
           attachmentRecords.length > 0
