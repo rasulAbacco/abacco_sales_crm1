@@ -163,6 +163,10 @@ model Conversation {
   contactId Int?
   dealId    Int?
 
+  //deleteing the data
+  hideInbox Boolean @default(false)
+  hideTrash Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
