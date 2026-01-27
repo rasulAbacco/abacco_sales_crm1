@@ -659,31 +659,31 @@ export default function Forwardedlead() {
     setExpandedRows((prev) => ({ ...prev, [index]: !prev[index] }));
 
   // Open Compose Inline
- const handleComposeClick = (lead, index) => {
-  if (composeRow === index) {
-    setComposeRow(null);
-    setComposeData(null);
-  } else {
-    setComposeRow(index);
-    setComposeData({
-      from: accounts[0]?.email || "",
-      emailAccountId: accounts[0]?.id || null,
-      to: lead.email || "",
-      cc: lead.cc || "",
-      subject: `Follow-up: ${lead.subject || "Regarding our discussion"}`,
-      body:
-        lead.response && lead.response.trim().length > 0
-          ? `Hi ${lead.email || "there"},\n\nThanks for your response:\n"${
-              lead.response
-            }"\n\nBest regards,\n`
-          : `Hi ${
-              lead.email || "there"
-            },\n\nHope you're doing well.\nFollowing up regarding our previous message.\n\nBest regards,\n`,
+  const handleComposeClick = (lead, index) => {
+    if (composeRow === index) {
+      setComposeRow(null);
+      setComposeData(null);
+    } else {
+      setComposeRow(index);
+      setComposeData({
+        from: accounts[0]?.email || "",
+        emailAccountId: accounts[0]?.id || null,
+        to: lead.email || "",
+        cc: lead.cc || "",
+        subject: `Follow-up: ${lead.subject || "Regarding our discussion"}`,
+        body:
+          lead.response && lead.response.trim().length > 0
+            ? `Hi ${lead.email || "there"},\n\nThanks for your response:\n"${
+                lead.response
+              }"\n\nBest regards,\n`
+            : `Hi ${
+                lead.email || "there"
+              },\n\nHope you're doing well.\nFollowing up regarding our previous message.\n\nBest regards,\n`,
 
-      leadDetailId: lead.id, // 🔥 REQUIRED FIX
-    });
-  }
-};
+        leadDetailId: lead.id, // 🔥 REQUIRED FIX
+      });
+    }
+  };
 
   const handleSendEmail = async (payload) => {
     if (!payload.emailAccountId) {
@@ -857,7 +857,41 @@ export default function Forwardedlead() {
     return `${header}<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.15;">${formattedBody}</div>`;
   }
 
-  const handleOpenComposePopup = (lead) => {
+  // const handleOpenComposePopup = (lead) => {
+  //   const ccList =
+  //     lead.cc && typeof lead.cc === "string"
+  //       ? lead.cc
+  //           .split(",")
+  //           .map((c) => c.trim())
+  //           .filter((c) => c !== "")
+  //       : [];
+
+  //   setComposeData({
+  //     from: accounts[0]?.email || "",
+  //     emailAccountId: accounts[0]?.id || null,
+  //     to: lead.client || "",
+  //     cc: "",
+  //     ccList: ccList,
+  //     subject: `Fwd: ${lead.subject || "No Subject"}`,
+  //     body: "",
+  //     attachments: [],
+  //     leadDetailId: lead.id,
+  //   });
+
+  //   const structured = buildForwardBlock(lead);
+  //   setForwardedContent(structured);
+  //   setShowQuotedText(true);
+
+  //   setShowComposePopup(true);
+
+  //   setTimeout(() => {
+  //     if (editorRef.current) {
+  //       editorRef.current.innerHTML = "";
+  //       editorRef.current.focus();
+  //     }
+  //   }, 100);
+  // };
+  const handleOpenComposePopup = async (lead) => {
     const ccList =
       lead.cc && typeof lead.cc === "string"
         ? lead.cc
@@ -866,18 +900,36 @@ export default function Forwardedlead() {
             .filter((c) => c !== "")
         : [];
 
+    // 🔥 NEW: fetch original message attachments
+    let forwardedAttachments = [];
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/email-messages/${lead.messageId}/attachments`,
+      );
+      const json = await res.json();
+
+      if (json.success && Array.isArray(json.data)) {
+        forwardedAttachments = json.data;
+      }
+    } catch (err) {
+      console.error("❌ Failed to load forwarded attachments", err);
+    }
+
     setComposeData({
       from: accounts[0]?.email || "",
       emailAccountId: accounts[0]?.id || null,
       to: lead.client || "",
       cc: "",
-      ccList: ccList,
+      ccList,
       subject: `Fwd: ${lead.subject || "No Subject"}`,
       body: "",
-      attachments: [],
+
+      // 🔥 IMPORTANT
+      forwardedAttachments, // ← original email attachments
       leadDetailId: lead.id,
     });
 
+    // existing forwarded message HTML
     const structured = buildForwardBlock(lead);
     setForwardedContent(structured);
     setShowQuotedText(true);
@@ -907,11 +959,12 @@ export default function Forwardedlead() {
   //   };
   const buildFinalEmailBody = () => {
     let userHtml = editorRef.current?.innerHTML || "";
-    const forwardedHtml = showQuotedText
-      ? forwardedEditorRef.current?.innerHTML || forwardedContent
-      : "";
 
-    // ✅ Ensure first line always exists (Outlook behavior)
+    // 🔥 ALWAYS include forwarded content
+    const forwardedHtml =
+      forwardedEditorRef.current?.innerHTML || forwardedContent || "";
+
+    // Outlook-style empty first line
     if (!userHtml || userHtml.trim() === "") {
       userHtml = `<p style="margin:0 0 12px 0;line-height:1.15;">&#8203;</p>`;
     }
@@ -919,7 +972,7 @@ export default function Forwardedlead() {
     return `
 <div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.15;">
   ${userHtml}
-  ${forwardedHtml ? forwardedHtml : ""}
+  ${forwardedHtml}
 </div>`.trim();
   };
 

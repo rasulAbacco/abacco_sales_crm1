@@ -397,6 +397,7 @@ router.get("/conversations/:accountId", async (req, res) => {
       country,
       leadStatus,
       searchEmail,
+      followUpHistoryDate, // ✅ ADD THIS LINE
     } = req.query;
 
     /* ==================================================
@@ -702,6 +703,45 @@ router.get("/conversations/:accountId", async (req, res) => {
 
       result = result.filter(
         (conv) => conv.leadDetailId && leadIdSet.has(conv.leadDetailId),
+      );
+    }
+    /* ==================================================
+   📜 FOLLOW-UP HISTORY DATE FILTER
+================================================== */
+    if (followUpHistoryDate) {
+      const leads = await prisma.leadDetails.findMany({
+        where: {
+          followUpHistory: {
+            not: null,
+          },
+        },
+        select: {
+          id: true,
+          followUpHistory: true,
+        },
+      });
+
+      const matchedLeadIds = new Set();
+
+      for (const lead of leads) {
+        try {
+          const history = Array.isArray(lead.followUpHistory)
+            ? lead.followUpHistory
+            : [];
+
+          const hasMatch = history.some((h) => h?.date === followUpHistoryDate);
+
+          if (hasMatch) {
+            matchedLeadIds.add(lead.id);
+          }
+        } catch (e) {
+          // ignore malformed JSON safely
+        }
+      }
+
+      // 🔥 CRITICAL: If no matches, result becomes EMPTY
+      result = result.filter(
+        (conv) => conv.leadDetailId && matchedLeadIds.has(conv.leadDetailId),
       );
     }
 

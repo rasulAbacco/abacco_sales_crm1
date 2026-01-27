@@ -41,6 +41,7 @@ export default function InboxHeader({
     tags: [],
     dateFrom: "",
     dateTo: "",
+    followUpHistoryDate: "", // 🔥 ADD THIS
     hasAttachment: false,
     isUnread: false,
     isStarred: false,
@@ -96,7 +97,7 @@ export default function InboxHeader({
     // Custom statuses
     ...customStatuses.map((s) => s.name),
   ].map((status) =>
-    typeof status === "string" ? { label: status, value: status } : status
+    typeof status === "string" ? { label: status, value: status } : status,
   );
 
   useEffect(() => {
@@ -200,6 +201,7 @@ export default function InboxHeader({
       isUnread: false,
       isStarred: false,
       country: "",
+      followUpHistoryDate: "", // 🔥 Ensure this is reset
     };
 
     setTimeRange("3m"); // UI update
@@ -386,6 +388,32 @@ export default function InboxHeader({
                       ))}
                     </select>
                   </div>
+                  {/* 📜 FOLLOW-UP HISTORY DATE */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      Follow-up History Date
+                    </label>
+
+                    <input
+                      type="date"
+                      value={filters.followUpHistoryDate}
+                      onChange={(e) =>
+                        setFilters({
+                          ...filters,
+                          followUpHistoryDate: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg
+               focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    />
+
+                    {filters.followUpHistoryDate && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Shows leads followed up on this date
+                      </p>
+                    )}
+                  </div>
 
                   {/* Sender */}
                   <div>
@@ -439,7 +467,7 @@ export default function InboxHeader({
                   </div>
 
                   {/* Tags */}
-                  <div>
+                  {/* <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                       <Tag className="w-4 h-4" />
                       Tags
@@ -455,7 +483,7 @@ export default function InboxHeader({
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
-                  </div>
+                  </div> */}
 
                   {/* Checkbox Filters */}
                   <div className="space-y-2 pt-2 border-t">
@@ -486,7 +514,7 @@ export default function InboxHeader({
                       />
                       <span className="text-sm text-gray-700">Unread only</span>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    {/* <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={filters.isStarred}
@@ -501,7 +529,7 @@ export default function InboxHeader({
                       <span className="text-sm text-gray-700">
                         Starred only
                       </span>
-                    </label>
+                    </label> */}
                   </div>
                 </div>
 
@@ -548,7 +576,7 @@ export default function InboxHeader({
           }
           onStatusUpdated={(updated) =>
             setCustomStatuses((prev) =>
-              prev.map((s) => (s.id === updated.id ? updated : s))
+              prev.map((s) => (s.id === updated.id ? updated : s)),
             )
           }
           onStatusDeleted={(id) =>

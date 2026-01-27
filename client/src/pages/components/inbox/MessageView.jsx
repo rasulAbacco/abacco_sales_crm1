@@ -747,90 +747,233 @@ export default function MessageView({
   // ✅ LEAD MANAGEMENT LOGIC (ALL PRESERVED)
   // ============================================================
 
-  const handleOpenEditLead = async () => {
-    // 🛑 HARD GUARD
-    if (!selectedConversation?.conversationId) {
-      alert("No conversation selected");
-      return;
-    }
+  // const handleOpenEditLead = async () => {
+  //   // 🛑 HARD GUARD
+  //   if (!selectedConversation?.conversationId) {
+  //     alert("No conversation selected");
+  //     return;
+  //   }
 
-    console.log("✏️ Edit Lead clicked", {
-      conversationId: selectedConversation.conversationId,
-      leadDetailId: selectedConversation.leadDetailId,
-    });
+  //   console.log("✏️ Edit Lead clicked", {
+  //     conversationId: selectedConversation.conversationId,
+  //     leadDetailId: selectedConversation.leadDetailId,
+  //   });
 
-    let leadId = selectedConversation.leadDetailId ?? null;
+  //   let leadId = selectedConversation.leadDetailId ?? null;
 
-    try {
-      // 1️⃣ Try from local state first
-      if (!leadId) {
-        console.log("🔍 leadDetailId missing, resolving via conversation-link");
+  //   try {
+  //     // 1️⃣ Try from local state first
+  //     if (!leadId) {
+  //       console.log("🔍 leadDetailId missing, resolving via conversation-link");
 
-        const encodedId = encodeURIComponent(
-          selectedConversation.conversationId,
-        );
+  //       const encodedId = encodeURIComponent(
+  //         selectedConversation.conversationId,
+  //       );
 
-        const linkRes = await api.get(
-          `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
-        );
+  //       const linkRes = await api.get(
+  //         `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
+  //       );
 
-        // 🔥 Normalize ALL possible response shapes
-        leadId =
-          linkRes.data?.data?.leadDetailId ??
-          linkRes.data?.leadDetailId ??
-          null;
+  //       // 🔥 Normalize ALL possible response shapes
+  //       leadId =
+  //         linkRes.data?.data?.leadDetailId ??
+  //         linkRes.data?.leadDetailId ??
+  //         null;
 
-        if (!leadId) {
-          console.warn(
-            "⚠️ conversation-link returned no leadDetailId",
-            linkRes.data,
-          );
-          alert("This conversation is not linked to any CRM lead.");
-          return;
-        }
+  //       if (!leadId) {
+  //         console.warn(
+  //           "⚠️ conversation-link returned no leadDetailId",
+  //           linkRes.data,
+  //         );
+  //         alert("This conversation is not linked to any CRM lead.");
+  //         return;
+  //       }
 
-        console.log("✅ leadDetailId resolved:", leadId);
+  //       console.log("✅ leadDetailId resolved:", leadId);
 
-        // 🔥 Persist resolved ID in UI state (CRITICAL)
-        setSelectedConversation((prev) =>
-          prev ? { ...prev, leadDetailId: leadId } : prev,
-        );
-      }
+  //       // 🔥 Persist resolved ID in UI state (CRITICAL)
+  //       setSelectedConversation((prev) =>
+  //         prev ? { ...prev, leadDetailId: leadId } : prev,
+  //       );
+  //     }
 
-      // 2️⃣ Fetch lead data
-      const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
+  //     // 2️⃣ Fetch lead data
+  //     const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
 
-      if (!res.data?.success || !res.data?.data) {
-        throw new Error("Lead fetch succeeded but data missing");
-      }
+  //     if (!res.data?.success || !res.data?.data) {
+  //       throw new Error("Lead fetch succeeded but data missing");
+  //     }
 
-      // 3️⃣ Open modal
-      setLeadEditForm(res.data.data);
-      setShowLeadEditModal(true);
-    } catch (err) {
-      console.error("❌ handleOpenEditLead failed:", {
-        err,
-        conversation: selectedConversation,
-        resolvedLeadId: leadId,
-      });
+  //     // 3️⃣ Open modal
+  //     setLeadEditForm(res.data.data);
+  //     setShowLeadEditModal(true);
+  //   } catch (err) {
+  //     console.error("❌ handleOpenEditLead failed:", {
+  //       err,
+  //       conversation: selectedConversation,
+  //       resolvedLeadId: leadId,
+  //     });
 
-      alert("Failed to load lead details. Please try again.");
-    }
-  };
+  //     alert("Failed to load lead details. Please try again.");
+  //   }
+  // };
+ const handleOpenEditLead = async () => {
+   // 🛑 HARD GUARD
+   if (!selectedConversation?.conversationId) {
+     alert("No conversation selected");
+     return;
+   }
 
+   console.log("✏️ Edit Lead clicked", {
+     conversationId: selectedConversation.conversationId,
+     leadDetailId: selectedConversation.leadDetailId,
+   });
+
+   let leadId = selectedConversation.leadDetailId ?? null;
+
+   try {
+     // 1️⃣ Resolve leadDetailId if missing
+     if (!leadId) {
+       console.log("🔍 leadDetailId missing, resolving via conversation-link");
+
+       const encodedId = encodeURIComponent(
+         selectedConversation.conversationId,
+       );
+
+       const linkRes = await api.get(
+         `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
+       );
+
+       leadId =
+         linkRes.data?.data?.leadDetailId ?? linkRes.data?.leadDetailId ?? null;
+
+       if (!leadId) {
+         alert("This conversation is not linked to any CRM lead.");
+         return;
+       }
+
+       // Persist resolved ID
+       setSelectedConversation((prev) =>
+         prev ? { ...prev, leadDetailId: leadId } : prev,
+       );
+     }
+
+     // 2️⃣ Fetch lead data (SOURCE OF TRUTH)
+     const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
+
+     if (!res.data?.success || !res.data?.data) {
+       throw new Error("Lead fetch succeeded but data missing");
+     }
+
+     const leadData = res.data.data;
+
+     // =====================================================
+     // 🔥 FOLLOW-UP NORMALIZATION (THIS WAS MISSING)
+     // =====================================================
+
+     let followUpDate = "";
+     let day = "";
+
+     // ✅ Priority 1: followUpHistory (LATEST ENTRY)
+     if (
+       Array.isArray(leadData.followUpHistory) &&
+       leadData.followUpHistory.length > 0
+     ) {
+       const lastFollowUp =
+         leadData.followUpHistory[leadData.followUpHistory.length - 1];
+
+       followUpDate = lastFollowUp.date || "";
+       day = lastFollowUp.day || "";
+     }
+     // ✅ Priority 2: direct columns fallback
+     else if (leadData.followUpDate) {
+       followUpDate = new Date(leadData.followUpDate)
+         .toISOString()
+         .split("T")[0];
+
+       day =
+         leadData.day ||
+         new Date(leadData.followUpDate).toLocaleDateString("en-US", {
+           weekday: "long",
+         });
+     }
+
+     // 3️⃣ Set edit form (UI-ready)
+     setLeadEditForm({
+       ...leadData,
+
+       // ✅ REQUIRED for <input type="date">
+       followUpDate,
+
+       // ✅ Read-only field, auto-calculated
+       day,
+     });
+
+     // 4️⃣ Open modal
+     setShowLeadEditModal(true);
+   } catch (err) {
+     console.error("❌ handleOpenEditLead failed:", err);
+     alert("Failed to load lead details. Please try again.");
+   }
+ };
+
+
+
+  // const handleSaveLead = async () => {
+  //   if (!leadEditForm.id) return;
+
+  //   try {
+  //     // Utilize the specific ID-based update route
+  //     const res = await api.put(
+  //       `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
+  //       leadEditForm,
+  //     );
+
+  //     if (res.data.success) {
+  //       alert("✅ Lead updated successfully!");
+  //       if (leadEditForm.country) setCountry(leadEditForm.country); // Sync UI
+  //       setShowLeadEditModal(false);
+  //     }
+  //   } catch (error) {
+  //     console.error("❌ Error updating lead:", error);
+  //     alert("Failed to save lead updates.");
+  //   }
+  // };
   const handleSaveLead = async () => {
     if (!leadEditForm.id) return;
 
+    // ✅ Convert dd-mm-yyyy → Date
+    const parseDMY = (value) => {
+      if (!value) return null;
+      const [dd, mm, yyyy] = value.split("-");
+      return new Date(`${yyyy}-${mm}-${dd}`);
+    };
+
+    const followUpDate = parseDMY(leadEditForm.followUpDate);
+
+    const payload = {
+      ...leadEditForm,
+
+      // 🔥 NORMALIZATION (THIS IS THE KEY)
+      followUpDate,
+      isFollowedUp: !!followUpDate,
+      day: followUpDate
+        ? followUpDate.toLocaleDateString("en-US", { weekday: "long" })
+        : null,
+      followUpHistory: leadEditForm.followUpHistory ?? [],
+    };
+
+    console.log("🚀 Saving Lead Payload:", payload);
+
     try {
-      // Utilize the specific ID-based update route
       const res = await api.put(
         `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
-        leadEditForm,
+        payload,
       );
 
       if (res.data.success) {
         alert("✅ Lead updated successfully!");
-        if (leadEditForm.country) setCountry(leadEditForm.country); // Sync UI
+        if (payload.country) setCountry(payload.country);
         setShowLeadEditModal(false);
       }
     } catch (error) {

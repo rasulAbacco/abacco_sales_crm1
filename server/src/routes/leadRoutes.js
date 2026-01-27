@@ -426,9 +426,126 @@ router.get("/by-email/:email", async (req, res) => {
 /* ==========================================================
    ✳️ NEW: Update Lead by ID (used in Edit Modal)
    ========================================================== */
+// router.put("/update/:id", async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const {
+//       client,
+//       email,
+//       cc,
+//       phone,
+//       subject,
+//       body,
+//       response,
+//       leadStatus,
+//       salesperson,
+//       brand,
+//       companyName,
+//       dealValue,
+//       result,
+//       day,
+//       followUpDate,
+//       website,
+//       link,
+//       agentName,
+//       country,
+//     } = req.body;
+
+//     // ✅ Validate ID
+//     if (!id) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Missing lead ID.",
+//       });
+//     }
+
+//     // ✅ Find existing lead
+//     const lead = await prisma.leadDetails.findUnique({
+//       where: { id: Number(id) },
+//     });
+
+//     if (!lead) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Lead not found.",
+//       });
+//     }
+
+//     // ✅ Safely parse existing follow-up history
+//     let history = [];
+//     try {
+//       history = lead.followUpHistory ? JSON.parse(lead.followUpHistory) : [];
+//     } catch {
+//       history = [];
+//     }
+
+//     // ✅ Add new follow-up record if provided
+//     if (day && followUpDate) {
+//       history.push({ day, date: followUpDate });
+//     }
+
+//     // ✅ Determine if isFollowedUp should reset
+//     const shouldUnsetFollowUp = lead.isFollowedUp ? false : lead.isFollowedUp;
+
+//     // ✅ Perform update
+//     const updated = await prisma.leadDetails.update({
+//       where: { id: Number(id) },
+//       data: {
+//         client,
+//         email,
+//         cc,
+//         phone,
+//         subject,
+//         body,
+//         response,
+//         leadStatus,
+//         salesperson,
+//         brand,
+//         companyName,
+//         dealValue: dealValue ? parseFloat(dealValue) : null,
+//         result,
+//         day,
+//         followUpDate: followUpDate ? new Date(followUpDate) : null,
+//         followUpHistory: history,
+//         isFollowedUp: shouldUnsetFollowUp,
+//         website,
+//         link,
+//         agentName,
+//         country,
+//       },
+//     });
+
+//     // ✅ Return success
+//     res.json({
+//       success: true,
+//       message: "Lead updated successfully (follow-up history tracked)",
+//       data: updated,
+//     });
+//   } catch (error) {
+//     console.error("❌ Error updating lead:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while updating lead.",
+//       error: error.message,
+//     });
+//   }
+// });
+
+//==========================================================
+// ✅ 7️⃣ Update Lead Details (with Follow-Up History Handling)
+// FIXED: Now includes website, link, agentName, country
+//==========================================================
 router.put("/update/:id", async (req, res) => {
   try {
-    const { id } = req.params;
+    const leadId = Number(req.params.id);
+
+    if (!leadId) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing lead ID.",
+      });
+    }
+
     const {
       client,
       email,
@@ -443,7 +560,6 @@ router.put("/update/:id", async (req, res) => {
       companyName,
       dealValue,
       result,
-      day,
       followUpDate,
       website,
       link,
@@ -451,17 +567,9 @@ router.put("/update/:id", async (req, res) => {
       country,
     } = req.body;
 
-    // ✅ Validate ID
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing lead ID.",
-      });
-    }
-
-    // ✅ Find existing lead
+    // 1️⃣ Fetch existing lead
     const lead = await prisma.leadDetails.findUnique({
-      where: { id: Number(id) },
+      where: { id: leadId },
     });
 
     if (!lead) {
@@ -471,25 +579,33 @@ router.put("/update/:id", async (req, res) => {
       });
     }
 
-    // ✅ Safely parse existing follow-up history
-    let history = [];
-    try {
-      history = lead.followUpHistory ? JSON.parse(lead.followUpHistory) : [];
-    } catch {
-      history = [];
+    // 2️⃣ Normalize follow-up date
+    const nextFollowUpDate = followUpDate ? new Date(followUpDate) : null;
+
+    // 3️⃣ Compute day from date (SOURCE OF TRUTH)
+    const day = nextFollowUpDate
+      ? nextFollowUpDate.toLocaleDateString("en-US", {
+          weekday: "long",
+        })
+      : null;
+
+    // 4️⃣ Preserve existing history (NO JSON.parse)
+    const history = Array.isArray(lead.followUpHistory)
+      ? [...lead.followUpHistory]
+      : [];
+
+    // 5️⃣ Append history ONLY if new follow-up date provided
+    if (nextFollowUpDate) {
+      history.push({
+        date: nextFollowUpDate,
+        day,
+        updatedAt: new Date(),
+      });
     }
 
-    // ✅ Add new follow-up record if provided
-    if (day && followUpDate) {
-      history.push({ day, date: followUpDate });
-    }
-
-    // ✅ Determine if isFollowedUp should reset
-    const shouldUnsetFollowUp = lead.isFollowedUp ? false : lead.isFollowedUp;
-
-    // ✅ Perform update
-    const updated = await prisma.leadDetails.update({
-      where: { id: Number(id) },
+    // 6️⃣ Update lead
+    const updatedLead = await prisma.leadDetails.update({
+      where: { id: leadId },
       data: {
         client,
         email,
@@ -504,26 +620,29 @@ router.put("/update/:id", async (req, res) => {
         companyName,
         dealValue: dealValue ? parseFloat(dealValue) : null,
         result,
+
+        // 🔥 FOLLOW-UP FIELDS (CORRECT)
+        followUpDate: nextFollowUpDate,
         day,
-        followUpDate: followUpDate ? new Date(followUpDate) : null,
+        isFollowedUp: Boolean(nextFollowUpDate),
         followUpHistory: history,
-        isFollowedUp: shouldUnsetFollowUp,
+
         website,
         link,
         agentName,
         country,
+        lastUpdated: new Date(),
       },
     });
 
-    // ✅ Return success
-    res.json({
+    return res.json({
       success: true,
-      message: "Lead updated successfully (follow-up history tracked)",
-      data: updated,
+      message: "Lead updated successfully",
+      data: updatedLead,
     });
   } catch (error) {
     console.error("❌ Error updating lead:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Server error while updating lead.",
       error: error.message,
@@ -531,10 +650,7 @@ router.put("/update/:id", async (req, res) => {
   }
 });
 
-//==========================================================
-// ✅ 7️⃣ Update Lead Details (with Follow-Up History Handling)
-// FIXED: Now includes website, link, agentName, country
-//==========================================================
+
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;

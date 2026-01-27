@@ -53,6 +53,7 @@ export default function InboxMain() {
     isUnread: false,
     isStarred: false,
     country: "",
+    followUpHistoryDate: "",
   });
 
   // Search state
@@ -175,6 +176,8 @@ export default function InboxMain() {
 
       if (filters.leadStatus) params.leadStatus = filters.leadStatus;
       if (filters.country) params.country = filters.country;
+      if (filters.followUpHistoryDate)
+        params.followUpHistoryDate = filters.followUpHistoryDate;
       if (filters.sender) params.sender = filters.sender;
       if (filters.recipient) params.recipient = filters.recipient;
       if (filters.subject) params.subject = filters.subject;
@@ -320,6 +323,7 @@ export default function InboxMain() {
       isUnread: false,
       isStarred: false,
       country: "",
+      followUpHistoryDate: "", // 🔥 ADD
     });
   };
 
