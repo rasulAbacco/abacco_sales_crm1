@@ -482,13 +482,21 @@ router.get("/conversations/:accountId", async (req, res) => {
 
     // date range
     if (dateFrom) {
-      conditions.push(`em."sentAt" >= $${params.length + 1}`);
-      params.push(new Date(dateFrom));
+      const parsed = new Date(dateFrom);
+      if (!isNaN(parsed.getTime())) {
+        conditions.push(`em."sentAt" >= $${params.length + 1}`);
+        params.push(parsed);
+      }
     }
-    if (dateTo) {
-      conditions.push(`em."sentAt" <= $${params.length + 1}`);
-      params.push(new Date(dateTo));
-    }
+
+ if (dateTo) {
+   const parsed = new Date(dateTo);
+   if (!isNaN(parsed.getTime())) {
+     conditions.push(`em."sentAt" <= $${params.length + 1}`);
+     params.push(parsed);
+   }
+ }
+
 
     // attachment
     if (hasAttachment === "true") {
@@ -1142,15 +1150,29 @@ router.get("/messages/:accountId", async (req, res) => {
       };
     }
 
-    if (dateFrom || dateTo) {
-      where.sentAt = {};
-      if (dateFrom) {
-        where.sentAt.gte = new Date(dateFrom);
-      }
-      if (dateTo) {
-        where.sentAt.lte = new Date(dateTo);
-      }
-    }
+   if (dateFrom || dateTo) {
+     const sentAtFilter = {};
+
+     if (dateFrom) {
+       const parsedFrom = new Date(dateFrom);
+       if (!isNaN(parsedFrom.getTime())) {
+         sentAtFilter.gte = parsedFrom;
+       }
+     }
+
+     if (dateTo) {
+       const parsedTo = new Date(dateTo);
+       if (!isNaN(parsedTo.getTime())) {
+         sentAtFilter.lte = parsedTo;
+       }
+     }
+
+     // ✅ Only attach sentAt if at least one valid date exists
+     if (Object.keys(sentAtFilter).length > 0) {
+       where.sentAt = sentAtFilter;
+     }
+   }
+
 
     if (hasAttachment === "true") {
       where.attachments = {
