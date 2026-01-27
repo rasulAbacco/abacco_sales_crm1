@@ -10,6 +10,11 @@ import { ImapFlow } from "imapflow";
 import { htmlToText } from "html-to-text";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
+import {
+  getInboxCache,
+  setInboxCache,
+  clearInboxCacheByAccount,
+} from "../../cache/inboxCache.js";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -399,6 +404,17 @@ router.get("/conversations/:accountId", async (req, res) => {
       searchEmail,
       followUpHistoryDate, // ✅ ADD THIS LINE
     } = req.query;
+    const cacheKey = `inbox:${accountId}:${folder}:${JSON.stringify(req.query)}`;
+
+    const cached = getInboxCache(cacheKey);
+    if (cached) {
+      return res.json({
+        success: true,
+        total: cached.length,
+        data: cached,
+        cached: true,
+      });
+    }
 
     /* ==================================================
        1️⃣ BUILD SQL CONDITIONS
@@ -489,14 +505,13 @@ router.get("/conversations/:accountId", async (req, res) => {
       }
     }
 
- if (dateTo) {
-   const parsed = new Date(dateTo);
-   if (!isNaN(parsed.getTime())) {
-     conditions.push(`em."sentAt" <= $${params.length + 1}`);
-     params.push(parsed);
-   }
- }
-
+    if (dateTo) {
+      const parsed = new Date(dateTo);
+      if (!isNaN(parsed.getTime())) {
+        conditions.push(`em."sentAt" <= $${params.length + 1}`);
+        params.push(parsed);
+      }
+    }
 
     // attachment
     if (hasAttachment === "true") {
@@ -756,6 +771,8 @@ router.get("/conversations/:accountId", async (req, res) => {
     /* ==================================================
        6️⃣ RETURN
     ================================================== */
+    setInboxCache(cacheKey, result);
+
     return res.json({
       success: true,
       total: result.length,
@@ -1150,29 +1167,28 @@ router.get("/messages/:accountId", async (req, res) => {
       };
     }
 
-   if (dateFrom || dateTo) {
-     const sentAtFilter = {};
+    if (dateFrom || dateTo) {
+      const sentAtFilter = {};
 
-     if (dateFrom) {
-       const parsedFrom = new Date(dateFrom);
-       if (!isNaN(parsedFrom.getTime())) {
-         sentAtFilter.gte = parsedFrom;
-       }
-     }
+      if (dateFrom) {
+        const parsedFrom = new Date(dateFrom);
+        if (!isNaN(parsedFrom.getTime())) {
+          sentAtFilter.gte = parsedFrom;
+        }
+      }
 
-     if (dateTo) {
-       const parsedTo = new Date(dateTo);
-       if (!isNaN(parsedTo.getTime())) {
-         sentAtFilter.lte = parsedTo;
-       }
-     }
+      if (dateTo) {
+        const parsedTo = new Date(dateTo);
+        if (!isNaN(parsedTo.getTime())) {
+          sentAtFilter.lte = parsedTo;
+        }
+      }
 
-     // ✅ Only attach sentAt if at least one valid date exists
-     if (Object.keys(sentAtFilter).length > 0) {
-       where.sentAt = sentAtFilter;
-     }
-   }
-
+      // ✅ Only attach sentAt if at least one valid date exists
+      if (Object.keys(sentAtFilter).length > 0) {
+        where.sentAt = sentAtFilter;
+      }
+    }
 
     if (hasAttachment === "true") {
       where.attachments = {
@@ -2312,7 +2328,8 @@ router.post("/message/:messageId/restore", async (req, res) => {
         folder: restoreFolder,
       },
     });
-
+    // 🔥 ADD THIS LINE (HERE)
+    clearInboxCacheByAccount(req.body.accountId);
     return res.json({ success: true });
   } catch (err) {
     console.error("❌ RESTORE ERROR:", err);
