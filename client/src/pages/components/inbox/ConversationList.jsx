@@ -126,10 +126,7 @@ export default function ConversationList({
     return cleanName.charAt(0).toUpperCase() || "?";
   };
 
-  // 🔥 CRITICAL FIX: Ensure we pass the COMPLETE conversation object
-  // src/pages/components/inbox/ConversationList.jsx
 
-  // src/pages/components/inbox/ConversationList.jsx
 
   const handleConversationSelect = async (conversation) => {
     console.log("🟢 ConversationList click →", {

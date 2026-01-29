@@ -178,7 +178,7 @@ router.get("/messages/inbox", async (req, res) => {
       fromEmail: msg.fromEmail,
       toEmail: msg.toEmail,
       subject: msg.subject || "(No Subject)",
-      body: decodeBody(msg),
+      body: msg.bodyHtml || decodeBody(msg),
       direction: msg.direction,
       date: msg.sentAt,
       attachments: (msg.attachments || []).map(normalizeAttachment),
@@ -1467,10 +1467,21 @@ router.post("/reply", async (req, res) => {
 
     const conversationId = originalMessage.conversationId;
 
+    // const inReplyTo = originalMessage.messageId;
+    // const references = originalMessage.references
+    //   ? `${originalMessage.references} ${originalMessage.messageId}`
+    //   : originalMessage.messageId;
     const inReplyTo = originalMessage.messageId;
-    const references = originalMessage.references
-      ? `${originalMessage.references} ${originalMessage.messageId}`
-      : originalMessage.messageId;
+
+    // 🔒 LIMIT REFERENCES (PREVENT HEADER BLOAT / SPAM FLAGS)
+    const MAX_REFERENCES = 5;
+
+    const refParts = (originalMessage.references || "")
+      .split(" ")
+      .filter(Boolean)
+      .slice(-MAX_REFERENCES);
+
+    const references = [...refParts, originalMessage.messageId].join(" ");
 
     /* =====================================================
        3️⃣ DEFAULT CLIENT EMAIL (FALLBACK ONLY)
@@ -1545,6 +1556,8 @@ router.post("/reply", async (req, res) => {
       cc: finalCc || undefined,
       subject: finalSubject,
       html: normalizedBody,
+      text: htmlToText(normalizedBody, { wordwrap: 80 }),
+
       attachments: smtpAttachments,
       messageId: replyMessageId,
       headers: {
@@ -1690,10 +1703,21 @@ router.post("/reply-all", async (req, res) => {
     /* =====================================================
        3️⃣ THREAD HEADERS
     ===================================================== */
+    // const inReplyTo = originalMessage.messageId;
+    // const references = originalMessage.references
+    //   ? `${originalMessage.references} ${originalMessage.messageId}`
+    //   : originalMessage.messageId;
     const inReplyTo = originalMessage.messageId;
-    const references = originalMessage.references
-      ? `${originalMessage.references} ${originalMessage.messageId}`
-      : originalMessage.messageId;
+
+    // 🔒 LIMIT REFERENCES (PREVENT HEADER BLOAT / SPAM FLAGS)
+    const MAX_REFERENCES = 5;
+
+    const refParts = (originalMessage.references || "")
+      .split(" ")
+      .filter(Boolean)
+      .slice(-MAX_REFERENCES);
+
+    const references = [...refParts, originalMessage.messageId].join(" ");
 
     /* =====================================================
        4️⃣ BACKEND DEFAULT RECIPIENTS (FALLBACK ONLY)
@@ -1775,6 +1799,7 @@ router.post("/reply-all", async (req, res) => {
       cc: finalCc || undefined, // ✅ UI OR FALLBACK
       subject: finalSubject,
       html: normalizedBody,
+      text: htmlToText(normalizedBody, { wordwrap: 80 }),
       messageId: replyMessageId,
       headers: {
         "In-Reply-To": inReplyTo,
@@ -1969,6 +1994,7 @@ router.post("/forward", async (req, res) => {
       cc: cc || undefined,
       subject: finalSubject,
       html: normalizedBody,
+      text: htmlToText(normalizedBody, { wordwrap: 80 }),
       messageId: msgId,
       attachments: attachments.map((f) => ({
         filename: f.filename || f.name,
