@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import { PrismaClient } from "@prisma/client";
 import multer from "multer";
 import crypto from "crypto";
+import { htmlToText } from "html-to-text";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -83,7 +84,11 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
     const authenticatedEmail = account.smtpUser || account.email;
 
     // 🔥 FIX: Fallback to email prefix if no senderName
-    const senderName = account.senderName || authenticatedEmail.split("@")[0];
+    // const senderName = account.senderName || authenticatedEmail.split("@")[0];
+    const senderName = account.senderName?.trim() || null;
+    const smtpFrom = senderName
+      ? `"${senderName}" <${authenticatedEmail}>`
+      : `<${authenticatedEmail}>`;
     // 🧪 DEBUG (TEMPORARY – REMOVE AFTER FIX)
     console.log("SMTP CONFIG", {
       host: account.smtpHost,
@@ -185,31 +190,38 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
     // const transporter = nodemailer.createTransport({
     //   host: account.smtpHost,
     //   port: smtpPort,
-    //   secure: isSecure,
+
+    //   // 🔥 CRITICAL FOR PORT 587
+    //   secure: false, // must be false for 587
+    //   requireTLS: true, // 👈 REQUIRED on Render
+
     //   auth: {
     //     user: authenticatedEmail,
     //     pass: account.encryptedPass,
     //   },
-    //   tls: { rejectUnauthorized: false },
+
+    //   tls: {
+    //     servername: account.smtpHost, // ✅ MUST MATCH HOST
+    //     rejectUnauthorized: true,
+    //   },
     // });
-const transporter = nodemailer.createTransport({
-  host: account.smtpHost,
-  port: smtpPort,
+    const transporter = nodemailer.createTransport({
+      host: account.smtpHost,
+      port: Number(account.smtpPort) || 587,
 
-  // 🔥 CRITICAL FOR PORT 587
-  secure: false, // must be false for 587
-  requireTLS: true, // 👈 REQUIRED on Render
+      secure: Number(account.smtpPort) === 465, // true ONLY for 465
+      requireTLS: Number(account.smtpPort) === 587, // true for 587
 
-  auth: {
-    user: authenticatedEmail,
-    pass: account.encryptedPass,
-  },
+      auth: {
+        user: authenticatedEmail,
+        pass: account.encryptedPass,
+      },
 
-  tls: {
-    servername: "smtp.gmail.com",
-    rejectUnauthorized: true,
-  },
-});
+      tls: {
+        servername: account.smtpHost, // 🔥 FIX
+        rejectUnauthorized: true,
+      },
+    });
 
     /* ==============================
        5️⃣ PREPARE ATTACHMENTS
@@ -229,14 +241,32 @@ const transporter = nodemailer.createTransport({
         storageUrl: "", // TODO: Upload to R2 if needed
         hash: "",
       })) || [];
+    /* ==============================
+   🛡️ FIRST EMAIL TRUST GUARD
+   (Silently remove attachments)
+============================== */
+    let safeAttachments = smtpAttachments;
+    let safeAttachmentRecords = attachmentRecords;
+
+    if (!inReplyToId && smtpAttachments.length > 0) {
+      console.log("⚠️ First email detected — attachments removed for trust");
+      safeAttachments = [];
+      safeAttachmentRecords = [];
+    }
 
     /* ==============================
        6️⃣ NORMALIZE HTML BODY (🔥 NEW)
     ============================== */
     const normalizedBody = normalizeEmailHtml(body);
+    /* ==============================
+   📝 TEXT/PLAIN VERSION (TRUST)
+============================== */
+    const textVersion = htmlToText(normalizedBody, {
+      wordwrap: 80,
+    });
 
     // 🔥 FIX: Proper "From" header with name
-    const smtpFrom = `"${senderName}" <${authenticatedEmail}>`;
+    // const smtpFrom = `"${senderName}" <${authenticatedEmail}>`;
 
     /* ==============================
        7️⃣ GENERATE MESSAGE-ID (🔥 CONSISTENT FORMAT)
@@ -245,6 +275,12 @@ const transporter = nodemailer.createTransport({
     const randomPart = crypto.randomBytes(8).toString("hex");
     const domain = authenticatedEmail.split("@")[1];
     const generatedMessageId = `<${timestamp}.${randomPart}@${domain}>`;
+    /* ==============================
+   ⏳ HUMAN SEND DELAY (TRUST)
+      ============================== */
+    await new Promise((resolve) =>
+      setTimeout(resolve, 2000 + Math.floor(Math.random() * 2000)),
+    );
 
     /* ==============================
        8️⃣ SEND EMAIL
@@ -255,8 +291,9 @@ const transporter = nodemailer.createTransport({
       cc,
       subject: (subject || "(No Subject)").replace(/[\r\n]/g, ""),
       html: normalizedBody, // 🔥 FIX: Use normalized HTML
+      text: textVersion,
       messageId: generatedMessageId, // 🔥 FIX: Consistent Message-ID
-      attachments: smtpAttachments,
+      attachments: safeAttachments, // 🔥 Use safe attachments
       inReplyTo: inReplyToId || undefined,
       references: inReplyToId || undefined,
     });
@@ -289,8 +326,8 @@ const transporter = nodemailer.createTransport({
         leadDetailId: leadDetailId ? Number(leadDetailId) : null, // 🔥 ADD THIS
 
         attachments:
-          attachmentRecords.length > 0
-            ? { create: attachmentRecords }
+          safeAttachmentRecords.length > 0
+            ? { create: safeAttachmentRecords }
             : undefined,
       },
       include: { attachments: true },

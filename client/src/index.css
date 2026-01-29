@@ -528,3 +528,19 @@ button:active::before {
     padding: 0;
   }
 }
+
+
+.email-body {
+  line-height: 1.15;
+}
+
+.email-body p {
+  margin-top: 0 !important;
+  margin-bottom: 12px !important;
+  line-height: 1.15 !important;
+}
+
+.email-body p:empty,
+.email-body p:has(br:only-child) {
+  margin-bottom: 12px !important;
+}

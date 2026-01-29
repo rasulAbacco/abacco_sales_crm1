@@ -76,7 +76,7 @@ async function findConversationId(prisma, parsed) {
 
   const conversationId = msg?.conversationId || null;
 
-return conversationId;
+  return conversationId;
 }
 function normalizeEmailHtml(html) {
   if (!html) return "";
@@ -212,9 +212,8 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
   ====================================================== */
   const rawHtml =
     parsed.html || parsed.textAsHtml || `<pre>${parsed.text || ""}</pre>`;
-
-  const safeHtml = normalizeEmailHtml(rawHtml);
-  const bodyText = htmlToText(safeHtml, { wordwrap: false });
+  const safeHtml = rawHtml;
+const bodyText = htmlToText(rawHtml, { wordwrap: false });
 
   /* ======================================================
      4️⃣ LEAD MATCHING (UNCHANGED LOGIC)
