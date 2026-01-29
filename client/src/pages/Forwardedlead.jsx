@@ -777,7 +777,8 @@ export default function Forwardedlead() {
   function formatBodyWithParagraphs(text) {
     if (!text) return "";
 
-    if (/<br|<p|<div/i.test(text)) {
+    // ✅ Only detect REAL HTML tags
+    if (/<\/?(p|div|br)\b/i.test(text)) {
       return text;
     }
 
@@ -792,10 +793,10 @@ export default function Forwardedlead() {
       .map((para) => {
         const lines = para.trim().replace(/\n/g, "<br>");
         return lines
-          ? `<p style="margin:0 0 12px 0;line-height:1.15;">${lines}</p>` // Updated to 1.15
+          ? `<p style="margin:0 0 12px 0;line-height:1.15;">${lines}</p>`
           : "";
       })
-      .filter((p) => p)
+      .filter(Boolean)
       .join("");
   }
 
@@ -947,6 +948,10 @@ export default function Forwardedlead() {
     });
 
     setForwardedContent(buildForwardBlock(lead));
+    const html = buildForwardBlock(lead);
+    console.log("🧪 FORWARDED HTML AT SOURCE:", html);
+    setForwardedContent(html);
+
     setShowQuotedText(true);
     setShowComposePopup(true);
 
@@ -1520,9 +1525,7 @@ export default function Forwardedlead() {
                   {showQuotedText && (
                     <div
                       ref={forwardedEditorRef}
-                      contentEditable
-                      suppressContentEditableWarning
-                      className="p-4 bg-gray-50 border-t border-gray-200 max-h-[300px] overflow-y-auto focus:outline-none forwarded-content"
+                      className="p-4 bg-gray-50 border-t border-gray-200 max-h-[300px] overflow-y-auto forwarded-content"
                       style={{
                         fontFamily: "Calibri, Arial, sans-serif",
                         fontSize: "11pt",

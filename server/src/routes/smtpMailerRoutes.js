@@ -40,8 +40,8 @@ const normalizeEmailHtml = (html) => {
       '<div style="margin:0;line-height:1.15;font-family:Calibri,Arial,sans-serif;font-size:11pt;">',
     )
     .replace(/<br>\s*<br>/gi, "<br>")
-    .replace(/<p[^>]*>\s*<\/p>/gi, "")
-    .replace(/<div[^>]*>\s*<\/div>/gi, "")
+    // .replace(/<p[^>]*>\s*<\/p>/gi, "")
+    // .replace(/<div[^>]*>\s*<\/div>/gi, "")
     .trim();
 
   // 4️⃣ Reattach forwarded header at the TOP
@@ -257,7 +257,13 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
     /* ==============================
        6️⃣ NORMALIZE HTML BODY (🔥 NEW)
     ============================== */
-    const normalizedBody = normalizeEmailHtml(body);
+    // const normalizedBody = normalizeEmailHtml(body);
+    const isRichHtml = /<\/?(p|div|br|table|hr|span)\b/i.test(body);
+
+    const normalizedBody = isRichHtml
+      ? body // 🔥 DO NOT TOUCH rich HTML
+      : normalizeEmailHtml(body);
+
     /* ==============================
    📝 TEXT/PLAIN VERSION (TRUST)
 ============================== */
@@ -286,16 +292,23 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
        8️⃣ SEND EMAIL
     ============================== */
     const info = await transporter.sendMail({
-      from: smtpFrom, // 🔥 FIX: Include sender name
-      to,
-      cc,
-      subject: (subject || "(No Subject)").replace(/[\r\n]/g, ""),
-      html: normalizedBody, // 🔥 FIX: Use normalized HTML
-      text: textVersion,
-      messageId: generatedMessageId, // 🔥 FIX: Consistent Message-ID
-      attachments: safeAttachments, // 🔥 Use safe attachments
-      inReplyTo: inReplyToId || undefined,
-      references: inReplyToId || undefined,
+      from: smtpFrom, // ✅ Correct (Name <email>)
+      to, // ✅ Required
+      cc, // ✅ Optional
+      subject: (subject || "(No Subject)").replace(/[\r\n]/g, ""), // ✅ Safe
+
+      html: normalizedBody, // ✅ Correct (formatted HTML)
+      text: textVersion, // ✅ Good for deliverability
+
+      messageId: generatedMessageId, // ✅ Proper threading
+      inReplyTo: inReplyToId || undefined, // ✅ Replies work
+      references: inReplyToId || undefined, // ✅ Outlook/Gmail threading
+
+      attachments: safeAttachments, // ✅ Guarded attachments
+
+      headers: {
+        "Content-Type": "text/html; charset=UTF-8", // ✅ IMPORTANT & correct
+      },
     });
 
     console.log("📤 Email Sent! ID:", info.messageId);
