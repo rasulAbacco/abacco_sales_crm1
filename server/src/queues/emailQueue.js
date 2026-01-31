@@ -2,11 +2,10 @@
 // BullMQ queue system for background email operations
 
 import { Queue, Worker, QueueScheduler } from "bullmq"
-import { PrismaClient } from "@prisma/client"
+import prisma from "../prismaClient.js";
 import { deltaSyncAccount } from "../services/sync/deltaSync.js"
 import { sendEmail } from "../services/mailer.js"
 
-const prisma = new PrismaClient()
 
 // Redis connection config
 const redisConnection = {

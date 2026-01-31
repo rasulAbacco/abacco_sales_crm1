@@ -1,8 +1,7 @@
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import { emitToUser } from "../../socket.js";
 import { sendPushToUser } from "./push.service.js";
 
-const prisma = new PrismaClient();
 
 export async function notifyNewEmail({
   userId,

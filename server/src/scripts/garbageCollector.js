@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import {
   S3Client,
   ListObjectsV2Command,
@@ -7,7 +7,6 @@ import {
 import dotenv from "dotenv";
 
 dotenv.config();
-const prisma = new PrismaClient();
 
 // Setup R2 Client
 const R2 = new S3Client({
@@ -76,7 +75,7 @@ async function runGC() {
           new DeleteObjectCommand({
             Bucket: process.env.R2_BUCKET_NAME,
             Key: r2Key,
-          })
+          }),
         );
         deletedCount++;
       } else {

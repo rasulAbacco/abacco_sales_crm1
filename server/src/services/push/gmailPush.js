@@ -2,11 +2,12 @@
 // Gmail Push Notifications via Google Cloud Pub/Sub
 
 import { google } from "googleapis"
-import { PrismaClient } from "@prisma/client"
+import prisma from "../prismaClient.js";
 import { createOAuthManager } from "../oauth/oauthManager.js"
 import { deltaSyncAccount } from "../sync/deltaSync.js"
 
-const prisma = new PrismaClient()
+
+
 
 // Setup Gmail watch for push notifications
 export async function setupGmailWatch(accountId) {

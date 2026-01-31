@@ -2,11 +2,10 @@
 // Two-way sync operations: read/unread, archive, delete, star, move, drafts
 
 import { ImapFlow } from "imapflow"
-import { PrismaClient } from "@prisma/client"
+import prisma from "../prismaClient.js";
 import { createOAuthManager } from "../oauth/oauthManager.js"
 import { getIO } from "../../../socket.js"
 
-const prisma = new PrismaClient()
 
 // Get IMAP client for account
 async function getImapClient(account) {

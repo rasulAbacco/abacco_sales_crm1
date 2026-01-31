@@ -1,11 +1,11 @@
 // /mnt/data/src/routes/imapDownload.js
 import express from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 
 const router = express.Router();
-const prisma = new PrismaClient();
+
 
 /**
  * GET /api/inbox/download/:uid/:filename?accountId=123

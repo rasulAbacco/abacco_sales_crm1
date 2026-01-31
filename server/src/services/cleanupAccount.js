@@ -1,5 +1,5 @@
 // src/services/cleanupAccount.js
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import { deleteFromR2 } from "./r2.js";
 import fs from "fs";
 import path from "path";
@@ -8,7 +8,6 @@ import { URL } from "url";
 
 dotenv.config();
 
-const prisma = new PrismaClient();
 const UPLOAD_DIR = path.join(process.cwd(), "uploads");
 
 function getKeyFromUrl(storageUrl) {

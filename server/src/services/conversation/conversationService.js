@@ -2,10 +2,9 @@
 // Outlook-style conversation management
 // Rule: One outbound email = One conversation
 
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import { v4 as uuidv4 } from "uuid";
 
-const prisma = new PrismaClient();
 
 /**
  * Create a new conversation when sending an outbound email

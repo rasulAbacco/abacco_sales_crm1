@@ -2,10 +2,9 @@
 // Handles efficient loading of messages and conversations at scale
 
 import express from "express"
-import { PrismaClient } from "@prisma/client"
+import prisma from "../prismaClient.js";
 
 const router = express.Router()
-const prisma = new PrismaClient()
 
 /**
  * GET /api/inbox/conversations-paginated/:accountId

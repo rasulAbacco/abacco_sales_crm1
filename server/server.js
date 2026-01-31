@@ -7,7 +7,7 @@ import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import cron from "node-cron";
-import { PrismaClient } from "@prisma/client";
+import prisma from "./src/prismaClient.js";
 import fs from "fs";
 
 /* ==========================================================
@@ -27,8 +27,6 @@ process.on("uncaughtException", (err) => {
 import { initSocket } from "./socket.js";
 import { runSync, runSyncForAccount } from "./src/services/imapSync.js";
 import { protect } from "./src/middlewares/authMiddleware.js";
-
-const prisma = new PrismaClient();
 
 const app = express();
 const server = http.createServer(app);

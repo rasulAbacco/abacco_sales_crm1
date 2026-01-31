@@ -1,7 +1,6 @@
 import webPush from "../../push.js";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 
-const prisma = new PrismaClient();
 
 export async function sendPushToUser(userId, payload) {
   const subs = await prisma.pushSubscription.findMany({

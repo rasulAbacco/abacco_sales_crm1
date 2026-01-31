@@ -2,12 +2,11 @@
 // Service for sending emails and creating conversations
 
 import nodemailer from "nodemailer";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import { createOAuthManager } from "../oauth/oauthManager.js";
 import { createConversationFromOutbound } from "../conversation/conversationService.js";
 import { v4 as uuidv4 } from "uuid";
 
-const prisma = new PrismaClient();
 
 /**
  * Send an email and create a conversation

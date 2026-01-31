@@ -3,7 +3,7 @@
 
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import pLimit from "p-limit";
 import { createOAuthManager } from "../oauth/oauthManager.js";
 import { EMAIL_PROVIDERS } from "../../config/emailProviders.js";
@@ -14,7 +14,6 @@ import {
   updateConversationMetadata,
 } from "../conversation/conversationService.js";
 
-const prisma = new PrismaClient();
 
 // ... keep existing getSyncState, updateSyncState, deltaSyncAccount, syncFolder, syncFlagChanges functions ...
 
