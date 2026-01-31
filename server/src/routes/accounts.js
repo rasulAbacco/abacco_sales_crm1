@@ -1,13 +1,12 @@
 import express from "express";
-import { PrismaClient } from "@prisma/client";
 import nodemailer from "nodemailer";
 import dns from "dns/promises";
 import { protect } from "../middlewares/authMiddleware.js";
 import { runSyncForAccount } from "../services/imapSync.js";
 import { ImapFlow } from "imapflow";
+import prisma from "../prismaClient.js";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 /**
  * Suggest IMAP/SMTP hosts (prioritize provider param, then MX records, then provider map)

@@ -1,11 +1,11 @@
 // src/routes/messages.js
 import express from "express";
 import multer from "multer";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import { protect } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
-const prisma = new PrismaClient();
+
 
 // ✅ Multer setup for attachments
 const storage = multer.diskStorage({

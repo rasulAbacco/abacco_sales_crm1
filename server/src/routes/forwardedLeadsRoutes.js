@@ -1,8 +1,10 @@
 import express from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
+
+
 
 const router = express.Router();
-const prisma = new PrismaClient();
+
 
 /* ==========================================================
    ✅ 1️⃣  Forward Lead (Create new LeadDetails record)

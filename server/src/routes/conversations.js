@@ -1,9 +1,8 @@
 // src/routes/conversations.js
 import express from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import { protect } from "../middlewares/authMiddleware.js";
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 // ✅ Get all conversations (by account)

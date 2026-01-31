@@ -213,7 +213,7 @@ async function saveEmailToDB(prisma, account, parsed, msg, direction, folder) {
   const rawHtml =
     parsed.html || parsed.textAsHtml || `<pre>${parsed.text || ""}</pre>`;
   const safeHtml = rawHtml;
-const bodyText = htmlToText(rawHtml, { wordwrap: false });
+  const bodyText = htmlToText(rawHtml, { wordwrap: false });
 
   /* ======================================================
      4️⃣ LEAD MATCHING (UNCHANGED LOGIC)

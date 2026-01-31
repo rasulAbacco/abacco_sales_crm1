@@ -1,10 +1,9 @@
 // server/src/services/oauth/oauthManager.js
 // Centralized OAuth token management with automatic refresh
 
-import { PrismaClient } from "@prisma/client"
+import prisma from "../prismaClient.js";
 import { EMAIL_PROVIDERS } from "../../config/emailProviders.js"
 
-const prisma = new PrismaClient()
 
 export class OAuthManager {
   constructor(accountId) {

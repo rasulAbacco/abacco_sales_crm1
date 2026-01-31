@@ -200,7 +200,9 @@ select:focus {
    ============================================================ */
 
 .quoted-text-section {
-  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  transition:
+    max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s ease;
 }
 
 .quoted-text-toggle {
@@ -394,7 +396,9 @@ select:focus-visible,
    ============================================================ */
 
 .expandable-section {
-  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease,
+  transition:
+    max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s ease,
     padding 0.3s ease;
   overflow: hidden;
 }
@@ -440,7 +444,9 @@ button::before {
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.3);
   transform: translate(-50%, -50%);
-  transition: width 0.3s, height 0.3s;
+  transition:
+    width 0.3s,
+    height 0.3s;
 }
 
 button:active::before {
@@ -528,7 +534,6 @@ button:active::before {
     padding: 0;
   }
 }
-
 
 .email-body {
   line-height: 1.15;

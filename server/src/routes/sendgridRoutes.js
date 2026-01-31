@@ -1,12 +1,11 @@
 import express from "express";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import { PrismaClient } from "@prisma/client"; // ✅ you forgot this import!
+import prisma from "../prismaClient.js";
 
 dotenv.config();
 
 const router = express.Router();
-const prisma = new PrismaClient(); // ✅ now safe to declare only once
 
 const SENDGRID_API = "https://api.sendgrid.com/v3";
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY; // 🔑 from .env

@@ -1,8 +1,7 @@
 // analyticsRoutes.js
 import express from "express";
-import { PrismaClient, Prisma } from "@prisma/client";
+import prisma from "../prismaClient.js";
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 /* --------------------- Helpers --------------------- */

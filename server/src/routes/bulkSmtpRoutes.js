@@ -1,11 +1,11 @@
 import express from "express";
 import nodemailer from "nodemailer";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import multer from "multer";
 import crypto from "crypto";
 
 const router = express.Router();
-const prisma = new PrismaClient();
+
 
 // Configure Multer (Memory Storage)
 const upload = multer({

@@ -1,9 +1,9 @@
 //server/src/routes/inbox/messages.js
 import express from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 
 const router = express.Router();
-const prisma = new PrismaClient();
+
 
 /**
  * GET messages in a conversation

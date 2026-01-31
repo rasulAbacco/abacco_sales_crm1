@@ -1,10 +1,10 @@
 // src/routes/leads.js
 import express from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import { protect } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
-const prisma = new PrismaClient();
+
 
 // ✅ Fetch leads for a specific employee email (follow-ups)
 router.get("/followups", protect, async (req, res) => {

@@ -1,42 +1,42 @@
 import express from "express";
 import nodemailer from "nodemailer";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../prismaClient.js";
 import multer from "multer";
 import crypto from "crypto";
 import { htmlToText } from "html-to-text";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+  limits: { fileSize: 15 * 1024 * 1024 },
 });
 
-/**
- * 🔥 SPAM-SAFE NORMALIZATION
- * Strips complex inline styles and wraps content in a single clean container.
- */
+/* ======================================================
+   ✨ HTML NORMALIZER (UNCHANGED)
+====================================================== */
 const normalizeEmailHtml = (html) => {
   if (!html) return "";
 
   let bodyContent = html
-    .replace(/<o:p>.*?<\/o:p>/gi, "") // Remove Outlook junk tags
-    // 🛡️ Remove ALL existing inline style attributes to prevent "code bloat"
-    .replace(/\sstyle="[^"]*"/gi, "")
-    // Basic paragraph spacing
-    .replace(/<p>/gi, '<p style="margin: 0 0 12px 0;">')
-    .replace(/<div>/gi, '<div style="margin: 0;">')
-    .replace(/<br>\s*<br>/gi, "<br>")
+    .replace(/<o:p>.*?<\/o:p>/gi, "")
+    .replace(/<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, "<br>")
+    .replace(
+      /<p(?![^>]*style=)[^>]*>/gi,
+      '<p style="margin:0 0 12px 0;line-height:1.15;">',
+    )
+    .replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>")
     .trim();
 
-  // 💎 Wrap once with a professional font. Filters prefer this over per-tag styling.
   return `
-<div style="font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.2; color: #000000;">
-  ${bodyContent}
+<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.15;color:#000;">
+${bodyContent}
 </div>`.trim();
 };
 
+/* ======================================================
+   📤 SEND EMAIL + STORE IN DB
+====================================================== */
 router.post("/send", upload.array("attachments"), async (req, res) => {
   try {
     const {
@@ -45,9 +45,9 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
       subject,
       body,
       emailAccountId,
-      conversationId,
       inReplyToId,
-      leadDetailId,
+      conversationId,
+      leadDetailId, // 🔥 IMPORTANT
     } = req.body;
 
     if (!to || !emailAccountId) {
@@ -56,6 +56,9 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
         .json({ success: false, message: "Missing required fields" });
     }
 
+    /* ==============================
+       1️⃣ FETCH EMAIL ACCOUNT
+    ============================== */
     const account = await prisma.emailAccount.findUnique({
       where: { id: Number(emailAccountId) },
     });
@@ -72,23 +75,45 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
       ? `"${senderName}" <${authenticatedEmail}>`
       : `<${authenticatedEmail}>`;
 
-    // --- CONVERSATION LOGIC ---
-    let finalConversationId = conversationId;
-    if (
-      !finalConversationId ||
-      finalConversationId === "null" ||
-      finalConversationId === "undefined"
-    ) {
+    /* ==============================
+       2️⃣ RECIPIENT PARSING
+    ============================== */
+    const toList = to
+      .split(",")
+      .map((e) => e.trim())
+      .filter(Boolean);
+    const ccList = cc
+      ? cc
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+      : [];
+
+    const allRecipients = [...toList, ...ccList];
+
+    /* ==============================
+       3️⃣ CONVERSATION RESOLUTION
+    ============================== */
+    let finalConversationId = conversationId || null;
+
+    if (finalConversationId) {
+      const exists = await prisma.conversation.findUnique({
+        where: { id: finalConversationId },
+      });
+      if (!exists) finalConversationId = null;
+    }
+
+    if (!finalConversationId) {
       const timestamp = Date.now();
-      const randomPart = crypto.randomBytes(8).toString("hex");
+      const random = crypto.randomBytes(6).toString("hex");
       const domain = authenticatedEmail.split("@")[1];
-      finalConversationId = `<${timestamp}.${randomPart}@${domain}>`;
+      finalConversationId = `<${timestamp}.${random}@${domain}>`;
 
       await prisma.conversation.create({
         data: {
           id: finalConversationId,
           subject: subject || "(No Subject)",
-          participants: `${authenticatedEmail}, ${to}${cc ? `, ${cc}` : ""}`,
+          participants: allRecipients.join(", "),
           toRecipients: to,
           ccRecipients: cc || null,
           initiatorEmail: authenticatedEmail,
@@ -98,14 +123,23 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
           leadDetailId: leadDetailId ? Number(leadDetailId) : null,
         },
       });
+    } else {
+      await prisma.conversation.update({
+        where: { id: finalConversationId },
+        data: {
+          lastMessageAt: new Date(),
+          messageCount: { increment: 1 },
+        },
+      });
     }
 
-    // --- SMTP CONFIG ---
+    /* ==============================
+       4️⃣ SMTP CONFIG
+    ============================== */
     const transporter = nodemailer.createTransport({
       host: account.smtpHost,
       port: Number(account.smtpPort) || 587,
       secure: Number(account.smtpPort) === 465,
-      requireTLS: Number(account.smtpPort) === 587,
       auth: {
         user: authenticatedEmail,
         pass: account.encryptedPass,
@@ -116,51 +150,58 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
       },
     });
 
-    // --- PREPARE CONTENT ---
-    // 🛡️ Always normalize. Bypassing this is what triggers the spam filter.
-    const normalizedBody = normalizeEmailHtml(body);
+    /* ==============================
+       5️⃣ BODY + MESSAGE-ID
+    ============================== */
+    const normalizedBody = normalizeEmailHtml(
+      body?.replace(/<img[^>]*>/gi, ""),
+    );
 
     const textVersion = htmlToText(normalizedBody, { wordwrap: 80 });
 
-    const messageId = `<${Date.now()}.${crypto.randomBytes(8).toString("hex")}@${authenticatedEmail.split("@")[1]}>`;
+    const messageId = `<${Date.now()}.${crypto
+      .randomBytes(6)
+      .toString("hex")}@${authenticatedEmail.split("@")[1]}>`;
 
-    // ⏳ Anti-bot delay
-    await new Promise((resolve) =>
-      setTimeout(resolve, 2000 + Math.floor(Math.random() * 2000)),
-    );
-
-    // --- SEND ---
     /* ==============================
-   8️⃣ SEND EMAIL
-   ============================== */
+       6️⃣ SEND EMAIL
+    ============================== */
     const info = await transporter.sendMail({
-      from: smtpFrom, // Now correctly using senderName
+      from: smtpFrom,
       to,
-      cc,
+      ...(ccList.length > 0 && { cc }),
+      envelope: {
+        from: authenticatedEmail,
+        to: allRecipients,
+      },
       subject: (subject || "(No Subject)").replace(/[\r\n]/g, "").trim(),
-
       html: normalizedBody,
       text: textVersion,
-
-      messageId: generatedMessageId,
+      messageId,
       inReplyTo: inReplyToId || undefined,
       references: inReplyToId || undefined,
-
-      // 🔥 ADD THESE HEADERS HERE
       headers: {
-        "X-Mailer": "Microsoft Outlook",
+        "X-Mailer": "WorldConnect CRM",
         "Content-Language": "en-US",
-        "X-Priority": "3", // 3 = Normal priority
         Importance: "Normal",
+        "X-Priority": "3",
       },
+      attachments:
+        req.files?.map((file) => ({
+          filename: file.originalname,
+          content: file.buffer,
+          contentType: file.mimetype,
+        })) || [],
     });
 
-    // --- SAVE TO DB ---
+    /* ==============================
+       7️⃣ SAVE EMAIL MESSAGE IN DB
+    ============================== */
     const savedMessage = await prisma.emailMessage.create({
       data: {
         emailAccountId: Number(emailAccountId),
         conversationId: finalConversationId,
-        messageId: messageId,
+        messageId,
         fromEmail: authenticatedEmail,
         fromName: senderName,
         toEmail: to,
@@ -169,16 +210,21 @@ router.post("/send", upload.array("attachments"), async (req, res) => {
         body: normalizedBody,
         bodyHtml: normalizedBody,
         direction: "sent",
-        sentAt: new Date(),
         folder: "sent",
         isRead: true,
+        sentAt: new Date(),
         leadDetailId: leadDetailId ? Number(leadDetailId) : null,
       },
     });
 
-    return res.json({ success: true, data: savedMessage });
+    return res.json({
+      success: true,
+      message: "Sent & stored successfully",
+      messageId: info.messageId,
+      data: savedMessage,
+    });
   } catch (error) {
-    console.error("❌ SMTP SEND ERROR:", error);
+    console.error("❌ SMTP ERROR:", error);
     return res.status(500).json({ success: false, message: error.message });
   }
 });
