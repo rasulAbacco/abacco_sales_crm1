@@ -141,7 +141,7 @@ async function createNewConversation(
       },
     });
 
-    console.log(`✅ Created new conversation: ${conversationId}`);
+    // console.log(`✅ Created new conversation: ${conversationId}`);
     return newConv.id;
   } catch (err) {
     if (err.code === "P2002") {
