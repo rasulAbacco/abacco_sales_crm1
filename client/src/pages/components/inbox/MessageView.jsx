@@ -287,208 +287,179 @@ export default function MessageView({
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   };
 
-  // ============================================================
-  // ✅ LEAD MANAGEMENT LOGIC (ALL PRESERVED)
-  // ============================================================
+  
+const handleOpenEditLead = async () => {
+  if (!selectedConversation?.conversationId) {
+    alert("No conversation selected");
+    return;
+  }
 
-  // const handleOpenEditLead = async () => {
-  //   // 🛑 HARD GUARD
-  //   if (!selectedConversation?.conversationId) {
-  //     alert("No conversation selected");
-  //     return;
-  //   }
+  let leadId = selectedConversation.leadDetailId ?? null;
 
-  //   console.log("✏️ Edit Lead clicked", {
-  //     conversationId: selectedConversation.conversationId,
-  //     leadDetailId: selectedConversation.leadDetailId,
-  //   });
-
-  //   let leadId = selectedConversation.leadDetailId ?? null;
-
-  //   try {
-  //     // 1️⃣ Try from local state first
-  //     if (!leadId) {
-  //       console.log("🔍 leadDetailId missing, resolving via conversation-link");
-
-  //       const encodedId = encodeURIComponent(
-  //         selectedConversation.conversationId,
-  //       );
-
-  //       const linkRes = await api.get(
-  //         `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
-  //       );
-
-  //       // 🔥 Normalize ALL possible response shapes
-  //       leadId =
-  //         linkRes.data?.data?.leadDetailId ??
-  //         linkRes.data?.leadDetailId ??
-  //         null;
-
-  //       if (!leadId) {
-  //         console.warn(
-  //           "⚠️ conversation-link returned no leadDetailId",
-  //           linkRes.data,
-  //         );
-  //         alert("This conversation is not linked to any CRM lead.");
-  //         return;
-  //       }
-
-  //       console.log("✅ leadDetailId resolved:", leadId);
-
-  //       // 🔥 Persist resolved ID in UI state (CRITICAL)
-  //       setSelectedConversation((prev) =>
-  //         prev ? { ...prev, leadDetailId: leadId } : prev,
-  //       );
-  //     }
-
-  //     // 2️⃣ Fetch lead data
-  //     const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
-
-  //     if (!res.data?.success || !res.data?.data) {
-  //       throw new Error("Lead fetch succeeded but data missing");
-  //     }
-
-  //     // 3️⃣ Open modal
-  //     setLeadEditForm(res.data.data);
-  //     setShowLeadEditModal(true);
-  //   } catch (err) {
-  //     console.error("❌ handleOpenEditLead failed:", {
-  //       err,
-  //       conversation: selectedConversation,
-  //       resolvedLeadId: leadId,
-  //     });
-
-  //     alert("Failed to load lead details. Please try again.");
-  //   }
-  // };
-  const handleOpenEditLead = async () => {
-    // 🛑 HARD GUARD
-    if (!selectedConversation?.conversationId) {
-      alert("No conversation selected");
-      return;
-    }
-
-    console.log("✏️ Edit Lead clicked", {
-      conversationId: selectedConversation.conversationId,
-      leadDetailId: selectedConversation.leadDetailId,
-    });
-
-    let leadId = selectedConversation.leadDetailId ?? null;
-
-    try {
-      // 1️⃣ Resolve leadDetailId if missing
-      if (!leadId) {
-        console.log("🔍 leadDetailId missing, resolving via conversation-link");
-
-        const encodedId = encodeURIComponent(
-          selectedConversation.conversationId,
-        );
-
-        const linkRes = await api.get(
-          `${API_BASE_URL}/api/inbox/conversation-link?conversationId=${encodedId}`,
-        );
-
-        leadId =
-          linkRes.data?.data?.leadDetailId ??
-          linkRes.data?.leadDetailId ??
-          null;
-
-        if (!leadId) {
-          alert("This conversation is not linked to any CRM lead.");
-          return;
-        }
-
-        // Persist resolved ID
-        setSelectedConversation((prev) =>
-          prev ? { ...prev, leadDetailId: leadId } : prev,
-        );
+  try {
+    // =====================================================
+    // 🔥 HELPER: GET FULL MESSAGE BODY
+    // =====================================================
+    const getMessageBody = async () => {
+      if (messages && messages.length > 0) {
+        return messages;
       }
 
-      // 2️⃣ Fetch lead data (SOURCE OF TRUTH)
+      try {
+        const res = await api.get(
+          `${API_BASE_URL}/api/inbox/conversation-detail`,
+          {
+            params: {
+              conversationId: selectedConversation.conversationId,
+              accountId: selectedAccount.id,
+              folder: selectedFolder,
+            },
+          }
+        );
+
+        if (res.data.success) {
+          return res.data.data || [];
+        }
+      } catch (err) {
+        console.error("❌ Failed to fetch messages:", err);
+      }
+
+      return [];
+    };
+
+    // =====================================================
+    // 🔥 HELPER: FORMAT EMAIL BODY (FINAL FIX)
+    // =====================================================
+const formatEmailBody = (html) => {
+  if (!html) return "";
+
+  let cleaned = html;
+
+  // ✅ 1. Remove forwarded / reply headers (STRONG FIX)
+  const splitPatterns = [
+    /---------- Forwarded message ----------/i,
+    /\nFrom:\s.*\n/i,
+    /\nOn .* wrote:/i,
+  ];
+
+  for (let pattern of splitPatterns) {
+    if (pattern.test(cleaned)) {
+      cleaned = cleaned.split(pattern)[0];
+      break;
+    }
+  }
+
+  // ✅ 2. Preserve structure
+  cleaned = cleaned
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<li>/gi, "• ")
+    .replace(/<\/li>/gi, "\n");
+
+  // ✅ 3. Remove HTML
+  cleaned = cleaned
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, "");
+
+  // ✅ 4. Remove inline headers if still present (EXTRA SAFETY 🔥)
+  cleaned = cleaned.replace(
+    /(From:.*|Sent:.*|To:.*|Subject:.*)/gi,
+    ""
+  )
+
+  // ✅ 5. Clean spacing
+  cleaned = cleaned
+    .replace(/\u00A0|&nbsp;/g, " ")
+    .replace(/\n\s*\n\s*\n/g, "\n\n")
+    .trim();
+
+  return cleaned;
+};
+
+    // =====================================================
+    // ✅ CASE 1: EXISTING LEAD
+    // =====================================================
+    if (leadId) {
       const res = await api.get(`${API_BASE_URL}/api/leads/${leadId}`);
 
       if (!res.data?.success || !res.data?.data) {
-        throw new Error("Lead fetch succeeded but data missing");
+        throw new Error("Lead fetch failed");
       }
 
       const leadData = res.data.data;
 
-      // =====================================================
-      // 🔥 FOLLOW-UP NORMALIZATION (THIS WAS MISSING)
-      // =====================================================
-
-      let followUpDate = "";
-      let day = "";
-
-      // ✅ Priority 1: followUpHistory (LATEST ENTRY)
-      if (
-        Array.isArray(leadData.followUpHistory) &&
-        leadData.followUpHistory.length > 0
-      ) {
-        const lastFollowUp =
-          leadData.followUpHistory[leadData.followUpHistory.length - 1];
-
-        followUpDate = lastFollowUp.date || "";
-        day = lastFollowUp.day || "";
-      }
-      // ✅ Priority 2: direct columns fallback
-      else if (leadData.followUpDate) {
-        followUpDate = new Date(leadData.followUpDate)
-          .toISOString()
-          .split("T")[0];
-
-        day =
-          leadData.day ||
-          new Date(leadData.followUpDate).toLocaleDateString("en-US", {
-            weekday: "long",
-          });
-      }
-
-      // 3️⃣ Set edit form (UI-ready)
       setLeadEditForm({
         ...leadData,
-
-        // ✅ REQUIRED for <input type="date">
-        followUpDate,
-
-        // ✅ Read-only field, auto-calculated
-        day,
+        followUpDate: leadData.followUpDate
+          ? new Date(leadData.followUpDate).toISOString().split("T")[0]
+          : "",
+        day: leadData.day || "",
       });
 
-      // 4️⃣ Open modal
       setShowLeadEditModal(true);
-    } catch (err) {
-      console.error("❌ handleOpenEditLead failed:", err);
-      alert("Failed to load lead details. Please try again.");
+      return;
     }
-  };
 
-  // const handleSaveLead = async () => {
-  //   if (!leadEditForm.id) return;
+    // =====================================================
+    // ✅ CASE 2: NEW LEAD (FROM EMAIL)
+    // =====================================================
 
-  //   try {
-  //     // Utilize the specific ID-based update route
-  //     const res = await api.put(
-  //       `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
-  //       leadEditForm,
-  //     );
+    const allMessages = await getMessageBody();
 
-  //     if (res.data.success) {
-  //       alert("✅ Lead updated successfully!");
-  //       if (leadEditForm.country) setCountry(leadEditForm.country); // Sync UI
-  //       setShowLeadEditModal(false);
-  //     }
-  //   } catch (error) {
-  //     console.error("❌ Error updating lead:", error);
-  //     alert("Failed to save lead updates.");
-  //   }
-  // };
-  const handleSaveLead = async () => {
-    if (!leadEditForm.id) return;
+    const messageForBody =
+      allMessages.find((m) => m.direction === "received") ||
+      allMessages[allMessages.length - 1];
 
-    // ✅ Convert dd-mm-yyyy → Date
+    const rawBody =
+      messageForBody?.bodyHtml ||
+      messageForBody?.body ||
+      "";
+
+    // 🔥 FINAL BODY (CLEANED + FORMATTED)
+    const finalBody = formatEmailBody(rawBody);
+
+    const email =
+      selectedConversation.displayEmail ||
+      selectedConversation.primaryRecipient ||
+      selectedConversation.initiatorEmail ||
+      "";
+
+    const subject = selectedConversation.subject || "";
+
+    setLeadEditForm({
+      id: null,
+      client: email,
+      email: email,
+      phone: "",
+      subject: subject,
+      body: finalBody, // ✅ CLEAN BODY USED HERE
+      leadStatus: "NEW",
+      country: "",
+      followUpDate: "",
+      day: "",
+    });
+
+    setShowLeadEditModal(true);
+  } catch (err) {
+    console.error("❌ handleOpenEditLead error:", err);
+    alert("Failed to open lead editor");
+  }
+};
+
+  
+const handleSaveLead = async () => {
+  try {
+    if (!leadEditForm.email) {
+      alert("Email is required");
+      return;
+    }
+
+    // ✅ Convert followUpDate
     const parseDMY = (value) => {
       if (!value) return null;
+      if (value.includes("-")) return new Date(value); // already yyyy-mm-dd
       const [dd, mm, yyyy] = value.split("-");
       return new Date(`${yyyy}-${mm}-${dd}`);
     };
@@ -497,8 +468,6 @@ export default function MessageView({
 
     const payload = {
       ...leadEditForm,
-
-      // 🔥 NORMALIZATION (THIS IS THE KEY)
       followUpDate,
       isFollowedUp: !!followUpDate,
       day: followUpDate
@@ -509,22 +478,39 @@ export default function MessageView({
 
     console.log("🚀 Saving Lead Payload:", payload);
 
-    try {
-      const res = await api.put(
-        `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
-        payload,
-      );
+    let res;
 
-      if (res.data.success) {
-        alert("✅ Lead updated successfully!");
-        if (payload.country) setCountry(payload.country);
-        setShowLeadEditModal(false);
+    // =====================================================
+    // ✅ CASE 1: UPDATE EXISTING LEAD
+    // =====================================================
+      if (leadEditForm.id) {
+        // UPDATE
+        res = await api.put(
+          `${API_BASE_URL}/api/leads/update/${leadEditForm.id}`,
+          payload
+        );
+      } else {
+        // CREATE
+        res = await api.post(
+          `${API_BASE_URL}/api/leads`, // ✅ correct now
+          payload
+        );
       }
-    } catch (error) {
-      console.error("❌ Error updating lead:", error);
-      alert("Failed to save lead updates.");
+
+    if (res.data.success) {
+      alert("✅ Lead saved successfully!");
+
+      if (payload.country) setCountry(payload.country);
+
+      setShowLeadEditModal(false);
+    } else {
+      alert("❌ Failed to save lead");
     }
-  };
+  } catch (error) {
+    console.error("❌ Error saving lead:", error);
+    alert("Error saving lead");
+  }
+};
 
   const handleLeadFormChange = (field, value) => {
     setLeadEditForm((prev) => ({
@@ -1318,7 +1304,7 @@ export default function MessageView({
     messages.length > 0 ? messages[messages.length - 1] : null;
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-white min-w-0 overflow-hidden no-wrap">
       {/* Header */}
       <div className="border-b border-gray-200 px-6 py-4 bg-gray-50">
         <div className="flex items-center justify-between">
