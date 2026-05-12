@@ -862,3 +862,71 @@ router.get("/employee/:email", async (req, res) => {
 });
 
 export default router;
+
+
+
+// ==========================================================
+// ✅ CREATE NEW LEAD (MISSING API - FIX)
+// ==========================================================
+router.post("/", async (req, res) => {
+  try {
+    const {
+      client,
+      email,
+      cc,
+      phone,
+      subject,
+      body,
+      response,
+      leadStatus,
+      salesperson,
+      brand,
+      companyName,
+      dealValue,
+      result,
+      followUpDate,
+      country,
+    } = req.body;
+
+    if (!client || !email) {
+      return res.status(400).json({
+        success: false,
+        message: "Client and Email are required",
+      });
+    }
+
+    const newLead = await prisma.leadDetails.create({
+      data: {
+        client,
+        email,
+        cc,
+        phone,
+        subject,
+        body,
+        response,
+        leadStatus: leadStatus || "New",
+        salesperson,
+        brand,
+        companyName,
+        dealValue: dealValue ? parseFloat(dealValue) : null,
+        result: result || "pending",
+        followUpDate: followUpDate ? new Date(followUpDate) : null,
+        country,
+        date: new Date(),
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Lead created successfully",
+      data: newLead,
+    });
+  } catch (error) {
+    console.error("❌ Error creating lead:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while creating lead",
+      error: error.message,
+    });
+  }
+});

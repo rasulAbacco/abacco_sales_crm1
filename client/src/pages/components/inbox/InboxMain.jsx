@@ -396,7 +396,7 @@ export default function InboxMain() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+   <div className="flex h-screen bg-gray-50 overflow-hidden w-screen max-w-full">
       <ModernSidebar
         accounts={accounts}
         selectedAccount={selectedAccount}
@@ -408,7 +408,7 @@ export default function InboxMain() {
         onToggleCollapse={setSidebarCollapsed}
       />
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <InboxHeader
           selectedAccount={selectedAccount}
           selectedFolder={selectedFolder}
@@ -447,11 +447,11 @@ export default function InboxMain() {
           </div>
         )}
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden min-w-0">
           <div
             className={`${
-              selectedConversation ? "hidden lg:flex" : "flex"
-            } w-full lg:w-96 flex-col`}
+              selectedConversation ? "hidden lg:block" : "block"
+            } w-full lg:w-[380px] lg:min-w-[380px] lg:max-w-[380px] flex-shrink-0 flex flex-col overflow-hidden`}
           >
             <ConversationList
               selectedAccount={selectedAccount}
@@ -470,10 +470,10 @@ export default function InboxMain() {
           </div>
 
           <div
-            className={`${
-              selectedConversation ? "flex" : "hidden lg:flex"
-            } flex-1 flex-col`}
-          >
+              className={`${
+                selectedConversation ? "flex" : "hidden lg:flex"
+              } flex-1 flex-col min-w-0 overflow-hidden`}
+            >
             <MessageView
               selectedAccount={selectedAccount}
               selectedConversation={selectedConversation}
