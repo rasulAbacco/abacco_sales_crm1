@@ -65,8 +65,11 @@ export default function InboxMain() {
   const [selectedConversations, setSelectedConversations] = useState([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [conversations, setConversations] = useState([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
-
+const [conversationCache, setConversationCache] = useState({});
   // Fetch accounts on mount
   useEffect(() => {
     fetchAccounts();
@@ -171,8 +174,19 @@ export default function InboxMain() {
     if (!selectedAccount || activeView === "today") return;
 
     try {
+        const cacheKey = `${selectedAccount.id}-${selectedFolder}`;
+
+  
       setLoading(true);
-      const params = { folder: selectedFolder };
+      if (conversationCache[cacheKey] && page === 1) {
+        setConversations(conversationCache[cacheKey]);
+      }
+      // const params = { folder: selectedFolder };
+      const params = {
+        folder: selectedFolder,
+        page,
+        limit: 30,
+      };
 
       if (filters.leadStatus) params.leadStatus = filters.leadStatus;
       if (filters.country) params.country = filters.country;
@@ -195,12 +209,34 @@ export default function InboxMain() {
       // 🔥 FIX: Explicitly map leadDetailId from the conversation object
       const rawData = res.data?.data || [];
       const mappedData = rawData.map(normalizeConversation);
-      setConversations(mappedData);
+      if (page === 1) {
+      setConversationCache((prev) => ({
+        ...prev,
+        [cacheKey]: mappedData,
+      }));
+    }
+      setHasMore(res.data?.hasMore ?? false);
+      // setConversations(mappedData);
+      setConversations((prev) => {
+        if (page === 1) return mappedData;
+
+        const unique = Array.from(
+          new Map(
+            [...prev, ...mappedData].map((item) => [
+              item.conversationId,
+              item,
+            ])
+          ).values()
+        );
+
+        return unique;
+      });
     } catch (error) {
       console.error("Failed to fetch conversations:", error);
       setConversations([]);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -258,7 +294,7 @@ export default function InboxMain() {
     } else {
       fetchConversations();
     }
-  }, [selectedAccount, selectedFolder, activeView, filters, searchEmail]);
+}, [selectedAccount, selectedFolder, activeView, filters, searchEmail, page]);
 
   // Helper to update view and persist it
   const changeView = (view) => {
@@ -269,12 +305,16 @@ export default function InboxMain() {
   const handleAccountSelect = (account) => {
     setSelectedAccount(account);
     setSelectedConversation(null); // ✅ This is fine - we're changing accounts
+         setPage(1);
+    //  setConversations([]);
     setShowMobileConversations(true);
     changeView("inbox");
   };
   const handleFolderSelect = (folder) => {
     setSelectedFolder(folder);
     setSelectedConversation(null); // ✅ This is fine - we're changing folders
+     setPage(1);
+    //  setConversations([]);
     setShowMobileConversations(true);
     changeView("inbox");
   };
@@ -298,10 +338,14 @@ export default function InboxMain() {
 
   const handleFilterApply = (newFilters) => {
     changeView("inbox");
+      setPage(1);
+      setConversations([]);
     setFilters(newFilters);
   };
 
   const handleSearchEmail = (email) => {
+      setPage(1);
+  setConversations([]);
     setSearchEmail(email);
   };
 
@@ -396,8 +440,8 @@ export default function InboxMain() {
   };
 
   return (
-   <div className="flex h-screen bg-gray-50 overflow-hidden w-screen max-w-full">
-      <ModernSidebar
+  <div className="flex h-screen bg-gray-50 overflow-hidden w-full">     
+   <ModernSidebar
         accounts={accounts}
         selectedAccount={selectedAccount}
         selectedFolder={selectedFolder}
@@ -408,7 +452,7 @@ export default function InboxMain() {
         onToggleCollapse={setSidebarCollapsed}
       />
 
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+<div className="flex-1 flex flex-col overflow-hidden" style={{minWidth: 0, width: 0}}>
         <InboxHeader
           selectedAccount={selectedAccount}
           selectedFolder={selectedFolder}
@@ -447,12 +491,17 @@ export default function InboxMain() {
           </div>
         )}
 
-        <div className="flex-1 flex overflow-hidden min-w-0">
-          <div
-            className={`${
-              selectedConversation ? "hidden lg:block" : "block"
-            } w-full lg:w-[380px] lg:min-w-[380px] lg:max-w-[380px] flex-shrink-0 flex flex-col overflow-hidden`}
-          >
+        <div className="flex-1 flex overflow-hidden" style={{minWidth: 0}}>     
+           <div
+        className={`${
+          selectedConversation ? "hidden lg:flex" : "flex"
+        } flex-col overflow-hidden border-r bg-white flex-shrink-0`}
+        style={{
+          width: '380px',
+          minWidth: '380px', 
+          maxWidth: '380px',
+        }}
+      >
             <ConversationList
               selectedAccount={selectedAccount}
               selectedFolder={selectedFolder}
@@ -466,14 +515,21 @@ export default function InboxMain() {
               conversations={conversations}
               setConversations={setConversations}
               activeView={activeView}
+              page={page}
+              setPage={setPage}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              setLoadingMore={setLoadingMore}
+              loading={loading}
             />
           </div>
 
           <div
-              className={`${
-                selectedConversation ? "flex" : "hidden lg:flex"
-              } flex-1 flex-col min-w-0 overflow-hidden`}
-            >
+            className={`${
+              selectedConversation ? "flex" : "hidden lg:flex"
+            } flex-col overflow-hidden`}
+            style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', width: 0 }}
+      >
             <MessageView
               selectedAccount={selectedAccount}
               selectedConversation={selectedConversation}

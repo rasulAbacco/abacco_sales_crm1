@@ -5,6 +5,23 @@ html, body {
   font-family: 'Inter', system-ui, sans-serif;
 } */
 
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+
+/* Prevent flex children from resizing based on content */
+
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -26,7 +43,6 @@ img {
   display: block;
 }
 
-///////////////////////////////////////////////////////////////
 /* 🎨 Enhanced MessageView Styles - Smooth Outlook-like Experience */
 
 /* ============================================================
@@ -514,7 +530,7 @@ button:active::before {
    SMOOTH FOCUS TRANSITIONS
    ============================================================ */
 
-* {
+button, input, select, textarea, [contenteditable] {
   transition: outline 0.2s ease;
 }
 
@@ -535,9 +551,9 @@ button:active::before {
   }
 }
 
-.email-body {
+/* .email-body {
   line-height: 1.15;
-}
+} */
 
 .email-body p {
   margin-top: 0 !important;
@@ -548,4 +564,145 @@ button:active::before {
 .email-body p:empty,
 .email-body p:has(br:only-child) {
   margin-bottom: 12px !important;
+}
+  .email-body {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  color: #111827;
+  line-height: 1.6;
+}
+
+/* Prevent giant headings only */
+.email-body h1 {
+  font-size: clamp(24px, 4vw, 32px) !important;
+}
+
+.email-body h2 {
+  font-size: clamp(22px, 3.5vw, 28px) !important;
+}
+
+.email-body h3 {
+  font-size: clamp(20px, 3vw, 24px) !important;
+}
+
+/* Prevent insane font sizes */
+.email-body img,
+.email-body table,
+.email-body td,
+.email-body div {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.email-content-wrapper {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.email-body {
+  overflow-x: auto;
+}
+
+/* Only clamp VERY LARGE fonts */
+.email-body [style*="font-size: 72"],
+.email-body [style*="font-size:72"],
+.email-body [style*="font-size: 80"],
+.email-body [style*="font-size:80"],
+.email-body [style*="font-size: 90"],
+.email-body [style*="font-size:90"],
+.email-body [style*="font-size: 96"],
+.email-body [style*="font-size:96"],
+.email-body [style*="font-size: 100"],
+.email-body [style*="font-size:100"] {
+  font-size: 32px !important;
+}
+
+/* Images responsive */
+.email-body img {
+  max-width: 100% !important;
+  height: auto !important;
+}
+/* ============================================================
+   EMAIL BODY - RESPONSIVE CONTAINMENT
+   ============================================================ */
+
+.email-content-wrapper {
+  overflow-x: auto;
+  max-width: 100%;
+  width: 100%;
+}
+
+.email-body {
+  max-width: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  color: #111827;
+  line-height: 1.6;
+}
+
+/* All elements inside email must stay contained */
+.email-body * {
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Tables scroll horizontally instead of overflowing */
+.email-body table {
+  display: block !important;
+  overflow-x: auto !important;
+  max-width: 100% !important;
+  white-space: normal !important;
+  width: auto !important;
+}
+
+/* Override HTML width attributes */
+.email-body *[width] {
+  width: auto !important;
+  max-width: 100% !important;
+}
+
+.email-body td,
+.email-body th {
+  white-space: normal !important;
+  max-width: none !important;
+}
+
+.email-body img {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block !important;
+}
+
+/* Font size clamps */
+.email-body h1 { font-size: clamp(24px, 4vw, 32px) !important; }
+.email-body h2 { font-size: clamp(22px, 3.5vw, 28px) !important; }
+.email-body h3 { font-size: clamp(20px, 3vw, 24px) !important; }
+
+.email-body [style*="font-size: 72"], .email-body [style*="font-size:72"],
+.email-body [style*="font-size: 80"], .email-body [style*="font-size:80"],
+.email-body [style*="font-size: 96"], .email-body [style*="font-size:96"],
+.email-body [style*="font-size: 100"], .email-body [style*="font-size:100"] {
+  font-size: 32px !important;
+}
+
+.email-body p {
+  margin-top: 0 !important;
+  margin-bottom: 12px !important;
+  line-height: 1.15 !important;
+}
+
+/* Nuclear option - force contain via CSS containment */
+.email-content-wrapper {
+  contain: layout inline-size;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.email-body table {
+  table-layout: fixed !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  display: table !important;
 }

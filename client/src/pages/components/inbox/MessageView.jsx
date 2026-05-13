@@ -1302,9 +1302,29 @@ const handleSaveLead = async () => {
   // const latestMessage = messages.length > 0 ? messages[0] : null;
   const latestMessage =
     messages.length > 0 ? messages[messages.length - 1] : null;
+    const sanitizeEmailHtml = (html) => {
+  if (!html) return "";
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  
+  // Remove width/height attributes from tables and cells
+  doc.querySelectorAll("table, td, th, tr, div, img").forEach((el) => {
+    el.removeAttribute("width");
+    el.removeAttribute("height");
+    // Remove inline width styles from tables only
+    if (el.tagName === "TABLE") {
+      el.style.width = "100%";
+      el.style.maxWidth = "100%";
+      el.style.tableLayout = "fixed";
+    }
+  });
+
+  return doc.body.innerHTML;
+};
 
   return (
-    <div className="flex flex-col h-full bg-white min-w-0 overflow-hidden no-wrap">
+    <div className="flex flex-col h-full bg-white overflow-hidden" style={{minWidth: 0, width: '100%', maxWidth: '100%'}}>
+
       {/* Header */}
       <div className="border-b border-gray-200 px-6 py-4 bg-gray-50">
         <div className="flex items-center justify-between">
@@ -1421,13 +1441,13 @@ const handleSaveLead = async () => {
       )}
 
       {/* Messages List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" style={{minWidth: 0, maxWidth: '100%', overflowX: 'hidden'}}>
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
           </div>
         ) : (
-          <div className="max-w-4xl mx-auto py-6 px-6 space-y-4">
+          <div className="max-w-4xl mx-auto py-6 px-6 space-y-4" style={{minWidth: 0, maxWidth: '100%'}}>
             {messages
               .filter((msg) => {
                 if (selectedFolder === "sent") return msg.direction === "sent";
@@ -1635,7 +1655,7 @@ const handleSaveLead = async () => {
                               </h3>
                             )}
 
-                            <div
+                            {/* <div
                               className="email-body"
                               style={{
                                 fontFamily: "Calibri, Arial, sans-serif",
@@ -1646,8 +1666,15 @@ const handleSaveLead = async () => {
                               dangerouslySetInnerHTML={{
                                 __html: message.bodyHtml || message.body || "",
                               }}
-                            />
-
+                            /> */}
+<div style={{ overflowX: 'auto', maxWidth: '100%', width: '100%' }}>
+  <div
+    className="email-body"
+    dangerouslySetInnerHTML={{
+      __html: sanitizeEmailHtml(message.bodyHtml || message.body || ""),
+    }}
+  />
+</div>
                             {message.attachments?.length > 0 && (
                               <div className="mt-6 pt-4 border-t border-gray-100">
                                 <h4 className="text-[10px] font-bold text-gray-400 uppercase mb-3 flex items-center gap-2 tracking-widest">

@@ -178,6 +178,8 @@ model Conversation {
 
   @@index([lastMessageAt])
   @@index([initiatorEmail])
+  @@index([lastMessageAt, unreadCount])
+@@index([leadDetailId])
 }
 
 // ============================================================
@@ -280,6 +282,9 @@ model EmailMessage {
   @@index([threadId])
   @@index([fromEmail])
   @@index([toEmail])
+  @@index([emailAccountId, folder, sentAt])
+@@index([conversationId, sentAt])
+@@index([isRead, folder])
 }
 
 // ============================================================
@@ -593,6 +598,7 @@ model ScheduledMessage {
 
   @@index([status, sendAt])
   @@index([accountId])
+  @@index([conversationId])
 }
 
 model CustomLeadStatus {

@@ -401,19 +401,26 @@ router.get("/conversations/:accountId", async (req, res) => {
       country,
       leadStatus,
       searchEmail,
-      followUpHistoryDate, // ✅ ADD THIS LINE
+      followUpHistoryDate, 
+      page = 1,
+      limit = 30,// ✅ ADD THIS LINE
     } = req.query;
     const cacheKey = `inbox:${accountId}:${folder}:${JSON.stringify(req.query)}`;
+    const currentPage = Number(page) || 1;
+    const take = Number(limit) || 30;
+    const skip = (currentPage - 1) * take;
 
     const cached = getInboxCache(cacheKey);
-    if (cached) {
-      return res.json({
-        success: true,
-        total: cached.length,
-        data: cached,
-        cached: true,
-      });
-    }
+ if (cached) {
+  return res.json({
+    success: true,
+    total: cached.length,
+    currentPage,
+    hasMore: cached.length === take,
+    data: cached,
+    cached: true,
+  });
+}
 
     /* ==================================================
        1️⃣ BUILD SQL CONDITIONS
@@ -557,6 +564,8 @@ router.get("/conversations/:accountId", async (req, res) => {
        3️⃣ FETCH CONVERSATIONS
     ================================================== */
     const conversations = await prisma.conversation.findMany({
+        skip,
+        take,
       where: {
         messages: {
           some:
@@ -784,11 +793,13 @@ router.get("/conversations/:accountId", async (req, res) => {
     ================================================== */
     setInboxCache(cacheKey, result);
 
-    return res.json({
-      success: true,
-      total: result.length,
-      data: result,
-    });
+  return res.json({
+    success: true,
+    total: result.length,
+    currentPage,
+    hasMore: result.length === take,
+    data: result,
+  });
   } catch (err) {
     console.error("🔥 Inbox conversations error:", err);
     return res.status(500).json({

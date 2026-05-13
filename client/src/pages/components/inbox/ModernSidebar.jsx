@@ -62,9 +62,12 @@ export default function ModernSidebar({
 
   return (
     <div
-      className={`bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ${
-        isCollapsed ? "w-16" : "w-80"
-      }`}
+    className="bg-white border-r border-gray-200 flex flex-col flex-shrink-0 overflow-hidden transition-all duration-300"
+    style={{
+      width: isCollapsed ? '64px' : '320px',
+      minWidth: isCollapsed ? '64px' : '320px',
+      maxWidth: isCollapsed ? '64px' : '320px',
+    }}
     >
       {/* Header */}
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">

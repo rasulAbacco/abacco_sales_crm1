@@ -218,8 +218,8 @@ export default function InboxHeader({
   }).length;
 
   return (
-    <div className="bg-white border-b border-gray-200 px-6 py-3">
-      <div className="flex items-center justify-between mb-3">
+    <div className="bg-white border-b border-gray-200 px-3 sm:px-4 lg:px-6 py-3">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-3">
         {/* Left Side */}
         <div className="flex items-center gap-4">
           <div>
@@ -236,7 +236,7 @@ export default function InboxHeader({
         </div>
 
         {/* Right Side */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={onTodayFollowUpClick}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
@@ -278,7 +278,7 @@ export default function InboxHeader({
 
             {/* Filter Dropdown */}
             {showFilterDropdown && (
-              <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-[80vh] overflow-y-auto">
+              <div className="absolute right-0 mt-2 w-[95vw] sm:w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-[80vh] overflow-y-auto">
                 <div className="p-4 border-b border-gray-200 flex items-center justify-between">
                   <h3 className="font-semibold text-gray-900">
                     Filter Messages

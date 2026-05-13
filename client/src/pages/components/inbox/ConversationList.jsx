@@ -18,6 +18,12 @@ export default function ConversationList({
   conversations,
   setConversations,
   activeView,
+  page,
+  setPage,
+  hasMore,
+  loadingMore,
+  setLoadingMore,
+  loading,
 }) {
   const [sortBy, setSortBy] = useState("date");
   const [sortOrder, setSortOrder] = useState("desc");
@@ -168,9 +174,9 @@ export default function ConversationList({
   }
 
   return (
-    <div className="flex flex-col h-full bg-white border-r border-gray-200">
+    <div className="flex flex-col h-full bg-white border-r border-gray-200 min-w-0">
       {/* Sort Header */}
-      <div className="border-b border-gray-200 px-4 py-3 flex items-center justify-between bg-gray-50">
+      <div className="border-b border-gray-200 px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-gray-50">
         <h3 className="text-sm font-semibold text-gray-700">
           {conversations.length} Conversation
           {conversations.length !== 1 ? "s" : ""}
@@ -212,7 +218,27 @@ export default function ConversationList({
       </div>
 
       {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="relative flex-1 overflow-y-auto"
+        onScroll={(e) => {
+          const bottom =
+            e.currentTarget.scrollHeight -
+              e.currentTarget.scrollTop <=
+            e.currentTarget.clientHeight + 200;
+
+          if (bottom && hasMore && !loadingMore) {
+            setLoadingMore(true);
+            setPage((prev) => prev + 1);
+          }
+        }}
+      >
+        {loading && page === 1 && conversations.length > 0 && (
+        <div className="absolute inset-0 bg-white/60 z-10 flex items-center justify-center">
+          <div className="text-sm text-gray-500">
+            Loading conversations...
+          </div>
+        </div>
+      )}
         {conversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500 p-8">
             <Mail className="w-12 h-12 opacity-20 mb-4" />
@@ -281,8 +307,8 @@ export default function ConversationList({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1 min-w-0 gap-2">
+                     <div className="flex items-center gap-2 flex-1 min-w-0 overflow-hidden">
                         <span
                           className={`text-sm truncate ${
                             conversation.unreadCount > 0
@@ -356,6 +382,11 @@ export default function ConversationList({
               </div>
             );
           })
+        )}
+        {loadingMore && (
+          <div className="p-4 text-center text-sm text-gray-500">
+            Loading more conversations...
+          </div>
         )}
       </div>
     </div>
