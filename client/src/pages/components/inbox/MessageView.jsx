@@ -57,6 +57,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 // MAIN MESSAGE VIEW COMPONENT
 // ==========================================
 export default function MessageView({
+  refreshKey,
   selectedAccount,
   selectedConversation,
   selectedFolder,
@@ -669,7 +670,7 @@ const handleSaveLead = async () => {
       fetchCountry();
       fetchAccountUserName();
     }
-  }, [selectedConversation, selectedAccount, selectedFolder]);
+  }, [ selectedConversation, selectedAccount,selectedFolder,refreshKey,]);
 
   useEffect(() => {
     if (scheduledDraft) {

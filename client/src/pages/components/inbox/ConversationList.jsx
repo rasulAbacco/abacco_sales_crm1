@@ -6,6 +6,7 @@ import { api } from "../../../pages/api.js";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export default function ConversationList({
+  conversationListRef,
   selectedAccount,
   selectedFolder,
   onConversationSelect,
@@ -219,6 +220,7 @@ export default function ConversationList({
 
       {/* Conversations List */}
       <div
+      ref={conversationListRef}
         className="relative flex-1 overflow-y-auto"
         onScroll={(e) => {
           const bottom =

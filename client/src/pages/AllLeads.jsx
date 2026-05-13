@@ -26,6 +26,8 @@ export default function AllLeads() {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
   const [filterType, setFilterType] = useState("all");
+  const [page, setPage] = useState(1);
+const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     const fetchSalespersons = async () => {
@@ -50,8 +52,11 @@ export default function AllLeads() {
   useEffect(() => {
     const fetchLeads = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/sales/leads`);
+      const res = await fetch(
+        `${API_BASE_URL}/api/sales/leads?page=${page}&limit=20`
+      );
         const json = await res.json();
+        setTotalPages(json.totalPages || 1);
         let leadsData = [];
         if (json && Array.isArray(json.data)) {
           leadsData = json.data;
@@ -71,7 +76,7 @@ export default function AllLeads() {
     };
     
     fetchLeads();
-  }, []);
+ }, [page]);
 
   // Apply search and filters
   useEffect(() => {
@@ -594,6 +599,28 @@ export default function AllLeads() {
           </div>
         </div>
       )}
+      {/* Pagination */}
+      <div className="flex justify-center items-center gap-4 mt-10 pb-6">
+        <button
+          disabled={page === 1}
+          onClick={() => setPage((prev) => prev - 1)}
+          className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-medium shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Previous
+        </button>
+
+        <div className="px-4 py-2 rounded-lg bg-white border border-gray-200 shadow-sm text-sm font-semibold text-gray-700">
+          Page {page} of {totalPages}
+        </div>
+
+        <button
+          disabled={page === totalPages}
+          onClick={() => setPage((prev) => prev + 1)}
+          className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-medium shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 }

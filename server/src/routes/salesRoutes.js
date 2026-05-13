@@ -132,8 +132,48 @@ router.post("/leads/bulk", async (req, res) => {
  * GET /api/sales/leads
  * ============================================================
  */
+// router.get("/leads", async (req, res) => {
+//   try {
+//     const leads = await prisma.salesLead.findMany({
+//       where: {
+//         leadStatus: "New",
+//       },
+//       orderBy: {
+//         createdAt: "desc",
+//       },
+//     });
+
+//     return res.json({
+//       success: true,
+//       total: leads.length,
+//       data: leads,
+//     });
+//   } catch (error) {
+//     console.error("❌ Fetch SalesLeads error:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch sales leads",
+//       error: error.message,
+//     });
+//   }
+// });
 router.get("/leads", async (req, res) => {
   try {
+    // ✅ Pagination params
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 20;
+
+    // ✅ Calculate skip
+    const skip = (page - 1) * limit;
+
+    // ✅ Total count
+    const total = await prisma.salesLead.count({
+      where: {
+        leadStatus: "New",
+      },
+    });
+
+    // ✅ Paginated fetch
     const leads = await prisma.salesLead.findMany({
       where: {
         leadStatus: "New",
@@ -141,15 +181,26 @@ router.get("/leads", async (req, res) => {
       orderBy: {
         createdAt: "desc",
       },
+
+      skip,
+      take: limit,
     });
 
     return res.json({
       success: true,
-      total: leads.length,
+
+      // ✅ Pagination info
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+
+      // ✅ Actual data
       data: leads,
     });
   } catch (error) {
     console.error("❌ Fetch SalesLeads error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch sales leads",

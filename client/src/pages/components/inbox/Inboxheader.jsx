@@ -20,6 +20,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 export default function InboxHeader({
   selectedAccount,
   selectedFolder,
+  handleRefresh,
   onFilterApply,
   onTodayFollowUpClick,
   onScheduleClick,
@@ -237,6 +238,13 @@ export default function InboxHeader({
 
         {/* Right Side */}
         <div className="flex flex-wrap items-center gap-2">
+         <button
+            onClick={handleRefresh}
+            className="p-2 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCcw className="w-4 h-4 text-gray-600" />
+          </button>
           <button
             onClick={onTodayFollowUpClick}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"

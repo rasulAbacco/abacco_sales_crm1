@@ -379,6 +379,7 @@ router.get("/conversation/:conversationId/lead", async (req, res) => {
     res.status(500).json({ success: false, leadDetailId: null });
   }
 });
+
 router.get("/conversations/:accountId", async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
@@ -410,16 +411,32 @@ router.get("/conversations/:accountId", async (req, res) => {
     const take = Number(limit) || 30;
     const skip = (currentPage - 1) * take;
 
-    const cached = getInboxCache(cacheKey);
- if (cached) {
-  return res.json({
-    success: true,
-    total: cached.length,
-    currentPage,
-    hasMore: cached.length === take,
-    data: cached,
-    cached: true,
-  });
+//     const cached = getInboxCache(cacheKey);
+//  if (cached) {
+//   return res.json({
+//     success: true,
+//     total: cached.length,
+//     currentPage,
+//     hasMore: cached.length === take,
+//     data: cached,
+//     cached: true,
+//   });
+// }
+const forceRefresh = req.query.refresh === "true";
+
+if (!forceRefresh) {
+  const cached = getInboxCache(cacheKey);
+
+  if (cached) {
+    return res.json({
+      success: true,
+      total: cached.length,
+      currentPage,
+      hasMore: cached.length === take,
+      data: cached,
+      cached: true,
+    });
+  }
 }
 
     /* ==================================================
@@ -810,6 +827,137 @@ router.get("/conversations/:accountId", async (req, res) => {
   }
 });
 
+router.get("/refresh/:accountId", async (req, res) => {
+  try {
+    const accountId = Number(req.params.accountId);
+
+    if (!accountId) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid accountId",
+      });
+    }
+
+    const {
+      folder = "inbox",
+      limit = 30,
+    } = req.query;
+
+    const take = Number(limit) || 30;
+
+    // 🔥 FAST DIRECT QUERY
+    const latestMessages = await prisma.emailMessage.findMany({
+      where:
+        folder === "trash"
+          ? {
+              emailAccountId: accountId,
+              isTrash: true,
+              hideTrash: false,
+            }
+          : folder === "spam"
+          ? {
+              emailAccountId: accountId,
+              isSpam: true,
+              isTrash: false,
+            }
+          : folder === "sent"
+          ? {
+              emailAccountId: accountId,
+              folder: "sent",
+              isTrash: false,
+            }
+          : {
+              emailAccountId: accountId,
+              direction: "received",
+              isTrash: false,
+              isSpam: false,
+              hideInbox: false,
+            },
+
+      orderBy: {
+        sentAt: "desc",
+      },
+
+      take,
+
+      select: {
+        id: true,
+        conversationId: true,
+        subject: true,
+        leadDetailId: true,
+        fromEmail: true,
+        fromName: true,
+        toEmail: true,
+        toName: true,
+        body: true,
+        sentAt: true,
+        direction: true,
+      },
+    });
+
+    // 🔥 REMOVE DUPLICATE CONVERSATIONS
+    const uniqueMap = new Map();
+
+    for (const m of latestMessages) {
+      if (!uniqueMap.has(m.conversationId)) {
+        uniqueMap.set(m.conversationId, m);
+      }
+    }
+
+    const result = Array.from(uniqueMap.values()).map((m) => {
+      let displayName;
+      let displayEmail;
+
+      if (m.direction === "received") {
+        displayName = m.fromName || m.fromEmail;
+        displayEmail = m.fromEmail;
+      } else {
+        const firstTo = m.toEmail?.split(",")[0] || "";
+        displayName = m.toName || firstTo;
+        displayEmail = firstTo;
+      }
+
+      return {
+        conversationId: m.conversationId,
+        subject: m.subject || "(No Subject)",
+        leadDetailId: m.leadDetailId,
+        initiatorEmail: m.fromEmail,
+        lastSenderEmail: m.fromEmail,
+        displayName,
+        displayEmail,
+        lastDate: m.sentAt,
+
+        lastBody: m.body
+          ? m.body
+              .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, "")
+              .replace(/<[^>]+>/g, " ")
+              .replace(/&nbsp;/g, " ")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 120)
+          : "",
+
+        unreadCount: 0,
+        messageCount: 1,
+        isStarred: false,
+      };
+    });
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    console.error("🔥 FAST REFRESH ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Refresh failed",
+      error: err.message,
+    });
+  }
+});
+
 router.get("/conversations/:accountId/stats", async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
@@ -844,6 +992,7 @@ router.get("/conversations/:accountId/stats", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 /* 📧 GET: All Messages in a Conversation Thread */
 router.get("/conversations/:conversationId/messages", async (req, res) => {
   const { conversationId } = req.params;

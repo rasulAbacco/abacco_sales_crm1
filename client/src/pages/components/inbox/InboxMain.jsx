@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { RefreshCcw } from "lucide-react";
 import ModernSidebar from "./ModernSidebar";
 import InboxHeader from "./Inboxheader.jsx";
 import ConversationList from "./ConversationList";
@@ -69,7 +70,9 @@ export default function InboxMain() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 const [conversationCache, setConversationCache] = useState({});
+const conversationListRef = useRef(null);
   // Fetch accounts on mount
   useEffect(() => {
     fetchAccounts();
@@ -371,6 +374,61 @@ const [conversationCache, setConversationCache] = useState({});
     });
   };
 
+    const handleRefresh = async () => {
+      if (!selectedAccount) return;
+
+      try {
+        setLoading(true);
+
+        // preserve scroll position
+        const scrollTop =
+          conversationListRef.current?.scrollTop || 0;
+
+        const res = await api.get(
+          `${API_BASE_URL}/api/inbox/refresh/${selectedAccount.id}`,
+          {
+            params: {
+              folder: selectedFolder,
+              page: 1,
+              limit: 30,
+              refresh: true,
+            },
+          }
+        );
+
+        const refreshed = (res.data?.data || []).map(
+          normalizeConversation
+        );
+
+        setConversations(refreshed);
+        setRefreshKey((prev) => prev + 1);
+
+        // restore scroll position
+        requestAnimationFrame(() => {
+          if (conversationListRef.current) {
+            conversationListRef.current.scrollTop = scrollTop;
+          }
+        });
+
+        // keep selected conversation selected
+        if (selectedConversation) {
+          const updatedConversation = refreshed.find(
+            (c) =>
+              c.conversationId ===
+              selectedConversation.conversationId
+          );
+
+          if (updatedConversation) {
+            setSelectedConversation(updatedConversation);
+          }
+        }
+      } catch (error) {
+        console.error("Refresh failed:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
   const handleSchedule = () => {
     setIsScheduleMode(true);
     // Do NOT clear selectedConversations here, or the modal will receive an empty array
@@ -456,6 +514,7 @@ const [conversationCache, setConversationCache] = useState({});
         <InboxHeader
           selectedAccount={selectedAccount}
           selectedFolder={selectedFolder}
+          handleRefresh={handleRefresh}
           onFilterApply={handleFilterApply}
           onSearchEmail={handleSearchEmail}
           onTodayFollowUpClick={handleTodayFollowUp}
@@ -503,6 +562,7 @@ const [conversationCache, setConversationCache] = useState({});
         }}
       >
             <ConversationList
+              conversationListRef={conversationListRef}
               selectedAccount={selectedAccount}
               selectedFolder={selectedFolder}
               onConversationSelect={handleConversationSelect}
@@ -531,6 +591,7 @@ const [conversationCache, setConversationCache] = useState({});
             style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', width: 0 }}
       >
             <MessageView
+            refreshKey={refreshKey}
               selectedAccount={selectedAccount}
               selectedConversation={selectedConversation}
               selectedFolder={selectedFolder}
