@@ -1,5 +1,7 @@
+//server\src\services\scheduledEmail.service.js
 import nodemailer from "nodemailer";
 import prisma from "../prismaClient.js";
+import { normalizeEmailHtml } from "../utils/normalizeEmailHtml.js";
 
 export async function sendScheduledEmail(msg) {
   if (!msg.emailAccount) {
@@ -70,7 +72,7 @@ export async function sendScheduledEmail(msg) {
         <b>To:</b> ${message.toEmail || ""}<br>
         <b>Subject:</b> ${message.subject || ""}<br>
         <br>
-        ${message.bodyHtml || message.bodyText || ""}
+       ${normalizeEmailHtml(message.bodyHtml || message.bodyText || "")}
       </div>
     `;
   }
@@ -79,7 +81,8 @@ export async function sendScheduledEmail(msg) {
      🔥 STEP 4: Clean Body + Append History
   ============================================================ */
 
-  const cleanedBody = (msg.bodyHtml || "");
+  // const cleanedBody = (msg.bodyHtml || "");
+  const cleanedBody = normalizeEmailHtml(msg.bodyHtml || "");
 
   const fullHtmlBody = cleanedBody + fullHistoryHtml;
 

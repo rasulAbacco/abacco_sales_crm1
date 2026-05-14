@@ -149,32 +149,71 @@ export default function EnhancedScheduleModal({
     const senderName =
       account?.senderName || account?.email?.split("@")[0] || "Me";
 
-    const signatureHtml =
-      includeSignature && selectedAccountId
-        ? `<br><br>Best Regards,<br><strong>${senderName}</strong>`
-        : "";
+    // const signatureHtml =
+    //   includeSignature && selectedAccountId
+    //     ? `<br><br>Best Regards,<br><strong>${senderName}</strong>`
+    //     : "";
 
+    // const updated = recipients.map((r) => {
+    //   // 1. Get Template Body
+    //   let newBody = selectedTemplate.bodyHtml || r.body;
+
+    //   // 2. Replace Placeholders
+    //   newBody = replacePlaceholders(newBody, {
+    //     senderName,
+    //     clientName: r.name,
+    //     email: r.email,
+    //     company: "",
+    //   });
+
+    //   // 3. Append Signature
+    //   newBody = newBody + signatureHtml;
+
+    //   return {
+    //     ...r,
+    //     subject: selectedTemplate?.subject || r.subject,
+    //     body: newBody,
+    //   };
+    // });
     const updated = recipients.map((r) => {
-      // 1. Get Template Body
-      let newBody = selectedTemplate.bodyHtml || r.body;
+  // 1. Get Template Body
+  let newBody = selectedTemplate.bodyHtml || r.body;
 
-      // 2. Replace Placeholders
-      newBody = replacePlaceholders(newBody, {
-        senderName,
-        clientName: r.name,
-        email: r.email,
-        company: "",
-      });
+  // 2. Replace Placeholders
+  newBody = replacePlaceholders(newBody, {
+    senderName,
+    clientName: r.name,
+    email: r.email,
+    company: "",
+  });
 
-      // 3. Append Signature
-      newBody = newBody + signatureHtml;
+  // 3. Remove extra ending spaces / <br>
+  newBody = newBody
+    .replace(/(<br\s*\/?>\s*)+$/gi, "")
+    .trim();
 
-      return {
-        ...r,
-        subject: selectedTemplate?.subject || r.subject,
-        body: newBody,
-      };
-    });
+  // 4. Add single spacing before signature
+  const signatureHtml =
+    includeSignature && selectedAccountId
+      ? `<br>Best Regards,<br><strong>${senderName}</strong>`
+      : "";
+
+  // 5. Final body
+  // 5. Convert Quill paragraphs to Outlook-safe HTML
+newBody = newBody
+  .replace(/<p><br><\/p>/gi, "<br>")
+  .replace(/<p>/gi, '<p style="margin:0;">')
+  .replace(/<\/p>/gi, "</p>");
+
+// 6. Final body
+newBody = newBody + signatureHtml;
+
+  return {
+    ...r,
+    subject: selectedTemplate?.subject || r.subject,
+    body: newBody,
+  };
+});
 
     setRecipients(updated);
   };

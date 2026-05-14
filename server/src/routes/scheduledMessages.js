@@ -1,6 +1,7 @@
 import express from "express";
 import prisma from "../prismaClient.js"; // Ensure this path matches your project structure
 import { protect } from "../middlewares/authMiddleware.js";
+import { normalizeEmailHtml } from "../utils/normalizeEmailHtml.js";
 
 const router = express.Router();
 
@@ -178,7 +179,7 @@ router.post("/send-scheduled-now", protect, async (req, res) => {
       to: scheduled.toEmail,
       cc: scheduled.ccEmail || undefined,
       subject: scheduled.subject || "(No Subject)",
-      html: scheduled.bodyHtml || "",
+      html: normalizeEmailHtml(scheduled.bodyHtml || ""),
     });
 
     // 5️⃣ 🔥 CRITICAL FIX: mark as sent
