@@ -330,7 +330,21 @@ const [totalPages, setTotalPages] = useState(1);
                               {lead.leadType}
                             </span>
                           </div>
-                          <p className="text-sm text-gray-500">Lead Email: {lead.email || "-"}</p>
+                         <div className="space-y-2 mt-2">
+                          <p className="text-sm text-gray-500">
+                            Lead Email: {lead.email || "-"}
+                          </p>
+
+                          {lead.referenceEmployeeName && (
+                            <div className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">
+                              <User className="w-3.5 h-3.5 text-blue-600" />
+
+                              <span className="text-xs font-semibold text-blue-700">
+                                Lead CRM Handler: {lead.referenceEmployeeName}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                         </div>
                       </div>
 
