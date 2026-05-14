@@ -259,6 +259,7 @@ router.post("/", protect, async (req, res) => {
       smtpUser,
       encryptedPass,
       authType,
+        senderName,
     } = req.body;
 
     // 1. Validation
@@ -366,6 +367,7 @@ router.post("/", protect, async (req, res) => {
         smtpUser,
         encryptedPass,
         authType,
+         senderName: senderName?.trim() || null,
         verified: true,
       },
     });
@@ -728,4 +730,5 @@ router.patch("/:id/sender-name", protect, async (req, res) => {
     });
   }
 });
+
 export default router;

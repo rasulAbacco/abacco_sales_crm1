@@ -207,6 +207,74 @@ router.post("/send-scheduled-now", protect, async (req, res) => {
 /* ============================================================
     📦 POST /scheduled-messages/bulk
     ============================================================ */
+// router.post("/bulk", protect, async (req, res) => {
+//   try {
+//     const { accountId, sendAt, messages } = req.body;
+
+//     if (!sendAt || !Array.isArray(messages)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "sendAt and messages[] are required",
+//       });
+//     }
+
+//     // 1. Verify Account (Optional)
+//     let verifiedAccountId = null;
+//     if (accountId) {
+//       const account = await prisma.emailAccount.findFirst({
+//         where: { id: Number(accountId), userId: req.user.id },
+//       });
+//       if (account) verifiedAccountId = account.id;
+//     }
+
+//     const results = [];
+
+//     for (const msg of messages) {
+//       // 🔥 Extract leadStatus from the request
+//       const {
+//         conversationId,
+//         subject,
+//         bodyHtml,
+//         attachments,
+//         toEmail,
+//         leadStatus,
+//       } = msg;
+
+//       // ... (Email resolution logic same as before) ...
+//       let finalToEmail = toEmail;
+//       // [Insert resolveToEmailFromConversation logic if needed]
+
+//       if (!finalToEmail) continue;
+
+//       // 2. Create Record with leadStatus
+//       const row = await prisma.scheduledMessage.create({
+//         data: {
+//           userId: req.user.id,
+//           accountId: verifiedAccountId,
+//           conversationId,
+//           toEmail: finalToEmail,
+//           subject,
+//           bodyHtml: bodyHtml || "", // ✅ Allow empty body
+//           sendAt: new Date(sendAt),
+
+//           // 🔥 SAVE THE STATUS
+//           leadStatus: leadStatus || "New",
+
+//           attachments: attachments || null,
+//           status: "pending",
+//           isFollowedUp: false,
+//         },
+//       });
+
+//       results.push(row);
+//     }
+
+//     res.json({ success: true, count: results.length, data: results });
+//   } catch (err) {
+//     console.error("❌ Bulk schedule error:", err);
+//     res.status(500).json({ success: false, message: "Bulk schedule failed" });
+//   }
+// });
 router.post("/bulk", protect, async (req, res) => {
   try {
     const { accountId, sendAt, messages } = req.body;
@@ -220,17 +288,26 @@ router.post("/bulk", protect, async (req, res) => {
 
     // 1. Verify Account (Optional)
     let verifiedAccountId = null;
+
     if (accountId) {
       const account = await prisma.emailAccount.findFirst({
-        where: { id: Number(accountId), userId: req.user.id },
+        where: {
+          id: Number(accountId),
+          userId: req.user.id,
+        },
       });
-      if (account) verifiedAccountId = account.id;
+
+      if (account) {
+        verifiedAccountId = account.id;
+      }
     }
 
     const results = [];
 
+    // 🔥 Delay config
+    const BASE_DELAY = 45; // 45 sec between emails
+
     for (const msg of messages) {
-      // 🔥 Extract leadStatus from the request
       const {
         conversationId,
         subject,
@@ -240,27 +317,60 @@ router.post("/bulk", protect, async (req, res) => {
         leadStatus,
       } = msg;
 
-      // ... (Email resolution logic same as before) ...
+      // =====================================================
+      // 🔥 Resolve recipient
+      // =====================================================
       let finalToEmail = toEmail;
-      // [Insert resolveToEmailFromConversation logic if needed]
 
-      if (!finalToEmail) continue;
+      if (!finalToEmail && conversationId) {
+        finalToEmail = await resolveToEmailFromConversation({
+          prisma,
+          conversationId,
+          accountId: verifiedAccountId,
+        });
+      }
 
-      // 2. Create Record with leadStatus
+      if (!finalToEmail) {
+        console.warn(
+          "⚠️ Skipping message because recipient email not found"
+        );
+        continue;
+      }
+
+      // =====================================================
+      // 🔥 Human-like staggered delay
+      // =====================================================
+      const RANDOM_DELAY = Math.floor(Math.random() * 30);
+
+      const scheduledTime = new Date(sendAt);
+
+      scheduledTime.setSeconds(
+        scheduledTime.getSeconds() +
+          results.length * BASE_DELAY +
+          RANDOM_DELAY
+      );
+
+      // =====================================================
+      // 🔥 Create scheduled message
+      // =====================================================
       const row = await prisma.scheduledMessage.create({
         data: {
           userId: req.user.id,
           accountId: verifiedAccountId,
           conversationId,
-          toEmail: finalToEmail,
-          subject,
-          bodyHtml: bodyHtml || "", // ✅ Allow empty body
-          sendAt: new Date(sendAt),
 
-          // 🔥 SAVE THE STATUS
+          toEmail: finalToEmail,
+
+          subject,
+          bodyHtml: bodyHtml || "",
+
+          // 🔥 staggered send time
+          sendAt: scheduledTime,
+
           leadStatus: leadStatus || "New",
 
           attachments: attachments || null,
+
           status: "pending",
           isFollowedUp: false,
         },
@@ -269,13 +379,20 @@ router.post("/bulk", protect, async (req, res) => {
       results.push(row);
     }
 
-    res.json({ success: true, count: results.length, data: results });
+    return res.json({
+      success: true,
+      count: results.length,
+      data: results,
+    });
   } catch (err) {
     console.error("❌ Bulk schedule error:", err);
-    res.status(500).json({ success: false, message: "Bulk schedule failed" });
+
+    return res.status(500).json({
+      success: false,
+      message: "Bulk schedule failed",
+    });
   }
 });
-
 /* ============================================================
     📧 GET /scheduled-messages/:id/conversation
     ============================================================ */

@@ -689,12 +689,21 @@ const handleSaveLead = async () => {
     }
   }, [scheduledDraft, accounts]);
 
+  // useEffect(() => {
+  //   if (messages.length > 0) {
+  //     const latestId = messages[0].id;
+  //     setExpandedMessages({ [latestId]: true });
+  //   }
+  // }, [messages]);
   useEffect(() => {
-    if (messages.length > 0) {
-      const latestId = messages[0].id;
-      setExpandedMessages({ [latestId]: true });
-    }
-  }, [messages]);
+  if (messages.length > 0) {
+    const latestId = messages[messages.length - 1].id;
+
+    setExpandedMessages({
+      [latestId]: true,
+    });
+  }
+}, [messages]);
   // 🔥 Undo delete UI state
   const [undoMessage, setUndoMessage] = useState(null);
   const undoTimeoutRef = useRef(null);
