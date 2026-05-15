@@ -49,21 +49,53 @@ function normalizeEmailHtml(html) {
     .replace(/<o:p>.*?<\/o:p>/gi, "")
     .replace(/\sclass=["']?Mso[a-zA-Z0-9]+["']?/gi, "");
 
-  // 2️⃣ Remove ONLY auto-empty blocks (Outlook)
-  // ❌ <p>&nbsp;</p>
-  // ❌ <div><br></div>
+  // 2️⃣ Remove ONLY auto-empty blocks
   cleaned = cleaned.replace(
     /<(p|div)[^>]*>(\s|&nbsp;|<br\s*\/?>)*<\/\1>/gi,
     "",
   );
 
-  // 3️⃣ Normalize <p> style (Outlook-like)
-  cleaned = cleaned.replace(
-    /<p([^>]*)>/gi,
-    `<p$1 style="margin:0 0 12px 0;line-height:1.15;font-family:Calibri,Arial,sans-serif;font-size:11pt;">`,
-  );
+  // 3️⃣ Normalize paragraph styles
+  cleaned = cleaned.replace(/<p([^>]*)>/gi, (match, attrs) => {
+    // existing style attribute
+    const styleMatch = attrs.match(/style=["']([^"']*)["']/i);
 
-  // 🚫 DO NOT collapse <br><br>
+    // DEFAULT outlook style
+    const defaultStyle =
+      "margin:0 0 12px 0;line-height:1.15;font-size:11pt;";
+
+    // If style already exists
+    if (styleMatch) {
+      let styleContent = styleMatch[1];
+
+      // 🔥 ONLY add Calibri if user did NOT apply font-family
+      if (!/font-family\s*:/i.test(styleContent)) {
+        styleContent += "font-family:Calibri,Arial,sans-serif;";
+      }
+
+      // ensure spacing exists
+      if (!/margin\s*:/i.test(styleContent)) {
+        styleContent += "margin:0 0 12px 0;";
+      }
+
+      if (!/line-height\s*:/i.test(styleContent)) {
+        styleContent += "line-height:1.15;";
+      }
+
+      if (!/font-size\s*:/i.test(styleContent)) {
+        styleContent += "font-size:11pt;";
+      }
+
+      return `<p${attrs.replace(
+        styleMatch[0],
+        `style="${styleContent}"`,
+      )}>`;
+    }
+
+    // No style at all → apply default Calibri
+    return `<p${attrs} style="${defaultStyle}font-family:Calibri,Arial,sans-serif;">`;
+  });
+
   return cleaned.trim();
 }
 

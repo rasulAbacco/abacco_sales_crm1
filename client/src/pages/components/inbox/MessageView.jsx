@@ -584,17 +584,27 @@ const handleSaveLead = async () => {
       templateBody += `<br>Best regards,<br><b>${account.senderName}</b>`;
     }
 
+    // const currentContent = editorRef.current?.getHtml() || "";
+    // const quotedStart = currentContent.indexOf(
+    //   '<hr style="border:none;border-top:1px solid #e5e7eb',
+    // );
+
+    // let quotedText = "";
+    // if (quotedStart !== -1) {
+    //   quotedText = currentContent.substring(quotedStart);
+    // }
+
+    // const finalContent = `${templateBody}<br/><br/>${quotedText}`;
     const currentContent = editorRef.current?.getHtml() || "";
-    const quotedStart = currentContent.indexOf(
-      '<hr style="border:none;border-top:1px solid #e5e7eb',
-    );
 
-    let quotedText = "";
-    if (quotedStart !== -1) {
-      quotedText = currentContent.substring(quotedStart);
-    }
+      // 🔥 Preserve previous thread safely
+    const quotedText = currentContent || "";
 
-    const finalContent = `${templateBody}<br/><br/>${quotedText}`;
+    const finalContent = `
+      ${templateBody}
+      <br/><br/>
+      ${quotedText}
+`;
 
     if (editorRef.current) {
       editorRef.current.setHtml(finalContent);
@@ -1614,6 +1624,10 @@ const handleSaveLead = async () => {
                         <div className="px-6 pb-6">
                           <div className="border-t border-gray-100 pt-4">
                             <div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-50">
+
+                              {/* 🔥 Scheduled Edit / Reply Button */}
+
+                              {/*
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1633,6 +1647,30 @@ const handleSaveLead = async () => {
                                   </>
                                 )}
                               </button>
+                              */}
+
+                              {/* <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReply("reply", message);
+                                }}
+                                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 shadow-sm"
+                              >
+                                <Reply className="w-3.5 h-3.5" />
+                                Reply
+                              </button> */}
+                              {!selectedConversation?.isScheduled && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleReply("reply", message);
+                                  }}
+                                  className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 shadow-sm"
+                                >
+                                  <Reply className="w-3.5 h-3.5" />
+                                  Reply
+                                </button>
+                              )}
 
                               {!scheduledDraft && (
                                 <>
@@ -1643,9 +1681,9 @@ const handleSaveLead = async () => {
                                     }}
                                     className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 shadow-sm"
                                   >
-                                    <ReplyAll className="w-3.5 h-3.5" /> Reply
-                                    All
+                                    <ReplyAll className="w-3.5 h-3.5" /> Reply All
                                   </button>
+
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();

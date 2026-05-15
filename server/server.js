@@ -260,19 +260,35 @@ app.get("/api/sync/:email", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
+let isImapSyncRunning = false;
 /* ==========================================================
    🕒 CRON JOB — Every 1 minute
 ========================================================== */
 cron.schedule("*/1 * * * *", async () => {
+  // ✅ Prevent overlapping IMAP syncs
+  if (isImapSyncRunning) {
+    console.log("⏭ IMAP sync skipped (already running)");
+    return;
+  }
+
+  isImapSyncRunning = true;
+
   console.log("🔄 CRON: Running IMAP sync...");
+
   try {
     await runSync(prisma);
     console.log("✅ IMAP sync finished.");
   } catch (err) {
     console.error("❌ IMAP Sync Error:", err.message);
-    // Global guard catches any stray timeouts here
+  } finally {
+    // ✅ Always release lock
+    isImapSyncRunning = false;
   }
+});
+
+cron.schedule("*/1 * * * *", async () => {
+  console.log("📨 CRON: Checking scheduled emails...");
+  await processScheduledEmails();
 });
 /* ==========================================================
    🕒 AUTOMATED NOTIFICATION CLEANUP (Every Hour)
@@ -304,33 +320,140 @@ cron.schedule("0 * * * *", async () => {
   }
 });
 
-cron.schedule("*/1 * * * *", async () => {
-  console.log("📨 CRON: Checking scheduled emails...");
+// cron.schedule("*/1 * * * *", async () => {
+//   console.log("📨 CRON: Checking scheduled emails...");
 
+//   try {
+//     const now = new Date();
+
+//     const pendingMessages = await prisma.scheduledMessage.findMany({
+//       where: {
+//         status: "pending",
+//         sendAt: { lte: now },
+//       },
+//       include: {
+//         emailAccount: true,
+//       },
+//     });
+
+//     for (const msg of pendingMessages) {
+//       try {
+//         // 1️⃣ Send Email using your SMTP logic
+//         await sendScheduledEmail(msg); // create this function
+
+//         // 2️⃣ Update status
+//         await prisma.scheduledMessage.update({
+//           where: { id: msg.id },
+//           data: {
+//             status: "sent",
+//             isFollowedUp: true,
+//           },
+//         });
+
+//         console.log(`✅ Scheduled email sent: ${msg.id}`);
+//       } catch (error) {
+//         console.error(`❌ Failed sending scheduled email ${msg.id}`, error);
+
+//         await prisma.scheduledMessage.update({
+//           where: { id: msg.id },
+//           data: {
+//             status: "failed",
+//             retryCount: { increment: 1 },
+//             errorMessage: error.message,
+//           },
+//         });
+//       }
+//     }
+//   } catch (err) {
+//     console.error("❌ Scheduled cron error:", err.message);
+//   }
+// });
+/* ==========================================================
+   🚀 START SERVER
+========================================================== */
+const PORT = process.env.PORT || 4002;
+
+async function processScheduledEmails() {
   try {
     const now = new Date();
 
-    const pendingMessages = await prisma.scheduledMessage.findMany({
+    // ✅ Recover stuck jobs
+    await prisma.scheduledMessage.updateMany({
       where: {
-        status: "pending",
-        sendAt: { lte: now },
+        processing: true,
+        lastAttemptAt: {
+          lt: new Date(Date.now() - 1000 * 60 * 5),
+        },
       },
-      include: {
-        emailAccount: true,
+      data: {
+        processing: false,
       },
     });
 
-    for (const msg of pendingMessages) {
-      try {
-        // 1️⃣ Send Email using your SMTP logic
-        await sendScheduledEmail(msg); // create this function
+    // ✅ Get pending + retry failed
+    const pendingMessages = await prisma.scheduledMessage.findMany({
+      where: {
+        processing: false,
 
-        // 2️⃣ Update status
+        OR: [
+          {
+            status: "pending",
+            sendAt: {
+              lte: now,
+            },
+          },
+        {
+          status: "failed",
+
+          retryCount: {
+            lt: 5,
+          },
+
+          sendAt: {
+            lte: now,
+          },
+        },
+        ],
+      },
+
+      include: {
+        emailAccount: true,
+      },
+
+      orderBy: {
+        sendAt: "asc",
+      },
+
+      take: 20,
+    });
+
+    for (const msg of pendingMessages) {
+      // ✅ Atomic lock
+      const locked = await prisma.scheduledMessage.updateMany({
+        where: {
+          id: msg.id,
+          processing: false,
+        },
+        data: {
+          processing: true,
+          lastAttemptAt: new Date(),
+        },
+      });
+
+      if (!locked.count) continue;
+
+      try {
+        await sendScheduledEmail(msg);
+
         await prisma.scheduledMessage.update({
-          where: { id: msg.id },
+          where: {
+            id: msg.id,
+          },
           data: {
             status: "sent",
+            processing: false,
             isFollowedUp: true,
+            sentAtActual: new Date(),
           },
         });
 
@@ -339,24 +462,37 @@ cron.schedule("*/1 * * * *", async () => {
         console.error(`❌ Failed sending scheduled email ${msg.id}`, error);
 
         await prisma.scheduledMessage.update({
-          where: { id: msg.id },
+          where: {
+            id: msg.id,
+          },
           data: {
             status: "failed",
-            retryCount: { increment: 1 },
+            processing: false,
+
+            retryCount: {
+              increment: 1,
+            },
+
             errorMessage: error.message,
           },
         });
       }
     }
   } catch (err) {
-    console.error("❌ Scheduled cron error:", err.message);
+    console.error("❌ Scheduled processor error:", err);
   }
-});
-/* ==========================================================
-   🚀 START SERVER
-========================================================== */
-const PORT = process.env.PORT || 4002;
-server.listen(PORT, () => {
+}
+server.listen(PORT, async () => {
   console.log(`🚀 Server + Socket.IO running on port ${PORT}`);
   console.log(`🌍 Client Origins: ${CLIENT_ORIGIN.join(", ")}`);
+
+  // ✅ Recover missed emails after restart
+  console.log("📨 Recovering missed scheduled emails...");
+
+  try {
+    await processScheduledEmails();
+    console.log("✅ Recovery completed");
+  } catch (err) {
+    console.error("❌ Recovery failed:", err);
+  }
 });

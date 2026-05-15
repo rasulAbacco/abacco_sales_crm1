@@ -179,7 +179,7 @@ model Conversation {
   @@index([lastMessageAt])
   @@index([initiatorEmail])
   @@index([lastMessageAt, unreadCount])
-@@index([leadDetailId])
+  @@index([leadDetailId])
 }
 
 // ============================================================
@@ -283,8 +283,8 @@ model EmailMessage {
   @@index([fromEmail])
   @@index([toEmail])
   @@index([emailAccountId, folder, sentAt])
-@@index([conversationId, sentAt])
-@@index([isRead, folder])
+  @@index([conversationId, sentAt])
+  @@index([isRead, folder])
 }
 
 // ============================================================
@@ -581,6 +581,10 @@ model ScheduledMessage {
   bodyHtml       String
   sendAt         DateTime
   status         String   @default("pending")
+
+  processing    Boolean   @default(false)
+  lastAttemptAt DateTime?
+  sentAtActual  DateTime?
 
   // 🔥 NEW FIELD: Store the lead status (Standard or Custom)
   leadStatus String?
